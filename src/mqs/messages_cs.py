@@ -64,6 +64,67 @@ MESSAGES: dict[str, str] = {
     "service.port_invalid": "Neplatný port {port} u služby {service} (povoleno 1–65535).",
     "service.port_collision": "Služby {services} používají stejný port {port}.",
     "service.unknown": "Neznámá služba {service} v /ip service.",
+    # bridge HW offload
+    "offload.version_too_old": "HW offload bridge vyžaduje RouterOS 6.41 nebo novější "
+    "(zařízení má {version}), volba se nenabízí.",
+    "offload.disabled_by_user": "Vypnuto uživatelem.",
+    "offload.port_sfp": "SFP/SFP+ port se obvykle neoffloaduje.",
+    "offload.port_wireless": "Bezdrátové rozhraní se neoffloaduje.",
+    "offload.port_bonding": "Bonding se obvykle neoffloaduje.",
+    "offload.port_other": "Rozhraní typu {type} se neoffloaduje.",
+    "offload.port_no_switch": "Port není připojený ke switch čipu.",
+    "offload.use_ip_firewall": "use-ip-firewall=yes na bridgi vypíná HW offload.",
+    "offload.mstp_unsupported": "protocol-mode=mstp na čipu {chip_type} offload vypíná.",
+    "offload.mstp_conflict": "protocol-mode=mstp vypíná HW offload na čipu {chip_type} ({chip}). "
+    "Přepněte na rstp, nebo HW offload vypněte.",
+    "offload.vlan_filtering_unsupported": "vlan-filtering=yes vypíná HW offload na čipu "
+    "{chip_type}.",
+    "offload.vlan_filtering_uncertain": "Offload s vlan-filtering na čipu {chip_type} není jistý, "
+    "ověřte po aplikaci.",
+    "offload.ok": "Offload na čipu {chip_type} ({chip}).",
+    "offload.ok_unknown_chip": "Offload na čipu {chip_type} ({chip}); čip není v lokální "
+    "databázi, platí obecná pravidla.",
+    "offload.forced": "Port {port}: offload vynucen uživatelem (jinak: {original}).",
+    "offload.software_bridge": "Bridge spojuje porty na více switch čipech – {chips}. Provoz mezi "
+    "skupinami poběží softwarově přes CPU.",
+    "offload.mixed_software": "Porty {ports} poběží softwarově; provoz mezi nimi a offloadovanými "
+    "porty jde přes CPU.",
+    "offload.no_device_data": "Bez připojeného zařízení nejsou známé switch čipy – hw= se "
+    "negeneruje a RouterOS ponechá své výchozí chování.",
+    # generator
+    "target.unsupported_version": "RouterOS {version} není podporovaný (podporováno 6.40+ a 7.x).",
+    "bridge.mstp_unsupported_version": "protocol-mode=mstp není na RouterOS {version} dostupný. "
+    "Použijte rstp.",
+    "fasttrack.hw_offload_skipped": "hw-offload na FastTrack pravidle se nevygeneruje – verze "
+    "nebo hardware ho nepodporuje, případně to nebylo ověřeno na zařízení.",
+    "dns.remote_requests_enabled": "DHCP server předává jako DNS router, proto se zapne "
+    "/ip dns allow-remote-requests=yes.",
+    "dns.open_resolver": "allow-remote-requests=yes bez základního filtru – DNS bude dostupné "
+    "i z WAN.",
+    "wan.static.dns_overridden": "DNS servery ze statické WAN přepíše nastavení /ip dns "
+    "v hardening bloku.",
+    "feature.unverified": "Použité neověřené rozdíly verzí (NUTNO OVĚŘIT): {features}",
+    "logging.robust_unknown_index": "Logovací pravidlo s indexem {index} nemá známé topics, "
+    "ponechává se index.",
+    # v6 dialect translation
+    "v6.ntp_too_many": "RouterOS v6 umí jen dva NTP servery (primary/secondary); vynechají se: "
+    "{dropped}",
+    "v6.ntp_hostname_unsupported": "NTP server {server} je hostname, který tato verze v6 neumí; "
+    "vynechá se.",
+    "v6.ntp_dropped_line": "Řádek z /system ntp client servers nelze přeložit do v6, vynechá se: "
+    "{text}",
+    "v6.ipv6_package_disable": "IPv6 se ve v6 vypne příkazem /system package disable ipv6 – "
+    "projeví se až po restartu.",
+    "v6.ipv6_omitted_missing": "Balíček ipv6 není nainstalovaný nebo povolený, IPv6 blok se "
+    "vynechá.",
+    "v6.ipv6_unknown_package": "Stav balíčku ipv6 není známý (offline), IPv6 blok se vynechá – "
+    "ověřte na zařízení.",
+    "v6.ipv6_dropped": "IPv6 není na zařízení aktivní, příkaz se vynechá: {text}",
+    "v6.snmp_ipv6_address": "IPv6 adresa {address} v SNMP community se ve v6 vynechá.",
+    "v6.feature_missing": "RouterOS {version} nemá parametr {feature}, příkaz se vynechá: {text}",
+    "v6.raw_line_untranslated": "Řádek nelze přeložit do v6 a předá se beze změny, ověřte ho: "
+    "{text}",
+    "v7.feature_missing": "RouterOS {version} nemá parametr {feature}.",
 }
 
 

@@ -1,0 +1,37 @@
+# Switch chip capabilities used for bridge HW offload decisions.
+#
+# Values: true | false | unknown. "unknown" never silently enables anything:
+#   - mstp: anything other than true + protocol-mode=mstp -> conflict shown to the user
+#   - vlan_filtering_v6 / vlan_filtering_v7: unknown -> "nejisté, ověř po aplikaci"
+#
+# EVERY ROW IS NUTNO OVĚŘIT (see docs/DIALECT_NOTES.md). Values are taken from memory of
+# MikroTik's bridge HW offloading documentation, not confirmed on devices. Chip type strings
+# must match the `type` reported by /interface ethernet switch print.
+#
+# Chips missing from this file still get basic offload decisions from the generic rules.
+
+chips:
+  # CRS3xx family (Marvell Prestera)
+  Marvell-98DX3236: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX3257: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX8208: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX8212: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX8216: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX224S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX226S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98PX1012: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+
+  # SOHO switch chips (hAP, RB4011, RB5009 side chips, ...)
+  QCA8337: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  Atheros8327: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  Atheros8316: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  Atheros8227: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  Atheros7240: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  RTL8367: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  MT7621: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  MT7531: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+
+# Prefix fallbacks, checked when no exact chip entry matches.
+families:
+  - prefix: Marvell-98DX
+    values: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}

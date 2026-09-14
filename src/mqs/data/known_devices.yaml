@@ -1,0 +1,15 @@
+# Optional enrichment only. Live detection from the device ALWAYS takes precedence;
+# the application must work for boards that are not listed here.
+# Keys are `board-name` values from /system resource print. NUTNO OVĚŘIT.
+
+devices:
+  RB4011iGS+:
+    notes:
+      - "Dva switch čipy (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
+      - "SFP+ port je připojený přímo k CPU, neoffloaduje se."
+  RB4011iGS+5HacQ2HnD:
+    notes:
+      - "Dva switch čipy (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
+  RB5009UG+S+:
+    notes:
+      - "ether1 a SFP+ nejsou na hlavním switch čipu."
