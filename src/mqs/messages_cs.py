@@ -44,6 +44,26 @@ MESSAGES: dict[str, str] = {
     "akcelerace.",
     # mode
     "mode.router_without_wan": "Režim Router je zvolený, ale WAN je vypnutá.",
+    # hardening block parsing
+    "hardening.parse.tokenize": "Řádek {line}: nelze rozebrat (neuzavřená uvozovka nebo "
+    "závorka), předá se beze změny: {text}",
+    "hardening.parse.unknown_verb": "Řádek {line}: neznámý příkaz, předá se beze změny: {text}",
+    "hardening.parse.bad_argument": "Řádek {line}: nerozpoznaný parametr, předá se beze změny: "
+    "{text}",
+    "hardening.parse.no_menu": "Řádek {line}: příkaz bez menu (chybí řádek začínající /): {text}",
+    "hardening.parse.scripting": "Řádek {line}: skriptovací příkaz se předá beze změny: {text}",
+    # access paths / services
+    "access.path_disabled": "Přístupová cesta {service} bude po aplikaci vypnutá.",
+    "access.api_ssl_disabled": "api-ssl bude vypnuté – aplikace po aplikaci ztratí svůj hlavní "
+    "transport.",
+    "access.no_paths": "Po aplikaci nezůstane žádná přístupová cesta (api-ssl, SSH, Winbox). "
+    "Aplikace konfigurace je zablokovaná.",
+    "access.uncertain": "Některé změny v /ip service nelze jednoznačně vyhodnotit. "
+    "Zkontrolujte přístupové cesty ručně.",
+    "access.address_restricted": "Služba {service} bude dostupná jen z adres {address}.",
+    "service.port_invalid": "Neplatný port {port} u služby {service} (povoleno 1–65535).",
+    "service.port_collision": "Služby {services} používají stejný port {port}.",
+    "service.unknown": "Neznámá služba {service} v /ip service.",
 }
 
 
