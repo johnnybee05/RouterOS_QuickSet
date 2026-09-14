@@ -36,6 +36,11 @@ _FEATURES = [
         min_v6=(6, 41),
     ),
     Feature(
+        "bridge_frame_types",
+        "frame-types= on /interface bridge itself (vlan-filtering); first v6 version unknown",
+        min_v6=(6, 43),
+    ),
+    Feature(
         "bridge_mstp",
         "protocol-mode=mstp on /interface bridge (exact first v6 version unknown)",
         min_v6=(6, 41),

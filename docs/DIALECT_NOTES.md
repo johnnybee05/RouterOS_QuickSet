@@ -21,7 +21,24 @@ Legend:
 | `fasttrack_hw_offload` | FastTrack rule | optional `hw-offload=yes`, only if the parameter exists at runtime | parameter does not exist — never emit | NUTNO OVĚŘIT (runtime probe method) |
 | `bridge_port_hw` | Bridge HW offload | `/interface bridge port ... hw=yes`, actual state in `print detail` (`hw-offload`) | `hw=` 6.41+; older uses `master-port` → offload not offered | NUTNO OVĚŘIT |
 | `logging_indexes` | Logging | `/system logging set 0 action=disk` | same; numeric indexes are fragile | NUTNO OVĚŘIT (robust `find` syntax) |
-| `neighbor_discovery_list` | Neighbor discovery | `/ip neighbor discovery-settings set discover-interface-list=!dynamic` | NUTNO OVĚŘIT (exists from 6.41?) | NUTNO OVĚŘIT |
+| `neighbor_discovery_interface_list` | Neighbor discovery | `/ip neighbor discovery-settings set discover-interface-list=!dynamic` | assumed 6.41+; older → command dropped with warning | NUTNO OVĚŘIT |
+| `bridge_frame_types` | Bridge VLAN | `frame-types=` on `/interface bridge` | assumed 6.43+ | NUTNO OVĚŘIT |
+| `ntp_server_dns_names` | NTP hostnames | n/a (servers menu accepts hostnames) | `server-dns-names=` assumed 6.45+; older → hostname dropped with warning | NUTNO OVĚŘIT |
+| `api_plain_login` | API login | plain | plain from 6.43, token before | NUTNO OVĚŘIT |
+| `mac_telnet_ec_srp5` | MAC-Telnet auth | EC-SRP5 | EC-SRP5 from 6.43, MD5 before | NUTNO OVĚŘIT |
+
+### Generator conventions that depend on RouterOS syntax (single place each)
+
+| Topic | Where | Current choice | Status |
+|---|---|---|---|
+| Bridge `priority` value | `blocks/bridge.py` | hex like `/export`: `priority=0x1000` | NUTNO OVĚŘIT |
+| Time values | `blocks/common.py:format_duration` | `30m`, `1d1h1m1s` | NUTNO OVĚŘIT |
+| Quoting/escaping | `render.py:quote` | bare when `[A-Za-z0-9_.:/,@!+*-]`, otherwise `"..."` with `\"`, `\\`, `\$`, `\?` | NUTNO OVĚŘIT |
+| Robust logging | `blocks/system.py:LOGGING_INDEX_TOPICS` | index 0..3 → `set [ find topics=info|error|warning|critical ] action=disk` | NUTNO OVĚŘIT (default order and `find topics=` match on a list property) |
+| v6 IPv6 disable | `ros6.py` | package enabled → `/system package disable ipv6` (reboot); missing/disabled → omitted | decision Q3; NUTNO OVĚŘIT |
+| DHCP client / server `disabled=no` | `blocks/addressing.py` | always explicit (v6 adds disabled entries by default) | NUTNO OVĚŘIT |
+| Router as DNS | `blocks/system.py` | DHCP server hands out the router → `/ip dns set allow-remote-requests=yes` (needed for LAN clients; not in spec) | design decision |
+| PPPoE in WAN list | `blocks/addressing.py` | `pppoe-out1` added to WAN list right after the client is created (section 3), the physical port in section 2 | design decision |
 
 ## 2. Transport and apply notes
 

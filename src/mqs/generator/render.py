@@ -8,7 +8,7 @@ from mqs.generator.ir import Command, Comment, Find, RawLine, Script
 
 # Values made only of these characters are emitted without quotes, like /export does.
 # The '?' and '$' escapes inside quotes are NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
-_BARE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:/,@!+*-]+$")
+_BARE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:/,!-]+$")
 
 
 def quote(value: str) -> str:
