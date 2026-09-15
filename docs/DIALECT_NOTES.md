@@ -52,7 +52,9 @@ Legend:
 | run-after-reset | interfaces may not be ready when the script starts → configurable `:delay` | NUTNO OVĚŘIT (default value) |
 | `backup load` in scheduler | non-interactive syntax per version | NUTNO OVĚŘIT |
 | Default `/ip service` after `no-defaults` reset | which services are enabled (api-ssl? www-ssl without cert?) | NUTNO OVĚŘIT |
-| MNDP TLV type codes | UDP 5678; type table in `transport/mndp.py` | NUTNO OVĚŘIT |
+| MNDP TLV type codes | UDP 5678; header 2 B + sequence 2 B (BE); TLV type/length 2 B each (BE); codes 1 MAC, 5 identity, 7 version, 8 platform, 10 uptime, 11 software-id, 12 board, 14 unpack, 15 IPv6, 16 interface, 17 IPv4 — table in `transport/mndp.py:TlvType` | NUTNO OVĚŘIT (compare with a Wireshark capture) |
+| MNDP uptime encoding | 4 bytes little endian seconds | NUTNO OVĚŘIT |
+| MNDP solicit | 4 zero bytes sent to the subnet broadcast and 255.255.255.255:5678 make devices announce themselves | NUTNO OVĚŘIT |
 | MAC-Telnet | UDP 20561; MD5 auth < 6.43, EC-SRP5 6.43+; requires `/tool mac-server` allowed on the interface | NUTNO OVĚŘIT |
 | Identity charset | conservative `[A-Za-z0-9._-]`, max 64 | NUTNO OVĚŘIT (real RouterOS rules) |
 | Verified TLS strictness | Python 3.13 strict X.509 checks are disabled (`VERIFY_X509_STRICT` off) because device-generated certificates may lack e.g. Authority Key Identifier; chain is still verified | NUTNO OVĚŘIT |
