@@ -136,6 +136,8 @@ def test_execute_converts_values_and_names():
                              {"request": "child", "path": "ip,firewall,filter,add"})
     transport.execute("/interface/bridge/port/print", detail=True)
     assert api.calls[-1] == ("/interface/bridge/port/print", {})
+    transport.execute("/import", file_name="flash/q.rsc")
+    assert api.calls[-1] == ("/import", {"file-name": "flash/q.rsc"})
 
 
 def test_execute_command_resolves_selectors():

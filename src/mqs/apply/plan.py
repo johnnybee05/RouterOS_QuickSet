@@ -1,0 +1,100 @@
+"""Apply modes, options, file names and the uploaded script (spec 4.6)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import StrEnum
+from pathlib import Path
+
+from mqs.generator.blocks.common import MASKED_SECRET
+from mqs.generator.ir import Find, RawLine, cmd
+from mqs.generator.render import render_inline
+
+SCRIPT_PREFIX = "quickset"
+BACKUP_PREFIX = "pre-quickset"
+ROLLBACK_JOB = "mqs-rollback"
+# Interfaces may not be up yet when run-after-reset starts; NUTNO OVĚŘIT the default.
+DEFAULT_RESET_DELAY_S = 15
+MIN_ROLLBACK_MINUTES = 2
+
+
+class ApplyMode(StrEnum):
+    GENERATE_ONLY = "generate"
+    IMPORT = "import"
+    RESET_AND_IMPORT = "reset"
+
+
+@dataclass(frozen=True)
+class ApplyOptions:
+    mode: ApplyMode
+    rollback_minutes: int | None = None  # opt-in safety net, IMPORT only
+    reset_delay_s: int = DEFAULT_RESET_DELAY_S
+    admin_password: str = field(default="", repr=False)  # RESET: new admin password
+    download_dir: Path | None = None  # where to store the pre-apply backup and export
+    import_timeout_s: float = 300.0
+    reconnect_timeout_s: float = 300.0
+    confirm_dialect_mismatch: bool = False
+    confirmed_identity: str = ""  # RESET: identity typed by the user in the confirm dialog
+
+
+@dataclass(frozen=True)
+class ApplyNames:
+    stamp: str
+    remote_dir: str  # "" or "flash/"
+
+    @property
+    def script_file(self) -> str:
+        return f"{SCRIPT_PREFIX}-{self.stamp}.rsc"
+
+    @property
+    def remote_script(self) -> str:
+        return self.remote_dir + self.script_file
+
+    @property
+    def backup_name(self) -> str:
+        """Used for both `/system backup save name=` and `/export file=`."""
+        return self.remote_dir + f"{BACKUP_PREFIX}-{self.stamp}"
+
+    @property
+    def backup_file(self) -> str:
+        return self.backup_name + ".backup"
+
+    @property
+    def export_file(self) -> str:
+        return self.backup_name + ".rsc"
+
+
+def make_names(now: datetime, has_flash_dir: bool) -> ApplyNames:
+    # Files in the RAM root do not survive a reboot on devices with a flash directory.
+    return ApplyNames(stamp=now.strftime("%Y%m%d-%H%M%S"),
+                      remote_dir="flash/" if has_flash_dir else "")
+
+
+def build_upload_script(
+    generated_text: str,
+    options: ApplyOptions,
+    names: ApplyNames,
+    *,
+    mask_secrets: bool = False,
+) -> str:
+    """Script that is uploaded to the device.
+
+    IMPORT uploads the generated script unchanged (removed by the apply flow afterwards).
+    RESET wraps it: start delay, admin password, and self-removal of the file, because
+    after the reset nobody else is there to clean up (decision Q2 / Q10).
+    """
+    if options.mode != ApplyMode.RESET_AND_IMPORT:
+        return generated_text
+    lines = [
+        "# QuickSet Plus run-after-reset script",
+        render_inline(RawLine(f":delay {options.reset_delay_s}s")),
+        generated_text.rstrip("\n"),
+        "# ---- ADMIN PASSWORD / CLEANUP ----",
+    ]
+    if options.admin_password:
+        password = MASKED_SECRET if mask_secrets else options.admin_password
+        lines.append(render_inline(cmd("/user", "set", selector=Find.by(name="admin"),
+                                       password=password)))
+    lines.append(render_inline(cmd("/file", "remove", selector=Find.by(name=names.remote_script))))
+    return "\n".join(lines) + "\n"

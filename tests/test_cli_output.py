@@ -1,7 +1,7 @@
 import pytest
 
 from mqs.generator.ir import Find, cmd
-from mqs.transport.base import args_from_kwargs, command_selector_args, split_path
+from mqs.transport.base import api_word, args_from_kwargs, command_selector_args, split_path
 from mqs.transport.cli_output import find_error, parse_key_value, parse_terse, sanitize
 
 
@@ -57,8 +57,11 @@ def test_parse_key_value():
 def test_split_path_and_args():
     assert split_path("/system/resource/print") == ("/system resource", "print")
     assert split_path("/interface bridge port print") == ("/interface bridge port", "print")
+    assert split_path("/export") == ("/", "export")
     with pytest.raises(ValueError):
-        split_path("/print")
+        split_path("/")
+    assert api_word("/", "import") == "/import"
+    assert api_word("/ip service", "set") == "/ip/service/set"
     assert args_from_kwargs({"address_pool": "p", "disabled": False, "port": 122}) == {
         "address-pool": "p", "disabled": "no", "port": "122"}
 

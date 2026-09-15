@@ -23,6 +23,7 @@ from mqs.transport.base import (
     Reply,
     ServiceUnavailable,
     TransportKind,
+    api_word,
     args_from_kwargs,
     split_path,
 )
@@ -160,7 +161,7 @@ class ApiSslTransport:
 
     @staticmethod
     def _word(menu: str, verb: str) -> str:
-        return menu.replace(" ", "/") + "/" + verb
+        return api_word(menu, verb)
 
     def execute(self, path: str, /, **args: object) -> Reply:
         menu, verb = split_path(path)

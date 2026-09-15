@@ -76,12 +76,27 @@ class CommandError(TransportError):
         self.message = message
 
 
+ROOT_MENU = "/"
+
+
 def split_path(path: str) -> tuple[str, str]:
-    """'/system/resource/print' or '/system resource print' -> ('/system resource', 'print')."""
+    """'/system/resource/print' or '/system resource print' -> ('/system resource', 'print').
+
+    Root commands such as '/export' or '/import' return the menu '/'.
+    """
     parts = path.replace("/", " ").split()
-    if len(parts) < 2:
-        raise ValueError(f"path must contain a menu and a command: {path!r}")
+    if not parts:
+        raise ValueError(f"path must contain a command: {path!r}")
+    if len(parts) == 1:
+        return ROOT_MENU, parts[0]
     return "/" + " ".join(parts[:-1]), parts[-1]
+
+
+def api_word(menu: str, verb: str) -> str:
+    """API word: ('/ip service', 'set') -> '/ip/service/set'; ('/', 'export') -> '/export'."""
+    if menu == ROOT_MENU:
+        return "/" + verb
+    return menu.replace(" ", "/") + "/" + verb
 
 
 def args_from_kwargs(kwargs: dict[str, object]) -> dict[str, str]:

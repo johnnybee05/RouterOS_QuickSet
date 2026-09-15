@@ -125,6 +125,80 @@ MESSAGES: dict[str, str] = {
     "v6.raw_line_untranslated": "Řádek nelze přeložit do v6 a předá se beze změny, ověřte ho: "
     "{text}",
     "v7.feature_missing": "RouterOS {version} nemá parametr {feature}.",
+    # apply preflight
+    "apply.blocked_by_errors": "Konfigurace obsahuje chyby, aplikace na zařízení je zablokovaná.",
+    "apply.not_connected": "Aplikace není připojená k zařízení.",
+    "apply.dialect_mismatch_unconfirmed": "Skript je vygenerovaný pro RouterOS {target}, ale "
+    "zařízení má {device}. Aplikaci je nutné výslovně potvrdit.",
+    "apply.dialect_mismatch": "Skript pro RouterOS {target} se aplikuje na zařízení s {device} "
+    "(potvrzeno uživatelem).",
+    "apply.target_version_differs": "Skript je vygenerovaný pro {target}, zařízení má {device}.",
+    "apply.reset_identity_mismatch": "Pro reset opište přesně identity zařízení: {identity}",
+    "apply.reset_password_required": "Po resetu by admin neměl heslo – zadejte nové heslo.",
+    "apply.rollback_ignored_reset": "Rollback pojistka se u resetu nepoužije (reset smaže "
+    "i naplánovanou úlohu).",
+    "apply.rollback_too_short": "Rollback pojistka musí mít alespoň {minimum} minuty.",
+    "apply.lockout_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane WAN. "
+    "Po aplikaci se na něj nemusí jít znovu připojit.",
+    "apply.lockout_unconfigured_port": "Aplikace je připojená přes port {port}, který po resetu "
+    "nebude mít IP adresu ani nebude v bridge.",
+    "apply.collision": "Na zařízení už existuje {kind} {name}{other} – /import se na tomto řádku "
+    "zastaví. Zvažte režim Reset + aplikovat.",
+    "apply.notice_ssh_port": "Po aplikaci poběží SSH na portu {port}.",
+    "apply.notice_services_disabled": "Po aplikaci budou vypnuté služby: {services}.",
+    "apply.notice_api_ssl_kept": "api-ssl ({port}) zůstává zapnuté – je to hlavní transport "
+    "aplikace.",
+    "apply.notice_rest_api": "REST API po aplikaci nepoběží, protože vyžaduje www-ssl.",
+    "apply.notice_remaining_paths": "Zbývající přístupové cesty ({count}): {paths}.",
+    # post-apply verification (checklist)
+    "verify.identity": "Identity: očekáváno {expected}, na zařízení {actual}",
+    "verify.services": "Služby /ip service odpovídají (rozdíly: {services})",
+    "verify.bridge": "Bridge {name}: protocol-mode očekáván {expected}, na zařízení {actual}",
+    "verify.lan_address": "Adresa {address} na {bridge}",
+    "verify.hw_offload": "HW offload odpovídá požadavku (rozdílů: {count})",
+    "verify.offload_not_active": "Port {port}: hw=yes je nastaveno, ale offload na zařízení "
+    "neběží. Důvod podle detekce: {reason}",
+    "verify.offload_port_missing": "Port {port} na zařízení není v bridge.",
+    "verify.offload_unexpected": "Port {port}: offload běží, přestože nebyl požadován.",
+    "verify.offload_unreadable": "Skutečný stav HW offloadu nelze přečíst: {error}",
+    # apply steps (progress log)
+    "apply.step.backup": "Záloha a export konfigurace ({name})",
+    "apply.step.download": "Stažení zálohy do {dir}",
+    "apply.step.upload": "Nahrání skriptu {file} (způsob: {strategy})",
+    "apply.step.rollback": "Rollback pojistka naplánována na {at} (čas zařízení)",
+    "apply.step.execute_import": "Import skriptu {file}",
+    "apply.step.execute_lines": "Aplikace příkazů řádek po řádku ({count})",
+    "apply.step.execute_reset": "Reset konfigurace, po restartu se spustí {file}",
+    "apply.step.reconnect": "Připojení po aplikaci (api-ssl {api_port}, SSH {ssh_port})",
+    "apply.step.verify": "Ověření konfigurace na zařízení",
+    "apply.step.cleanup": "Odstranění nahraného skriptu ze zařízení",
+    "apply.step.confirm": "Konfigurace potvrzena, rollback pojistka zrušena",
+    "apply.connection_lost": "Spojení se ztratilo během kroku {step}, zkouším se přepojit.",
+    "apply.rollback_pending": "Rollback pojistka obnoví zálohu v {at}, pokud konfiguraci "
+    "nepotvrdíte.",
+    "apply.cancelled": "Aplikace přerušena uživatelem, konfigurace zařízení se nezměnila.",
+    "apply.failed.backup": "Zálohu se nepodařilo vytvořit, na zařízení se nic nezměnilo: {error}",
+    "apply.failed.upload": "Skript se nepodařilo nahrát na zařízení: {error}",
+    "apply.failed.upload_reset_needs_file": "Reset vyžaduje nahraný soubor, ale žádný způsob "
+    "přenosu nefungoval.",
+    "apply.failed.rollback": "Rollback pojistku se nepodařilo naplánovat, nic se nezměnilo: "
+    "{error}",
+    "apply.failed.execute": "Aplikace skriptu selhala: {error}",
+    "apply.failed.reconnect": "Spojení se nepodařilo obnovit ({attempts} pokusů, api-ssl "
+    "{api_port}, SSH {ssh_port}): {error}",
+    "apply.failed.verify": "Ověření konfigurace selhalo: {error}",
+    "apply.failed.confirm": "Rollback pojistku se nepodařilo zrušit: {error}",
+    "apply.warning.download": "Soubor {file} se nepodařilo stáhnout (zůstává na zařízení): "
+    "{error}",
+    "apply.warning.cleanup": "Nahraný skript se nepodařilo smazat: {error}",
+    # profiles
+    "profile.invalid_json": "Soubor není platný JSON.",
+    "profile.wrong_format": "Soubor není profil MikroTik QuickSet Plus.",
+    "profile.unsupported_version": "Profil má nepodporovanou verzi formátu.",
+    "profile.invalid": "Profil obsahuje neplatné hodnoty.",
+    "profile.unreadable": "Soubor s profilem nelze přečíst.",
+    "profile.name_required": "Zadejte název profilu.",
+    "profile.not_found": "Profil neexistuje.",
 }
 
 

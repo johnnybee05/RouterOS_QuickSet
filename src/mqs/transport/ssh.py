@@ -15,8 +15,9 @@ from typing import Any
 import paramiko
 
 from mqs.generator.ir import Command, RawLine, cmd
-from mqs.generator.render import render_inline
+from mqs.generator.render import quote, render_inline
 from mqs.transport.base import (
+    ROOT_MENU,
     SSH_PORT,
     AuthError,
     CommandError,
@@ -155,7 +156,11 @@ class SshTransport:
             detail = " detail" if values.pop("detail", "no") == "yes" else ""
             return parse_terse(self.run(f"{menu} print{detail} terse"))
         selector = values.pop("numbers", None)
-        self.run(render_inline(cmd(menu, verb, selector=selector, args=values)))
+        if menu == ROOT_MENU:  # /export, /import
+            line = " ".join([f"/{verb}", *(f"{k}={quote(v)}" for k, v in values.items())])
+        else:
+            line = render_inline(cmd(menu, verb, selector=selector, args=values))
+        self.run(line)
         return []
 
     def execute_command(self, command: Command) -> Reply:

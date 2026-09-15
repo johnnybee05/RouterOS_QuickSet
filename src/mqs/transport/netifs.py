@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network
@@ -43,6 +44,13 @@ def list_ipv4_interfaces(
                 )
             )
     return result
+
+
+def route_source_address(host: str) -> str:
+    """Local IPv4 address the OS would use to reach `host` (UDP connect sends nothing)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.connect((host, 9))
+        return sock.getsockname()[0]
 
 
 def interface_for(

@@ -156,11 +156,15 @@ def test_set_command_line_and_quoting():
     transport.execute_command(cmd("/interface bridge port", "set",
                                   selector=Find.by(interface="ether2"), hw=True))
     transport.execute_raw(RawLine("set foo=bar", "/ip proxy"))
+    transport.execute("/import", file_name="flash/quickset.rsc")
+    transport.execute("/export", file="pre quickset")
     assert [c for c, _ in client.commands] == [
         "/ip service set ssh port=122",
         '/system identity set name="PV R1"',
         "/interface bridge port set [ find interface=ether2 ] hw=yes",
         "/ip proxy set foo=bar",
+        "/import file-name=flash/quickset.rsc",
+        '/export file="pre quickset"',
     ]
 
 

@@ -9,6 +9,7 @@ from mqs.transport.base import (
     PeerSecurity,
     Reply,
     TransportKind,
+    api_word,
     split_path,
 )
 
@@ -42,8 +43,7 @@ class FakeTransport:
         self._connected = False
 
     def execute(self, path: str, /, **args: object) -> Reply:
-        menu, verb = split_path(path)
-        key = f"{menu.replace(' ', '/')}/{verb}"
+        key = api_word(*split_path(path))
         self.calls.append((key, dict(args)))
         if key not in self.replies:
             raise CommandError(key, "bad command name")
