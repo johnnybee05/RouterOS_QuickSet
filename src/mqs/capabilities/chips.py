@@ -31,11 +31,23 @@ class ChipInfo:
     mstp: Tri = Tri.UNKNOWN
     vlan_filtering_v6: Tri = Tri.UNKNOWN
     vlan_filtering_v7: Tri = Tri.UNKNOWN
+    # NO = the vendor does not support/recommend bridge HW offload on this chip at all.
+    hw_offload: Tri = Tri.YES
     verified: bool = False
     known: bool = True  # False = not in the database, generic rules only
 
     def vlan_filtering(self, major: int) -> Tri:
         return self.vlan_filtering_v6 if major == 6 else self.vlan_filtering_v7
+
+
+def _normalize(chip_type: str) -> str:
+    """Key used for lookups; ignores case and punctuation.
+
+    MikroTik's own documentation spells the same chip both ways: the CLI sample of
+    /interface ethernet switch print shows "Atheros-8327" while the feature table
+    writes "Atheros8327". Both must find the same entry.
+    """
+    return "".join(c for c in chip_type if c.isalnum()).casefold()
 
 
 def _chip(chip_type: str, values: dict[str, Any]) -> ChipInfo:
@@ -44,6 +56,7 @@ def _chip(chip_type: str, values: dict[str, Any]) -> ChipInfo:
         mstp=Tri.of(values.get("mstp")),
         vlan_filtering_v6=Tri.of(values.get("vlan_filtering_v6")),
         vlan_filtering_v7=Tri.of(values.get("vlan_filtering_v7")),
+        hw_offload=Tri.of(values.get("hw_offload", True)),
         verified=bool(values.get("verified", False)),
     )
 
@@ -55,15 +68,21 @@ class ChipDatabase:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> ChipDatabase:
-        chips = {name: _chip(name, values) for name, values in (data.get("chips") or {}).items()}
-        families = tuple((f["prefix"], f["values"]) for f in data.get("families") or [])
+        chips = {
+            _normalize(name): _chip(name, values)
+            for name, values in (data.get("chips") or {}).items()
+        }
+        families = tuple(
+            (_normalize(f["prefix"]), f["values"]) for f in data.get("families") or []
+        )
         return cls(chips=chips, families=families)
 
     def lookup(self, chip_type: str) -> ChipInfo:
-        if chip_type in self.chips:
-            return self.chips[chip_type]
+        key = _normalize(chip_type)
+        if key in self.chips:
+            return self.chips[key]
         for prefix, values in self.families:
-            if chip_type.startswith(prefix):
+            if key.startswith(prefix):
                 return _chip(chip_type, values)
         return ChipInfo(type=chip_type, known=False)
 

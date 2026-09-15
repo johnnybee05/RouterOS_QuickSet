@@ -158,6 +158,9 @@ def plan_offload(
             continue
 
         chip = chip_db.lookup(cap.chip_type)
+        if chip.hw_offload == Tri.NO:
+            decisions.append(decide(OffloadStatus.NO, "offload.chip_unsupported"))
+            continue
         if bridge.protocol_mode == ProtocolMode.MSTP and chip.mstp != Tri.YES:
             conflict_chips[cap.switch] = cap.chip_type
             decisions.append(decide(OffloadStatus.NO, "offload.mstp_unsupported", False))

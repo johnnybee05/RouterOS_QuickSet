@@ -354,12 +354,21 @@ def test_mstp_unsupported_version_and_conflict():
     profile = router_dhcp()
     profile = _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.MSTP))
     assert "bridge.mstp_unsupported_version" in codes(generate(profile, target("6.40.9")).issues)
-    inv = _rb4011_inventory("7.15.3")
-    rb = rb4011_profile()
-    rb = _u(rb, bridge=_u(rb.bridge, protocol_mode=ProtocolMode.MSTP))
-    result = generate(rb, TargetContext.from_inventory(inv))
+    # QCA8337 does not offload MSTP (Bridge Hardware Offloading table).
+    ports = [f"ether{i}" for i in range(1, 6)]
+    inv = make_inventory("7.15.3", ports, switches={"switch1": "QCA8337"},
+                         port_switch=dict.fromkeys(ports, "switch1"), board_name="RB3011UiAS")
+    qca = apply_preset(DeviceProfile(identity="PV-R3"), Mode.ROUTER, ports)
+    qca = _u(qca, bridge=_u(qca.bridge, protocol_mode=ProtocolMode.MSTP))
+    result = generate(qca, TargetContext.from_inventory(inv))
     assert result.offload.has_conflict and result.has_errors
     assert "hw=yes" not in result.text
+
+    # RTL8367 does offload MSTP, so the same setting is fine on an RB4011.
+    rb = rb4011_profile()
+    rb = _u(rb, bridge=_u(rb.bridge, protocol_mode=ProtocolMode.MSTP))
+    ok = generate(rb, TargetContext.from_inventory(_rb4011_inventory("7.15.3")))
+    assert not ok.offload.has_conflict and not ok.has_errors
 
 
 def test_unsupported_version():

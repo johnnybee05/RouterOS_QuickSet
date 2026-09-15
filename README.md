@@ -188,6 +188,10 @@ se po uplynutí času samo vrátí na zálohu.
 - Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
 - **Připojení přes MAC adresu** je hotové, ale neověřené na skutečném zařízení (viz výše).
   Pro RouterOS starší než 6.43 (přihlášení MD5) není MAC-Telnet implementovaný.
+- **Databáze switch čipů** (`src/mqs/data/switch_chips.yaml`) vychází z dokumentace MikroTiku
+  (tabulka Bridge Hardware Offloading, Switch Chip Features, Marvell Prestera a CRS1xx/2xx),
+  ne z měření na zařízeních. Čip, který v databázi není, se neblokuje – použijí se obecná
+  pravidla a aplikace to napíše jako důvod v tabulce offloadu.
 - Rozdíly mezi verzemi RouterOS, které nebyly ověřené na zařízení, jsou vedené v
   `docs/DIALECT_NOTES.md` jako **NUTNO OVĚŘIT** a v náhledu se zobrazují jako upozornění.
   Každý takový rozdíl je v kódu na jednom místě (`src/mqs/generator/features.py` a tabulky

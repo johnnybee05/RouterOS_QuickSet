@@ -29,7 +29,7 @@ from mqs.ui.pages.base import parse_cidr, parse_optional_ip
 
 pytestmark = pytest.mark.qt
 
-RB4011_PORTS = [f"ether{i}" for i in range(1, 11)]
+TEN_PORTS = [f"ether{i}" for i in range(1, 11)]
 LAN_INTERFACE = LocalInterface("Ethernet", IPv4Address("192.168.88.254"),
                                IPv4Network("192.168.88.0/24"), index=12)
 
@@ -100,11 +100,12 @@ class FakeScanner:
         self.closed = True
 
 
-def rb4011_inventory():
+def two_chip_inventory():
+    """QCA8337: documented as not offloading MSTP, which the conflict test relies on."""
     port_switch = {f"ether{i}": "switch1" for i in range(1, 6)}
     port_switch |= {f"ether{i}": "switch2" for i in range(6, 11)}
-    return make_inventory("7.15.3", RB4011_PORTS, switches={"switch1": "RTL8367",
-                                                           "switch2": "RTL8367"},
+    return make_inventory("7.15.3", TEN_PORTS, switches={"switch1": "QCA8337",
+                                                         "switch2": "QCA8337"},
                           port_switch=port_switch)
 
 
@@ -133,7 +134,7 @@ class RecordingOrchestrator:
 def window(qtbot, tmp_path):
     dialogs = FakeDialogs(tmp_path)
     transport = FakeTransport({})
-    inventory = rb4011_inventory()
+    inventory = two_chip_inventory()
     connect_calls = []
 
     def connect_fn(params, choice, **kwargs):
@@ -208,7 +209,7 @@ def test_connect_updates_status_badge_and_ports(window, qtbot):
     assert "nešifrovaná identita" in window.status_security.text()
     assert window.device_page.ports_table.rowCount() == 10
     assert window.device_page.info_labels["board"].text() == "test-board"
-    assert window.controller.ports() == RB4011_PORTS
+    assert window.controller.ports() == TEN_PORTS
     window.device_page.disconnect_device()
     assert window.status_connection.text() == "Odpojeno"
 

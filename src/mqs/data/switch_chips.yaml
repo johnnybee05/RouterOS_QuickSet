@@ -1,37 +1,104 @@
 # Switch chip capabilities used for bridge HW offload decisions.
 #
+# SOURCE: MikroTik documentation (help.mikrotik.com, RouterOS space), read 2026-09-15.
+#   - "Bridging and Switching" -> Bridge Hardware Offloading: the +/- table of STP/RSTP,
+#     MSTP and VLAN Filtering per switch chip. mstp and vlan_filtering come from there.
+#   - "Switch Chip Features": chip list for non-CRS devices. States that bridge HW
+#     vlan-filtering was added in RouterOS 7.1 for RTL8367, MT7621, MT7531 and EN7523,
+#     which is why those chips are false for v6 and true for v7.
+#   - "Marvell Prestera switch chip features": chip list for CRS3xx/CRS5xx/CCR2116/
+#     CCR2216/RDS2216.
+#   - "CRS1xx and 2xx series switches": the QCA-85xx chip list.
+#
 # Values: true | false | unknown. "unknown" never silently enables anything:
 #   - mstp: anything other than true + protocol-mode=mstp -> conflict shown to the user
 #   - vlan_filtering_v6 / vlan_filtering_v7: unknown -> "nejisté, ověř po aplikaci"
+#   - hw_offload: false -> offload is not offered for the chip at all (user can force it)
 #
-# EVERY ROW IS NUTNO OVĚŘIT (see docs/DIALECT_NOTES.md). Values are taken from memory of
-# MikroTik's bridge HW offloading documentation, not confirmed on devices. Chip type strings
-# must match the `type` reported by /interface ethernet switch print.
+# verified: false everywhere. The values come from the documentation, NOT from a device
+# (see docs/DIALECT_NOTES.md). The exact `type` strings that /interface ethernet switch
+# print reports are NUTNO OVĚŘIT: the documentation uses both "Atheros-8327" (CLI sample)
+# and "Atheros8327" (feature table). Lookup ignores case and punctuation, so either
+# spelling finds the same entry.
 #
 # Chips missing from this file still get basic offload decisions from the generic rules.
 
 chips:
-  # CRS3xx family (Marvell Prestera)
+  # --- Marvell Prestera: CRS3xx, CRS5xx, CCR2116, CCR2216, RDS2216 ------------------
+  # Offload table, row "MikroTik devices with Marvell Prestera switch": STP/RSTP, MSTP
+  # and VLAN filtering are all "+".
+  Marvell-98DX224S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX226S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX2528: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
   Marvell-98DX3236: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX3255: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
   Marvell-98DX3257: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX4310: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX7335: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
   Marvell-98DX8208: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
   Marvell-98DX8212: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
   Marvell-98DX8216: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
-  Marvell-98DX224S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
-  Marvell-98DX226S: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
-  Marvell-98PX1012: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX8332: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98DX8525: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  Marvell-98CX8410: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
 
-  # SOHO switch chips (hAP, RB4011, RB5009 side chips, ...)
-  QCA8337: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  Atheros8327: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  Atheros8316: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  Atheros8227: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  Atheros7240: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  RTL8367: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  MT7621: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
-  MT7531: {mstp: unknown, vlan_filtering_v6: false, vlan_filtering_v7: unknown, verified: false}
+  # --- Marvell Link Street: RB5009, L009, CCR2004-16G-2S+ --------------------------
+  # Offload table row "[88E6393X, 88E6191X, 88E6190]": MSTP "+", VLAN filtering "+".
+  # HW vlan-filtering is documented for RouterOS v7 only.
+  88E6393X: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  88E6191X: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  88E6190: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
 
-# Prefix fallbacks, checked when no exact chip entry matches.
+  # --- MediaTek / Econet: hEX, hEX refresh, hAP ax lite, RBM33G --------------------
+  # Offload table row "[MT7621, MT7531, EN7523]": MSTP "+", VLAN filtering "+" (v7.1+).
+  MT7621: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  MT7531: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  EN7523: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+
+  # --- Realtek: RB4011, RB1100AHx4 -------------------------------------------------
+  # Offload table row "[RTL8367]": MSTP "+", VLAN filtering "+" (v7.1+).
+  RTL8367: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+
+  # --- Qualcomm/Atheros SOHO chips -------------------------------------------------
+  # Offload table: STP/RSTP "+", but MSTP "-" and VLAN filtering "-" for all of them.
+  QCA8337: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  Atheros8327: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  Atheros8316: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  Atheros8227: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  Atheros7240: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+
+  # --- CRS1xx / CRS2xx series ------------------------------------------------------
+  # Offload table row "CRS1xx/CRS2xx series": MSTP "-", VLAN filtering "-".
+  # Chip names from the Cloud Router Switch models table of that manual.
+  QCA-8511: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  QCA-8519: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  QCA-8513L: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+
+  # --- IPQ-PPE: hAP ax2, hAP ax3, cAP ax, Chateau ax -------------------------------
+  # Offload table row "[IPQ-PPE]": STP/RSTP "-", MSTP "-", VLAN filtering "-", and
+  # footnote 9 says HW offloaded bridge support is still work in progress and MikroTik
+  # recommends the non-offloaded bridge with RSTP. So offload is not offered at all.
+  IPQ-PPE: {hw_offload: false, mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false,
+            verified: false}
+
+  # --- ICPlus: RB433/RB450/RB493/RB816 ---------------------------------------------
+  # Offload table row "[ICPlus175D]": STP/RSTP "-", MSTP "-", VLAN filtering "-".
+  # 175C and 178C appear only in the RouterBoard-to-chip table of the same manual; they
+  # are the same basic chip family and have no VLAN table (Switch Chip Features).
+  ICPlus175D: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  ICPlus175C: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+  ICPlus178C: {mstp: false, vlan_filtering_v6: false, vlan_filtering_v7: false, verified: false}
+
+  # --- 98PX1012 --------------------------------------------------------------------
+  # Switch Chip Features lists it with "no" for port switching, mirroring, host table
+  # and VLAN table, and it is absent from the offload table: no bridge HW offload.
+  Marvell-98PX1012: {hw_offload: false, mstp: false, vlan_filtering_v6: false,
+                     vlan_filtering_v7: false, verified: false}
+
+# Prefix fallbacks, checked when no exact chip entry matches. Prestera part numbers keep
+# appearing in new models, so an unlisted 98DX/98CX chip is treated as Prestera.
 families:
   - prefix: Marvell-98DX
+    values: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}
+  - prefix: Marvell-98CX
     values: {mstp: true, vlan_filtering_v6: true, vlan_filtering_v7: true, verified: false}

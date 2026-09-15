@@ -79,6 +79,8 @@ MESSAGES: dict[str, str] = {
     "offload.port_bonding": "Bonding se obvykle neoffloaduje.",
     "offload.port_other": "Rozhraní typu {type} se neoffloaduje.",
     "offload.port_no_switch": "Port není připojený ke switch čipu.",
+    "offload.chip_unsupported": "MikroTik u čipu {chip_type} HW offload bridge nedoporučuje "
+    "(podpora se teprve dokončuje). Ponechte softwarový bridge s RSTP.",
     "offload.use_ip_firewall": "use-ip-firewall=yes na bridgi vypíná HW offload.",
     "offload.mstp_unsupported": "protocol-mode=mstp na čipu {chip_type} offload vypíná.",
     "offload.mstp_conflict": "protocol-mode=mstp vypíná HW offload na čipu {chip_type} ({chip}). "

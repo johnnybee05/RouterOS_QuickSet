@@ -26,6 +26,27 @@ def rb4011(version: str = "7.15.3") -> Capabilities:
     return Capabilities.from_inventory(inventory)
 
 
+def rb3011(version: str = "7.15.3") -> Capabilities:
+    """Two QCA8337 chips: documented as no MSTP and no VLAN filtering with HW offload."""
+    ports = [f"ether{i}" for i in range(1, 11)]
+    port_switch = {f"ether{i}": "switch1" for i in range(1, 6)}
+    port_switch |= {f"ether{i}": "switch2" for i in range(6, 11)}
+    return Capabilities.offline(
+        version, ports, switches={"switch1": "QCA8337", "switch2": "QCA8337"},
+        port_switch=port_switch,
+    )
+
+
+def unknown_chip(version: str = "7.15.3") -> Capabilities:
+    return Capabilities.offline(version, ["ether1"], switches={"switch1": "XYZ-9000"},
+                                port_switch={"ether1": "switch1"})
+
+
+def ipq_ppe(version: str = "7.15.3") -> Capabilities:
+    return Capabilities.offline(version, ["ether1"], switches={"switch1": "IPQ-PPE"},
+                                port_switch={"ether1": "switch1"})
+
+
 def crs3xx(version: str = "7.15.3") -> Capabilities:
     ports = [f"ether{i}" for i in range(1, 9)]
     return Capabilities.offline(
@@ -67,7 +88,9 @@ def test_single_chip_bridge_is_fully_offloaded():
 
 
 def test_mstp_with_offload_is_a_conflict():
-    plan = plan_offload(bridge(protocol_mode=ProtocolMode.MSTP), rb4011())
+    """QCA8337 is documented as "-" for MSTP in the Bridge Hardware Offloading table."""
+    plan = plan_offload(bridge(ports=[f"ether{i}" for i in range(2, 11)],
+                               protocol_mode=ProtocolMode.MSTP), rb3011())
     assert plan.has_conflict
     conflict = [i for i in plan.issues if i.code == "offload.mstp_conflict"]
     assert [i.params["chip"] for i in conflict] == ["switch1", "switch2"]
@@ -78,10 +101,20 @@ def test_mstp_with_offload_is_a_conflict():
 
 
 def test_mstp_forced_is_still_a_conflict():
-    plan = plan_offload(bridge(protocol_mode=ProtocolMode.MSTP,
-                               hw_offload=HwOffloadMode.FORCE_ON), rb4011())
+    plan = plan_offload(bridge(ports=[f"ether{i}" for i in range(2, 11)],
+                               protocol_mode=ProtocolMode.MSTP,
+                               hw_offload=HwOffloadMode.FORCE_ON), rb3011())
     assert plan.has_conflict
     assert plan.for_port("ether2").hw is False
+
+
+def test_mstp_is_offloaded_on_chips_that_support_it():
+    """RTL8367 (RB4011) is documented as "+" for MSTP, so there is no conflict."""
+    plan = plan_offload(bridge(), rb4011())
+    assert not plan.has_conflict
+    mstp = plan_offload(bridge(protocol_mode=ProtocolMode.MSTP), rb4011())
+    assert not mstp.has_conflict
+    assert mstp.for_port("ether2").hw is True
 
 
 def test_mstp_without_offload_or_on_crs3xx_is_fine():
@@ -106,14 +139,23 @@ def test_ros_640_does_not_offer_offload():
 
 
 def test_vlan_filtering_depends_on_chip_and_version():
+    # RTL8367 got HW vlan-filtering in RouterOS 7.1, so v6 cannot offload it.
     v6 = plan_offload(bridge(ports=["ether2"], vlan_filtering=True), rb4011("6.49.10"))
     assert v6.for_port("ether2").reason == "offload.vlan_filtering_unsupported"
     assert v6.for_port("ether2").hw is False
 
     v7 = plan_offload(bridge(ports=["ether2"], vlan_filtering=True), rb4011())
-    port = v7.for_port("ether2")
+    assert v7.for_port("ether2").status == OffloadStatus.YES
+
+    # QCA8337 is documented as "-" for VLAN filtering on any version.
+    qca = plan_offload(bridge(ports=["ether2"], vlan_filtering=True), rb3011())
+    assert qca.for_port("ether2").reason == "offload.vlan_filtering_unsupported"
+
+    # A chip outside the database stays uncertain instead of claiming support.
+    unknown = plan_offload(BridgeConfig(ports=["ether1"], vlan_filtering=True), unknown_chip())
+    port = unknown.for_port("ether1")
     assert port.status == OffloadStatus.UNCERTAIN and port.hw is True
-    assert "offload.vlan_filtering_uncertain" in codes(v7.issues)
+    assert "offload.vlan_filtering_uncertain" in codes(unknown.issues)
 
     crs = plan_offload(BridgeConfig(ports=["ether1"], vlan_filtering=True), crs3xx("6.49"))
     assert crs.for_port("ether1").status == OffloadStatus.YES
@@ -157,6 +199,52 @@ def test_unknown_chip_and_family_prefix():
     assert not db.lookup("XYZ-9000").known
 
 
+def test_chip_lookup_ignores_punctuation_and_case():
+    """The CLI prints "Atheros-8327", the documentation table writes "Atheros8327"."""
+    db = default_chip_database()
+    for spelling in ("Atheros-8327", "Atheros8327", "atheros8327"):
+        chip = db.lookup(spelling)
+        assert chip.known and chip.mstp == Tri.NO
+    assert db.lookup("Marvell 98DX3236").vlan_filtering(7) == Tri.YES
+
+
+def test_documented_chips_are_all_known():
+    """Every chip named in MikroTik's switch chip documentation must be in the database."""
+    db = default_chip_database()
+    documented = [
+        # Switch Chip Features (non-CRS devices)
+        "QCA8337", "Atheros8327", "Atheros8316", "Atheros8227", "Atheros7240", "IPQ-PPE",
+        "ICPlus175D", "ICPlus175C", "ICPlus178C", "MT7621", "MT7531", "EN7523", "RTL8367",
+        "88E6393X", "88E6191X", "88E6190", "Marvell-98PX1012",
+        # CRS1xx / CRS2xx series
+        "QCA-8511", "QCA-8519", "QCA-8513L",
+        # Marvell Prestera (CRS3xx, CRS5xx, CCR2116, CCR2216, RDS2216)
+        "Marvell-98DX224S", "Marvell-98DX226S", "Marvell-98DX2528", "Marvell-98DX3236",
+        "Marvell-98DX3255", "Marvell-98DX3257", "Marvell-98DX4310", "Marvell-98DX7335",
+        "Marvell-98DX8208", "Marvell-98DX8212", "Marvell-98DX8216", "Marvell-98DX8332",
+        "Marvell-98DX8525", "Marvell-98CX8410",
+    ]
+    assert [c for c in documented if not db.lookup(c).known] == []
+
+
+def test_new_prestera_parts_fall_back_to_the_family():
+    db = default_chip_database()
+    for chip in ("Marvell-98DX9999", "Marvell-98CX9999"):
+        assert db.lookup(chip).mstp == Tri.YES
+        assert db.lookup(chip).vlan_filtering(7) == Tri.YES
+
+
+def test_ipq_ppe_offload_is_not_offered_but_can_be_forced():
+    """MikroTik recommends a software bridge with RSTP on IPQ-PPE (hAP ax2/ax3, cAP ax)."""
+    plan = plan_offload(BridgeConfig(ports=["ether1"]), ipq_ppe())
+    port = plan.for_port("ether1")
+    assert port.reason == "offload.chip_unsupported" and port.hw is False
+
+    forced = plan_offload(BridgeConfig(ports=["ether1"], hw_offload=HwOffloadMode.FORCE_ON),
+                          ipq_ppe())
+    assert forced.for_port("ether1").hw is True
+
+
 def test_port_missing_from_capabilities():
     plan = plan_offload(BridgeConfig(ports=["ghost1"]), rb4011())
     assert plan.for_port("ghost1").reason == "offload.port_other"
@@ -170,6 +258,8 @@ def test_all_issue_messages_format():
         plan_offload(bridge(vlan_filtering=True, use_ip_firewall=True), rb4011()),
         plan_offload(bridge(vlan_filtering=True), rb4011()),
         plan_offload(bridge(hw_offload=HwOffloadMode.FORCE_ON), rb4011()),
+        plan_offload(bridge(protocol_mode=ProtocolMode.MSTP), rb3011()),
+        plan_offload(BridgeConfig(ports=["ether1"]), ipq_ppe()),
     ]
     for plan in plans:
         for issue in plan.issues:
@@ -217,6 +307,7 @@ def test_chip_database_helpers():
     assert not empty.lookup("RTL8367").known
     chip = default_chip_database().lookup("QCA8337")
     assert chip.vlan_filtering(6) == Tri.NO
-    assert chip.vlan_filtering(7) == Tri.UNKNOWN
+    assert chip.vlan_filtering(7) == Tri.NO
+    assert chip.mstp == Tri.NO
     assert device_notes("RB4011iGS+")
     assert device_notes("unknown-board") == []
