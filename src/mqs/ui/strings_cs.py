@@ -49,8 +49,22 @@ DEVICE_SCAN_COLUMNS = ["Identity", "IP adresa", "MAC adresa", "Verze", "Model", 
 DEVICE_SCAN_HINT = ("Dvojklikem zařízení převezmete do formuláře. Windows Firewall může "
                     "blokovat příchozí UDP 5678.")
 DEVICE_USE_MAC = "Připojit přes MAC"
-DEVICE_MAC_PENDING = ("Připojení přes MAC adresu zatím není hotové (čeká na rozhodnutí "
-                      "o MAC-Telnetu).")
+DEVICE_MAC_HINT = ("Vyberte zařízení v tabulce. Zkusí se IPv6 link-local, jinak MAC-Telnet: "
+                   "na zařízení se přidá dočasná IP a připojí se přes ni. Neověřeno na "
+                   "zařízení.")
+MAC_CONFIRM_TITLE = "Připojit přes MAC adresu"
+MAC_CONFIRM_TEXT = (
+    "Zařízení {identity} (MAC {mac}) nemá použitelnou IP. Zkusí se IPv6 link-local; pokud "
+    "neodpoví, přihlásím se přes MAC-Telnet a na rozhraní {interface} přidám dočasnou adresu "
+    "{address} (komentář mqs-temp), přes kterou se pak připojím.\n\nTato funkce nebyla ověřená "
+    "na skutečném zařízení. Pokračovat?"
+)
+MAC_CONNECTED = "připojeno přes {method}"
+MAC_TEMP_ADDRESS = ("dočasná adresa na zařízení: {address} (komentář mqs-temp; reset ji smaže, "
+                    "jinak ji odeberte ručně)")
+MAC_NO_INTERFACE = ("Nepodařilo se zjistit, přes kterou síťovou kartu je zařízení dostupné. "
+                    "Spusťte vyhledávání znovu.")
+MAC_NO_ADDRESS = "V síti této karty není volná adresa, kterou by šlo dočasně přidělit."
 DEVICE_INFO_GROUP = "Detekce"
 DEVICE_PORTS_GROUP = "Porty"
 DEVICE_PORT_COLUMNS = ["Port", "Typ", "Switch čip", "Stav", "MAC"]

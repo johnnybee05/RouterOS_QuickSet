@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
 from typing import ClassVar
 
@@ -20,13 +21,17 @@ from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import AuthError
 from mqs.transport.factory import ConnectOutcome
+from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
+from mqs.transport.netifs import LocalInterface
 from mqs.ui.main_window import MainWindow
 from mqs.ui.pages.base import parse_cidr
 
 pytestmark = pytest.mark.qt
 
 RB4011_PORTS = [f"ether{i}" for i in range(1, 11)]
+LAN_INTERFACE = LocalInterface("Ethernet", IPv4Address("192.168.88.254"),
+                               IPv4Network("192.168.88.0/24"), index=12)
 
 
 class FakeDialogs:
@@ -74,8 +79,10 @@ class FakeScanner:
         self.opened = self.closed = False
         self.solicits = 0
         packet = decode(encode([(TlvType.MAC, b"\x01\x02\x03\x04\x05\x06"),
-                                (TlvType.IDENTITY, b"hap"), (TlvType.IPV4, b"\xc0\xa8\x58\x01")]))
-        self.device = device_from_packet(packet, source_ip="192.168.88.1", local=None, now=0)
+                                (TlvType.IDENTITY, b"hap"), (TlvType.IPV4, b"\xc0\xa8\x58\x01"),
+                                (TlvType.INTERFACE, b"ether1")]))
+        self.device = device_from_packet(packet, source_ip="192.168.88.1", local=LAN_INTERFACE,
+                                         now=0)
 
     def open(self):
         self.opened = True
@@ -135,6 +142,17 @@ def window(qtbot, tmp_path):
             raise AuthError("bad")
         return ConnectOutcome(transport)
 
+    mac_calls = []
+
+    def mac_connect_fn(device, params, address, interface, **kwargs):
+        mac_calls.append({"device": device, "params": params, "address": address,
+                          "interface": interface, **kwargs})
+        return MacConnectResult(
+            ConnectOutcome(transport), MacConnectMethod.MAC_TELNET,
+            temp_address=f"{address}/{interface.network.prefixlen}",
+            device_interface=device.interface_name,
+        )
+
     RecordingOrchestrator.instances.clear()
     win = MainWindow(
         dialogs=dialogs,
@@ -145,6 +163,9 @@ def window(qtbot, tmp_path):
             "probe_fn": lambda t, v: {"fasttrack_hw_offload": True},
             "session_port_fn": lambda t, host: "ether3",
             "scanner_factory": FakeScanner,
+            "mac_connect_fn": mac_connect_fn,
+            "local_interfaces_fn": lambda: [LAN_INTERFACE],
+            "propose_fn": lambda interface, used: IPv4Address("192.168.88.253"),
         },
         apply_kwargs={
             "orchestrator_factory": RecordingOrchestrator,
@@ -156,6 +177,7 @@ def window(qtbot, tmp_path):
     win.test_dialogs = dialogs
     win.test_transport = transport
     win.test_connect_calls = connect_calls
+    win.test_mac_calls = mac_calls
     return win
 
 
@@ -208,6 +230,69 @@ def test_scan_fills_table_and_double_click_uses_ip(window):
     scanner = page._scanner
     page.toggle_scan()
     assert scanner.closed and page._scanner is None
+
+
+def test_connect_by_mac_needs_a_selected_device(window):
+    page = window.device_page
+    assert not page.mac_button.isEnabled()
+    page.connect_by_mac_clicked()  # no selection: no-op
+    assert window.test_mac_calls == []
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    assert page.mac_button.isEnabled()
+
+
+def test_connect_by_mac_confirms_then_connects(window, qtbot):
+    page = window.device_page
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    page.password.setText("pw")
+    window.test_dialogs.answers["question"] = False  # user declines
+    page.connect_by_mac_clicked()
+    assert window.test_mac_calls == [] and page.session is None
+
+    window.test_dialogs.answers["question"] = True
+    page.connect_by_mac_clicked()
+    qtbot.waitUntil(lambda: page.session is not None and not window.runner.busy, timeout=5000)
+    call = window.test_mac_calls[0]
+    assert call["device"].mac == "01:02:03:04:05:06"
+    assert str(call["address"]) == "192.168.88.253"
+    assert call["interface"] is LAN_INTERFACE
+    assert call["params"].password == "pw"
+    session = page.session
+    assert session.temp_address == "192.168.88.253/24"
+    assert session.mac_method == "mac-telnet"
+    assert session.params.host == "192.168.88.253"
+    assert "mac-telnet" in page.connect_status.text()
+    assert "mqs-temp" in page.connect_status.text()
+    assert window.controller.inventory is not None
+    assert "192.168.88.253" in window.status_connection.text()
+
+
+def test_connect_by_mac_without_local_interface_reports_error(window):
+    page = window.device_page
+    page.local_interfaces_fn = list
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    window.test_dialogs.answers["question"] = True
+    page.connect_by_mac_clicked()
+    assert "síťovou kartu" in window.test_dialogs.errors[-1]
+    assert window.test_mac_calls == []
+
+
+def test_connect_by_mac_without_free_address_reports_error(window):
+    page = window.device_page
+    page.propose_fn = lambda interface, used: None
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    window.test_dialogs.answers["question"] = True
+    page.connect_by_mac_clicked()
+    assert "volná adresa" in window.test_dialogs.errors[-1]
+    assert window.test_mac_calls == []
 
 
 def test_offline_target_changes_primary_dialect(window):

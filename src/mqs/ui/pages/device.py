@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from ipaddress import IPv4Address
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -40,8 +41,15 @@ from mqs.transport.base import (
 )
 from mqs.transport.discovery import collect_inventory, probe_features, session_interface
 from mqs.transport.factory import ConnectFailed, TransportChoice, connect_transport
-from mqs.transport.mndp import MndpScanner
-from mqs.transport.netifs import list_ipv4_interfaces, route_source_address
+from mqs.transport.mac_connect import MacConnectResult, connect_by_mac
+from mqs.transport.mndp import DiscoveredDevice, MndpScanner
+from mqs.transport.netifs import (
+    LocalInterface,
+    interface_for,
+    list_ipv4_interfaces,
+    propose_free_address,
+    route_source_address,
+)
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.dialogs import Dialogs
@@ -62,6 +70,8 @@ class DeviceSession:
     probes: dict[str, bool] = field(default_factory=dict)
     session_port: str | None = None
     fell_back: bool = False
+    temp_address: str | None = None  # bootstrap IP added by connect-by-MAC, to remove later
+    mac_method: str | None = None
 
 
 def describe_error(exc: BaseException) -> str:
@@ -104,12 +114,18 @@ class DevicePage(Page):
         probe_fn: Callable[..., dict[str, bool]] = probe_features,
         session_port_fn: Callable[[Transport, str], str | None] = find_session_port,
         scanner_factory: Callable[[], Any] = default_scanner,
+        mac_connect_fn: Callable[..., MacConnectResult] = connect_by_mac,
+        local_interfaces_fn: Callable[[], list[LocalInterface]] = list_ipv4_interfaces,
+        propose_fn: Callable[..., IPv4Address | None] = propose_free_address,
     ) -> None:
         super().__init__(controller, parent)
         self.runner, self.dialogs, self.registry = runner, dialogs, registry
         self.connect_fn, self.discover_fn, self.probe_fn = connect_fn, discover_fn, probe_fn
         self.session_port_fn = session_port_fn
         self.scanner_factory = scanner_factory
+        self.mac_connect_fn = mac_connect_fn
+        self.local_interfaces_fn = local_interfaces_fn
+        self.propose_fn = propose_fn
         self.session: DeviceSession | None = None
         self._connect_token: CancelToken | None = None
         self._scanner: Any = None
@@ -141,7 +157,8 @@ class DevicePage(Page):
         self.scan_button.clicked.connect(self.toggle_scan)
         self.mac_button = QPushButton(S.DEVICE_USE_MAC)
         self.mac_button.setEnabled(False)
-        self.mac_button.setToolTip(S.DEVICE_MAC_PENDING)
+        self.mac_button.setToolTip(S.DEVICE_MAC_HINT)
+        self.mac_button.clicked.connect(self.connect_by_mac_clicked)
         self.scan_hint = QLabel(S.DEVICE_SCAN_HINT)
         self.scan_hint.setWordWrap(True)
         row.addWidget(self.scan_button)
@@ -156,6 +173,7 @@ class DevicePage(Page):
         self.scan_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.scan_table.setMaximumHeight(170)
         self.scan_table.cellDoubleClicked.connect(self.use_scanned_device)
+        self.scan_table.itemSelectionChanged.connect(self._update_buttons)
         layout.addWidget(self.scan_table)
         return box
 
@@ -313,6 +331,22 @@ class DevicePage(Page):
             ca_file=self.ca_file.text().strip() or None,
         )
 
+    def _discover_session(
+        self,
+        transport: Transport,
+        params: ConnectionParams,
+        report: Callable[[object], None],
+        *,
+        fell_back: bool = False,
+        temp_address: str | None = None,
+        mac_method: str | None = None,
+    ) -> DeviceSession:
+        inventory = self.discover_fn(transport, on_step=report)
+        probes = self.probe_fn(transport, inventory.version)
+        port = self.session_port_fn(transport, params.host)
+        return DeviceSession(params, transport, inventory, probes, port, fell_back,
+                             temp_address=temp_address, mac_method=mac_method)
+
     def connect_device(self) -> None:
         params = self.connection_params()
         if not params.host:
@@ -326,17 +360,70 @@ class DevicePage(Page):
         def task(token: CancelToken, report: Callable[[object], None]) -> DeviceSession:
             outcome = self.connect_fn(params, choice, api_port=api_port, ssh_port=ssh_port,
                                       cancelled=token.cancelled)
-            transport = outcome.transport
-            token.on_cancel(transport.close)
-            inventory = self.discover_fn(transport, on_step=report)
-            probes = self.probe_fn(transport, inventory.version)
-            port = self.session_port_fn(transport, params.host)
-            return DeviceSession(params, transport, inventory, probes, port, outcome.fell_back)
+            token.on_cancel(outcome.transport.close)
+            return self._discover_session(outcome.transport, params, report,
+                                          fell_back=outcome.fell_back)
 
         self._connect_token = self.runner.start(
             task, on_finished=self._connected, on_failed=self._connect_failed,
             on_progress=lambda step: self.connect_status.setText(f"{S.CONNECT_PROGRESS} {step}"))
         self._update_buttons()
+
+    def selected_scanned_device(self) -> DiscoveredDevice | None:
+        rows = {i.row() for i in self.scan_table.selectedItems()}
+        if len(rows) != 1:
+            return None
+        item = self.scan_table.item(next(iter(rows)), 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def connect_by_mac_clicked(self) -> None:
+        device = self.selected_scanned_device()
+        if device is None:
+            return
+        interface = self._interface_for_device(device)
+        if interface is None:
+            self.dialogs.error(self, S.MAC_NO_INTERFACE)
+            return
+        address = self.propose_fn(interface, [])
+        if address is None:
+            self.dialogs.error(self, S.MAC_NO_ADDRESS)
+            return
+        cidr = f"{address}/{interface.network.prefixlen}"
+        iface_name = device.interface_name or "ether1"
+        if not self.dialogs.question(self, S.MAC_CONFIRM_TITLE, S.MAC_CONFIRM_TEXT.format(
+                identity=device.identity or device.mac, mac=device.mac, address=cidr,
+                interface=iface_name)):
+            return
+
+        params = self.connection_params()
+        if self.registry is not None:
+            self.registry.add(params.password)
+        choice = self.transport_choice.currentData()
+        self.connect_status.setText(S.CONNECT_PROGRESS)
+
+        def task(token: CancelToken, report: Callable[[object], None]) -> DeviceSession:
+            result = self.mac_connect_fn(device, params, address, interface, choice=choice,
+                                         on_step=report)
+            token.on_cancel(result.transport.close)
+            reached = replace(params, host=str(address))
+            return self._discover_session(result.transport, reached, report,
+                                          temp_address=result.temp_address,
+                                          mac_method=result.method.value)
+
+        self._connect_token = self.runner.start(
+            task, on_finished=self._connected, on_failed=self._connect_failed,
+            on_progress=lambda step: self.connect_status.setText(f"{S.CONNECT_PROGRESS} {step}"))
+        self._update_buttons()
+
+    def _interface_for_device(self, device: DiscoveredDevice) -> LocalInterface | None:
+        interfaces = self.local_interfaces_fn()
+        if device.local_address is not None:
+            match = next((i for i in interfaces if i.address == device.local_address), None)
+            if match is not None:
+                return match
+        if device.ipv4 is not None:
+            return interface_for(device.ipv4, interfaces)
+        return next((i for i in interfaces if i.name == device.local_interface), None)
 
     def cancel_connect(self) -> None:
         if self._connect_token is not None:
@@ -347,6 +434,10 @@ class DevicePage(Page):
         self.session = session
         version = session.inventory.version
         status = [f"{S.CONNECTED}: {session.params.host} ({session.transport.kind.value})"]
+        if session.mac_method is not None:
+            status.append(S.MAC_CONNECTED.format(method=session.mac_method))
+        if session.temp_address is not None:
+            status.append(S.MAC_TEMP_ADDRESS.format(address=session.temp_address))
         if session.fell_back:
             status.append(S.CONNECT_FELL_BACK)
         if not is_supported_version(version):
@@ -384,10 +475,12 @@ class DevicePage(Page):
 
     def _update_buttons(self) -> None:
         connecting = self._connect_token is not None
-        self.connect_button.setEnabled(not connecting and self.session is None)
+        idle = not connecting and self.session is None
+        self.connect_button.setEnabled(idle)
         self.cancel_button.setEnabled(connecting)
         self.disconnect_button.setEnabled(self.session is not None)
         self.offline_box.setEnabled(self.session is None)
+        self.mac_button.setEnabled(idle and self.selected_scanned_device() is not None)
 
     # ------------------------------------------------------------ inventory display
 

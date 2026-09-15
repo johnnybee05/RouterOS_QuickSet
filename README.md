@@ -35,6 +35,8 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
    - Zadejte uživatele a heslo a klikněte na *Připojit*.
    - Aplikace načte verzi, model, porty, switch čipy, balíčky a služby. V hlavičce okna
      se zobrazí dialekt RouterOS **v6** nebo **v7**.
+   - Zařízení bez použitelné IP adresy připojíte tlačítkem *Připojit přes MAC*
+     (viz [Připojení přes MAC adresu](#připojení-přes-mac-adresu)).
    - Bez zařízení vyberte vpravo cílovou verzi a vypište porty (offline režim).
 2. **Základ**
    - Vyplňte identity.
@@ -86,6 +88,34 @@ OK/CHYBA: identity, služby, bridge, adresa a skutečný stav HW offloadu.
 Pokud api-ssl nemá přiřazený certifikát (výchozí stav RouterOS), spojení je šifrované,
 ale identita zařízení není ověřená. Stavový řádek zobrazí *nešifrovaná identita
 protistrany*. S certifikátem a importovanou CA se zobrazí *ověřený certifikát*.
+
+### Připojení přes MAC adresu
+
+Zařízení se dá nastavit i bez použitelné IP adresy, podobně jako ve Winboxu. Vyhledejte
+zařízení v síti, vyberte řádek v tabulce a klikněte na *Připojit přes MAC*. Aplikace pak:
+
+1. zkusí **IPv6 link-local** adresu (`fe80::…`), kterou zařízení hlásí v MNDP. Funguje na
+   výchozím RouterOS v7, po nasazení hardening bloku ani na v6 obvykle ne;
+2. jinak se přihlásí přes **MAC-Telnet** (UDP 20561, přihlášení EC-SRP5 jako od RouterOS
+   6.43) a na rozhraní, ze kterého se zařízení ohlásilo, přidá **dočasnou IP adresu**
+   z rozsahu vaší síťové karty s komentářem `mqs-temp`. Přes tuto adresu se pak připojí
+   normálně přes api-ssl nebo SSH.
+
+Navrženou adresu aplikace před připojením ukáže a nechá ji potvrdit. Dočasnou adresu
+odstraní reset zařízení; při režimu `/import` ji odeberte ručně:
+
+```
+/ip address remove [find comment=mqs-temp]
+```
+
+Rozdíl proti Winboxu: Winbox jede celou relaci přes vlastní MAC protokol, tato aplikace
+přes MAC jen nabootstrapuje spojení a dál pracuje přes api-ssl nebo SSH. Díky tomu funguje
+i záloha, přenos souborů a ověření konfigurace po aplikaci.
+
+> MAC-Telnet ani EC-SRP5 nejsou od MikroTiku dokumentované. Implementace vychází z veřejné
+> referenční implementace (viz `THIRD_PARTY_NOTICES.md`) a **nebyla ověřená na skutečném
+> zařízení**. Vyžaduje také, aby na daném rozhraní byl povolený `/tool mac-server`.
+> Přihlášení MD5 pro RouterOS starší než 6.43 implementované není.
 
 Soubory se na zařízení přenášejí přes SFTP, SCP, nebo dočasným HTTP serverem na tomto PC
 a `/tool fetch`. Pokud nic z toho nefunguje, v režimu `/import` se příkazy pošlou po
@@ -151,8 +181,8 @@ se po uplynutí času samo vrátí na zálohu.
 ## Omezení a známé nejistoty
 
 - Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
-- **Připojení přes MAC adresu** zatím není hotové. Čeká na rozhodnutí o implementaci
-  MAC-Telnetu, viz `PLAN.md`, kapitola 10.
+- **Připojení přes MAC adresu** je hotové, ale neověřené na skutečném zařízení (viz výše).
+  Pro RouterOS starší než 6.43 (přihlášení MD5) není MAC-Telnet implementovaný.
 - Rozdíly mezi verzemi RouterOS, které nebyly ověřené na zařízení, jsou vedené v
   `docs/DIALECT_NOTES.md` jako **NUTNO OVĚŘIT** a v náhledu se zobrazují jako upozornění.
   Každý takový rozdíl je v kódu na jednom místě (`src/mqs/generator/features.py` a tabulky

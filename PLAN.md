@@ -395,7 +395,7 @@ any GUI exists — handy for you to review generated scripts early.
 | M4 generator v6/v7 + golden files | done |
 | M5a transports (API-SSL, SSH), fallback, discovery | done |
 | M5b MNDP network discovery | done |
-| M5c MAC connection | in progress (decision B + C, see §10.3) |
+| M5c MAC connection | done (B + C): link-local, EC-SRP5 MAC-Telnet bootstrap, GUI button |
 | M6 apply flow (backup, upload, rollback, reconnect, verify) | done |
 | M7 profiles + logging | done |
 | M8 GUI | done |
