@@ -1,6 +1,175 @@
 # MikroTik QuickSet Plus
 
-Desktopová aplikace pro Windows, která vygeneruje a aplikuje výchozí konfiguraci
-MikroTik RouterOS v6 i v7. Náhrada Winbox QuickSetu bez jeho omezení.
+Desktopová aplikace pro Windows, která rychle vygeneruje výchozí konfiguraci MikroTik
+RouterOS **v6 i v7** a umí ji rovnou aplikovat na zařízení po síti. Nahrazuje Winbox
+QuickSet bez jeho omezení:
 
-> Dokumentace se doplní v závěrečné fázi (viz `PLAN.md`, milník M9).
+- WAN může být **libovolný port**, ne jen ether1,
+- plnohodnotná volba **protocol-mode** bridge (none / stp / rstp / mstp),
+- změna **system identity**,
+- firemní **hardening blok**, který jde v aplikaci upravit a uložit do profilu,
+- **HW offload** bridge a **FastTrack** podle toho, co zařízení skutečně umí,
+- vyhledání zařízení v síti (MNDP) ještě před připojením.
+
+Aplikace funguje i **offline**: skript jde jen vygenerovat do souboru nebo schránky.
+
+---
+
+## Spuštění
+
+Stačí spustit `MikrotikQuickSetPlus.exe`. Python není potřeba, nic se neinstaluje.
+
+Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
+
+| Složka | Obsah |
+|---|---|
+| `profiles\` | uložené profily (JSON, **bez hesel**) |
+| `logs\` | průběh práce, `mqs-RRRRMMDD.log` (hesla jsou maskovaná) |
+| `backups\` | zálohy stažené ze zařízení před aplikací |
+
+## Jak se aplikace používá
+
+1. **Zařízení**
+   - Klikněte na *Vyhledat v síti* a dvojklikem zařízení převezměte do formuláře,
+     nebo zadejte IP adresu ručně.
+   - Zadejte uživatele a heslo a klikněte na *Připojit*.
+   - Aplikace načte verzi, model, porty, switch čipy, balíčky a služby. V hlavičce okna
+     se zobrazí dialekt RouterOS **v6** nebo **v7**.
+   - Bez zařízení vyberte vpravo cílovou verzi a vypište porty (offline režim).
+2. **Základ**
+   - Vyplňte identity.
+   - Vyberte režim *Router*, *Bridge / AP* nebo *Vlastní* a klikněte na *Předvyplnit*.
+     Režim jen vyplní formulář, všechno jde dál upravit.
+   - Nastavte WAN: libovolný port a typ DHCP, statická IP nebo PPPoE.
+3. **LAN / Bridge**
+   - Nastavte bridge, protocol-mode, členské porty (WAN port je vyloučený automaticky),
+     IP adresu a DHCP server.
+   - Tabulka HW offloadu ukazuje u každého portu, zda poběží v hardwaru, a proč.
+4. **Firewall**: základní filtr a FastTrack. Při zapnutí FastTracku se aplikace zeptá na
+   tvarování provozu.
+5. **Služby a hardening**: DNS, SSH port, SNMP, NTP a časové pásmo ve formuláři, pod nimi
+   celý blok jako text.
+6. **Náhled**: skript pro v6, v7 nebo obě vedle sebe. Tlačítko *Kopírovat* vloží skript do
+   schránky (lze ho vložit rovnou do terminálu Winboxu), *Uložit .rsc* ho uloží do souboru.
+7. **Aplikovat**: vyberte režim, zkontrolujte upozornění, projděte dry-run a potvrďte.
+
+Chybně vyplněná pole se hned zbarví červeně s konkrétní hláškou. Dokud konfigurace není
+v pořádku, nejde aplikovat.
+
+### Režimy aplikace
+
+| Režim | Co se stane |
+|---|---|
+| Jen vygenerovat | skript se uloží do souboru, na síť se nesahá |
+| Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je |
+| Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
+
+Než aplikace cokoliv změní, vždy:
+
+- uloží na zařízení zálohu `pre-quickset-<datum-čas>.backup` a export
+  `pre-quickset-<datum-čas>.rsc` a nabídne jejich stažení,
+- zobrazí přesně to, co se pošle (dry-run), a počká na potvrzení,
+- volitelně naplánuje **rollback pojistku**. Pokud do N minut nekliknete na *Potvrdit, že
+  konfigurace funguje*, zařízení obnoví zálohu a restartuje se. Úloha nejdřív smaže sama
+  sebe, takže se nemůže opakovat.
+
+Po aplikaci se aplikace sama přepojí (SSH je nově na portu 122) a ukáže checklist
+OK/CHYBA: identity, služby, bridge, adresa a skutečný stav HW offloadu.
+
+### Připojení
+
+| Transport | Port | Poznámka |
+|---|---|---|
+| API-SSL | 8729 | výchozí, zůstává dostupné i po aplikaci hardening bloku |
+| SSH | 22, po aplikaci 122 | záloha za API-SSL, slouží i k přenosu souborů |
+
+Pokud api-ssl nemá přiřazený certifikát (výchozí stav RouterOS), spojení je šifrované,
+ale identita zařízení není ověřená. Stavový řádek zobrazí *nešifrovaná identita
+protistrany*. S certifikátem a importovanou CA se zobrazí *ověřený certifikát*.
+
+Soubory se na zařízení přenášejí přes SFTP, SCP, nebo dočasným HTTP serverem na tomto PC
+a `/tool fetch`. Pokud nic z toho nefunguje, v režimu `/import` se příkazy pošlou po
+jednom. Windows Firewall se může zeptat na povolení příchozího spojení (HTTP přenos) nebo
+UDP 5678 (vyhledávání MNDP).
+
+## Co dělá hardening blok
+
+Výchozí firemní šablona (syntaxe v7):
+
+| Část | Účinek |
+|---|---|
+| `/snmp community` | vypne výchozí community, přidá `PVIP` |
+| `/ip neighbor discovery-settings` | neighbor discovery jen na nedynamických rozhraních |
+| `/ipv6 settings` | vypne IPv6 |
+| `/ip dns` | DNS servery 192.168.200.200 a 8.8.8.8 |
+| `/ip service` | vypne ftp, telnet, www a api (8728), SSH přesune na port 122 |
+| `/snmp` | zapne SNMP, trap community PVIP, verze 2 |
+| `/system clock` | časové pásmo Europe/Prague |
+| `/system logging` | logovací pravidla 0–3 na disk (volitelně robustní varianta přes `find`) |
+| `/system ntp client` | NTP klient se servery 195.113.144.201 a 195.113.144.238 |
+
+Pro **RouterOS v6** se blok automaticky přeloží:
+
+- NTP servery se převedou na `primary-ntp` / `secondary-ntp`,
+- IPv6 se vypne vypnutím balíčku `ipv6` (projeví se po restartu), případně se blok vynechá,
+- SNMP adresa `::/0` se nahradí `0.0.0.0/0`,
+- příkazy, které daná verze nezná, se vynechají s upozorněním.
+
+**Po aplikaci zůstanou přístupné:** api-ssl 8729, SSH 122 a Winbox 8291. REST API (v7)
+nepoběží, protože vyžaduje www-ssl. Aplikace z upraveného bloku počítá zbývající
+přístupové cesty: při vypnutí kterékoliv z nich zobrazí červené varování a pokud by
+nezůstala žádná, aplikaci zablokuje.
+
+Volitelná rozšíření (ve výchozím stavu vypnutá): přiřazení certifikátu k api-ssl a omezení
+ssh, winbox a api-ssl na management subnet.
+
+## Jak vrátit zařízení zpět ze zálohy
+
+Zálohy vytvořené před aplikací jsou na zařízení v *Files* (u zařízení s `flash/` ve složce
+`flash/`) a pokud jste zvolili stažení, také v `%LOCALAPPDATA%\MikrotikQuickSetPlus\backups\`.
+
+**Binární záloha** (celý stav včetně uživatelů, zařízení se restartuje):
+
+```
+/system backup load name=pre-quickset-RRRRMMDD-HHMMSS.backup
+```
+
+Ve Winboxu: *Files* → vyberte soubor `.backup` → *Restore*.
+
+**Textový export** (čitelný, lze použít i na jiném zařízení): nejdřív zařízení resetujte
+bez výchozí konfigurace a potom soubor naimportujte:
+
+```
+/system reset-configuration no-defaults=yes run-after-reset=pre-quickset-RRRRMMDD-HHMMSS.rsc
+```
+
+Pokud soubor na zařízení už není, nahrajte ho ze složky `backups\` přes *Files* ve Winboxu.
+
+Pokud byla zapnutá **rollback pojistka** a konfigurace nefunguje, stačí počkat: zařízení
+se po uplynutí času samo vrátí na zálohu.
+
+## Omezení a známé nejistoty
+
+- Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
+- **Připojení přes MAC adresu** zatím není hotové. Čeká na rozhodnutí o implementaci
+  MAC-Telnetu, viz `PLAN.md`, kapitola 10.
+- Rozdíly mezi verzemi RouterOS, které nebyly ověřené na zařízení, jsou vedené v
+  `docs/DIALECT_NOTES.md` jako **NUTNO OVĚŘIT** a v náhledu se zobrazují jako upozornění.
+  Každý takový rozdíl je v kódu na jednom místě (`src/mqs/generator/features.py` a tabulky
+  v dokumentaci), takže oprava je jednoduchá.
+
+## Vývoj
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest                      # testy (vč. golden souborů a GUI)
+.\.venv\Scripts\python.exe -m pytest --update-golden      # přegenerovat golden .rsc
+.\.venv\Scripts\mqs-gen.exe --target 6.49.10 --issues     # skript z příkazové řádky
+.\.venv\Scripts\python.exe -m mqs                         # spustit GUI ze zdrojů
+.\build.ps1                                               # dist\MikrotikQuickSetPlus.exe
+```
+
+Struktura: `model` (datový model a validace), `capabilities` (HW offload), `generator`
+(čistý generátor bez sítě a GUI), `transport` (API-SSL, SSH, MNDP, přenos souborů), `apply`
+(průběh aplikace), `profiles`, `ui` (PySide6). Architekturu a rozhodnutí popisuje `PLAN.md`.
