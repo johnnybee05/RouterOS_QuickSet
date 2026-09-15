@@ -191,6 +191,8 @@ MESSAGES: dict[str, str] = {
     "apply.warning.download": "Soubor {file} se nepodařilo stáhnout (zůstává na zařízení): "
     "{error}",
     "apply.warning.cleanup": "Nahraný skript se nepodařilo smazat: {error}",
+    # UI input syntax
+    "ui.syntax": "{message}",
     # profiles
     "profile.invalid_json": "Soubor není platný JSON.",
     "profile.wrong_format": "Soubor není profil MikroTik QuickSet Plus.",

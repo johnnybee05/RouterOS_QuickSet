@@ -1,0 +1,141 @@
+"""Holds the edited profile and device state; recomputes validation and previews."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+
+from PySide6.QtCore import QObject, QTimer, Signal
+
+from mqs.generator.base import GenerationResult, generate
+from mqs.generator.context import TargetContext
+from mqs.issues import Issue, has_errors
+from mqs.model.inventory import DeviceInventory, Ipv6PackageState
+from mqs.model.profile import DeviceProfile
+from mqs.model.validation import validate_profile
+from mqs.model.version import RosVersion
+
+DEFAULT_OFFLINE = {6: "6.49.10", 7: "7.15.3"}
+DEFAULT_PORTS = [f"ether{i}" for i in range(1, 6)]
+
+
+@dataclass(frozen=True)
+class Analysis:
+    profile: DeviceProfile
+    validation: list[Issue]
+    results: dict[int, GenerationResult]
+    primary_major: int
+    online: bool
+    probes: Mapping[str, bool] = field(default_factory=dict)
+
+    @property
+    def primary(self) -> GenerationResult:
+        return self.results[self.primary_major]
+
+    @property
+    def all_issues(self) -> list[Issue]:
+        return [*self.validation, *self.primary.issues]
+
+    @property
+    def can_apply(self) -> bool:
+        return not has_errors(self.all_issues)
+
+
+class ProfileController(QObject):
+    profileChanged = Signal(object, object)
+    inventoryChanged = Signal(object)
+    analysisReady = Signal(object)
+
+    def __init__(self, parent: QObject | None = None, debounce_ms: int = 250) -> None:
+        super().__init__(parent)
+        self._profile = DeviceProfile()
+        self._inventory: DeviceInventory | None = None
+        self._probes: dict[str, bool] = {}
+        self.offline_version = RosVersion.parse(DEFAULT_OFFLINE[7])
+        self.offline_ports: list[str] = list(DEFAULT_PORTS)
+        self.offline_ipv6 = Ipv6PackageState.UNKNOWN
+        self.analysis: Analysis | None = None
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(debounce_ms)
+        self._timer.timeout.connect(self.recompute)
+
+    # ---------------------------------------------------------------- profile
+
+    @property
+    def profile(self) -> DeviceProfile:
+        return self._profile
+
+    def set_profile(self, profile: DeviceProfile, source: object | None = None) -> None:
+        self._profile = profile
+        self.profileChanged.emit(profile, source)
+        self._timer.start()
+
+    def edit(self, change: Callable[[DeviceProfile], DeviceProfile],
+             source: object | None = None) -> None:
+        self.set_profile(change(self._profile), source)
+
+    # ---------------------------------------------------------------- device state
+
+    @property
+    def inventory(self) -> DeviceInventory | None:
+        return self._inventory
+
+    @property
+    def probes(self) -> dict[str, bool]:
+        return dict(self._probes)
+
+    def set_inventory(self, inventory: DeviceInventory | None,
+                      probes: Mapping[str, bool] | None = None) -> None:
+        self._inventory = inventory
+        self._probes = dict(probes or {})
+        self.inventoryChanged.emit(inventory)
+        self._timer.start()
+
+    def set_offline_target(self, version: str | None = None, ports: list[str] | None = None,
+                           ipv6: Ipv6PackageState | None = None) -> None:
+        if version is not None:
+            self.offline_version = RosVersion.parse(version)
+        if ports is not None:
+            self.offline_ports = ports
+        if ipv6 is not None:
+            self.offline_ipv6 = ipv6
+        self.inventoryChanged.emit(self._inventory)
+        self._timer.start()
+
+    def ports(self) -> list[str]:
+        return self._inventory.port_names if self._inventory else list(self.offline_ports)
+
+    @property
+    def primary_major(self) -> int:
+        version = self._inventory.version if self._inventory else self.offline_version
+        return 6 if version.major == 6 else 7
+
+    def context(self, major: int) -> TargetContext:
+        if self._inventory is not None and self._inventory.version.major == major:
+            return TargetContext.from_inventory(self._inventory, self._probes)
+        if self._inventory is None and self.offline_version.major == major:
+            return TargetContext.offline(self.offline_version, ipv6_package=self.offline_ipv6)
+        return TargetContext.offline(DEFAULT_OFFLINE[major], ipv6_package=self.offline_ipv6)
+
+    # ---------------------------------------------------------------- analysis
+
+    def recompute(self) -> Analysis:
+        self._timer.stop()
+        profile = self._profile
+        results = {major: generate(profile, self.context(major), mask_secrets=True)
+                   for major in (6, 7)}
+        self.analysis = Analysis(
+            profile=profile,
+            validation=validate_profile(profile, self._inventory),
+            results=results,
+            primary_major=self.primary_major,
+            online=self._inventory is not None,
+            probes=dict(self._probes),
+        )
+        self.analysisReady.emit(self.analysis)
+        return self.analysis
+
+    def generate_for_apply(self) -> GenerationResult:
+        """Unmasked script for the device (passwords included)."""
+        return generate(self._profile, self.context(self.primary_major))

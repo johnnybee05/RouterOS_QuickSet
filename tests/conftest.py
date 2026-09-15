@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+# GUI tests run headless.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
