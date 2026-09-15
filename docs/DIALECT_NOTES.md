@@ -56,6 +56,10 @@ Legend:
 | MNDP uptime encoding | 4 bytes little endian seconds | NUTNO OVĚŘIT |
 | MNDP solicit | 4 zero bytes sent to the subnet broadcast and 255.255.255.255:5678 make devices announce themselves | NUTNO OVĚŘIT |
 | MAC-Telnet | UDP 20561; MD5 auth < 6.43, EC-SRP5 6.43+; requires `/tool mac-server` allowed on the interface | NUTNO OVĚŘIT |
+| MAC-Telnet EC-SRP5 | curve/protocol in `transport/mactelnet/` ported from MarginResearch/mikrotik_authentication (Apache-2.0, see THIRD_PARTY_NOTICES.md). Curve = Curve25519 in short Weierstrass form; public values are the Montgomery x + y parity; client adds `redp1(vx,1)` back to the server point; `Cc = SHA256(SHA256(Wc|Ws) | z.x)`. Tests prove client↔server self-consistency only | NUTNO OVĚŘIT — never run against a real device |
+| MAC-Telnet packet layout | header `>BB6s6sHHI` = version, type, src_mac, dst_mac, session_id, client_type(21), byte_counter; control packet magic `56 34 12 ff`, type codes 0 begin-auth, 1 encryption-key, 2 password, 3 username, 4-6 terminal type/width/height, 9 end-auth; auth-failure arrives as terminal data, not a control packet | NUTNO OVĚŘIT |
+| MAC-Telnet bootstrap | on success we add a temporary `/ip address ... comment=mqs-temp` on the interface the device announced from, then connect over IPv4; MD5 auth for < 6.43 is NOT implemented (EC-SRP5 only) | NUTNO OVĚŘIT (also: the `interface=` name for the announcing port) |
+| IPv6 link-local connect | `fe80::…%<ifindex>` on Windows; only works when IPv6 is up on the device (usually not on v6) | NUTNO OVĚŘIT |
 | Identity charset | conservative `[A-Za-z0-9._-]`, max 64 | NUTNO OVĚŘIT (real RouterOS rules) |
 | Verified TLS strictness | Python 3.13 strict X.509 checks are disabled (`VERIFY_X509_STRICT` off) because device-generated certificates may lack e.g. Authority Key Identifier; chain is still verified | NUTNO OVĚŘIT |
 | SSH output parsing | list menus: `print terse` (+ `detail` for bridge ports), singleton menus: `print` with `key: value`; singleton list in `transport/ssh.py:SINGLETON_MENUS` | NUTNO OVĚŘIT |

@@ -395,7 +395,7 @@ any GUI exists — handy for you to review generated scripts early.
 | M4 generator v6/v7 + golden files | done |
 | M5a transports (API-SSL, SSH), fallback, discovery | done |
 | M5b MNDP network discovery | done |
-| M5c MAC connection | **waiting for a decision** (see §10.3) |
+| M5c MAC connection | in progress (decision B + C, see §10.3) |
 | M6 apply flow (backup, upload, rollback, reconnect, verify) | done |
 | M7 profiles + logging | done |
 | M8 GUI | done |
@@ -475,6 +475,10 @@ reverse engineering; implementing it from memory would break the "never invent" 
 put to the user: A) MD5-only MAC-Telnet, B) EC-SRP5 based on a public reference implementation
 (after a licence check), C) IPv6 link-local only. Recommendation: B + C. The GUI button
 "Připojit přes MAC" is disabled until this is decided.
+
+**Decision 2026-09-15: B + C.** IPv6 link-local is tried first; the MAC-Telnet bootstrap uses
+EC-SRP5 implemented from a public reference after a licence check (see
+`docs/DIALECT_NOTES.md` for the reference and what remains NUTNO OVĚŘIT).
 
 ### 10.4 Updated milestones
 
