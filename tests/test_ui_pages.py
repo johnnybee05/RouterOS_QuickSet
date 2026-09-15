@@ -16,7 +16,7 @@ from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.verify import CheckResult
-from mqs.model.bridge import LanAddressing, ProtocolMode
+from mqs.model.bridge import FrameTypes, LanAddressing, ProtocolMode
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import AuthError
@@ -362,16 +362,47 @@ def test_lan_page_static_address_and_gateway(window):
     assert page.lan_gateway.text() == ""
 
 
+def test_lan_page_vlan_filtering_enables_pvid_and_frame_types(window):
+    """A page gets no profileChanged for its own edit, so the gating must not live in load()."""
+    page = window.lan_page
+    assert not page.pvid.isEnabled() and not page.frame_types.isEnabled()
+
+    page.vlan_filtering.setChecked(True)
+    assert window.controller.profile.bridge.vlan_filtering
+    assert page.pvid.isEnabled() and page.frame_types.isEnabled()
+
+    page.pvid.setValue(10)
+    page.frame_types.setCurrentIndex(page.frame_types.findData(FrameTypes.ADMIT_ONLY_VLAN_TAGGED))
+    window.controller.recompute()
+    assert "vlan-filtering=yes pvid=10 frame-types=admit-only-vlan-tagged" in \
+        window.preview_page.views[7].toPlainText()
+
+    page.vlan_filtering.setChecked(False)
+    assert not page.pvid.isEnabled() and not page.frame_types.isEnabled()
+
+
+def test_basic_page_wan_checkbox_gates_the_wan_fields(window):
+    page = window.basic_page
+    assert page.wan_interface.isEnabled()
+    page.wan_enabled.setChecked(False)
+    assert not window.controller.profile.wan.enabled
+    assert not page.wan_interface.isEnabled() and not page.wan_type.isEnabled()
+    page.wan_enabled.setChecked(True)
+    assert page.wan_interface.isEnabled() and page.wan_nat.isEnabled()
+
+
 def test_firewall_fasttrack_asks_about_shaping(window):
     page = window.firewall_page
     window.test_dialogs.answers["question"] = True  # uses shaping -> keep FastTrack off
     page.fasttrack.setChecked(True)
     assert not page.fasttrack.isChecked()
     assert not window.controller.profile.firewall.fasttrack.enabled
+    assert not page.fasttrack_hw.isEnabled()
     window.test_dialogs.answers["question"] = False
     page.fasttrack.setChecked(True)
     fasttrack = window.controller.profile.firewall.fasttrack
     assert fasttrack.enabled and fasttrack.no_shaping_confirmed
+    assert page.fasttrack_hw.isEnabled()
 
 
 def test_services_page_two_way_binding_and_reset(window):

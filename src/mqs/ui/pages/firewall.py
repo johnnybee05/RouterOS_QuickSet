@@ -74,4 +74,6 @@ class FirewallPage(Page):
         self.basic_filter.setChecked(profile.firewall.basic_filter)
         self.fasttrack.setChecked(profile.firewall.fasttrack.enabled)
         self.fasttrack_hw.setChecked(profile.firewall.fasttrack.hw_offload)
+
+    def refresh_state(self, profile: DeviceProfile) -> None:
         self.fasttrack_hw.setEnabled(profile.firewall.fasttrack.enabled)

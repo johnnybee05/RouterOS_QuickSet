@@ -103,6 +103,15 @@ class Page(QWidget):
     def on_inventory(self, inventory: DeviceInventory | None) -> None:
         """React to a new device inventory or offline target."""
 
+    def refresh_state(self, profile: DeviceProfile) -> None:
+        """Enabled/visible state of widgets that follow the value of another field.
+
+        Runs for every profile change including the page's own edits, which never come
+        back through load(); a page that gates widgets on a value it edits itself would
+        otherwise never update them. Only touch widget state here, never values — this
+        can run while the user is typing.
+        """
+
     # ------------------------------------------------------------ plumbing
 
     @property
@@ -113,11 +122,11 @@ class Page(QWidget):
         self._profile_changed(self.controller.profile, None)
 
     def _profile_changed(self, profile: DeviceProfile, source: object) -> None:
-        if source is self:
-            return
         self._loading = True
         try:
-            self.load(profile)
+            if source is not self:  # never overwrite the widget being edited
+                self.load(profile)
+            self.refresh_state(profile)
         finally:
             self._loading = False
 

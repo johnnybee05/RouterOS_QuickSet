@@ -199,23 +199,16 @@ class LanBridgePage(Page):
         addressing = self.addressing.currentData()
         self.push(lambda profile: profile.model_copy(
             update={"lan": profile.lan.with_addressing(addressing)}))
-        # The page that made the edit gets no profileChanged back, so the widgets that
-        # depend on the addressing mode have to be refreshed here.
+        # with_addressing can fill in an address and switch the DHCP server off; values
+        # changed by our own edit do not come back through load().
         self._loading = True
         try:
-            self._refresh_lan(self.controller.profile)
+            lan = self.controller.profile.lan
+            self.lan_address.setText(str(lan.address) if lan.address else "")
+            self.lan_gateway.setText(str(lan.gateway) if lan.gateway else "")
+            self.dhcp_enabled.setChecked(lan.dhcp_server.enabled)
         finally:
             self._loading = False
-
-    def _refresh_lan(self, profile: DeviceProfile) -> None:
-        """Widgets that follow the addressing mode: only static has an address to edit."""
-        lan = profile.lan
-        static = lan.addressing == LanAddressing.STATIC
-        self.lan_address.setText(str(lan.address) if lan.address else "")
-        self.lan_address.setEnabled(static)
-        self.lan_gateway.setText(str(lan.gateway) if lan.gateway else "")
-        self.lan_gateway.setEnabled(static)
-        self.dhcp_enabled.setChecked(lan.dhcp_server.enabled)
 
     def _dhcp_group(self) -> QGroupBox:
         box = QGroupBox(S.DHCP_GROUP)
@@ -272,6 +265,14 @@ class LanBridgePage(Page):
         locked = {wan: S.WAN_PORT_LOCKED} if wan else {}
         self.ports.set_ports(ports, profile.bridge.ports, locked)
 
+    def refresh_state(self, profile: DeviceProfile) -> None:
+        bridge, lan = profile.bridge, profile.lan
+        self.pvid.setEnabled(bridge.vlan_filtering)
+        self.frame_types.setEnabled(bridge.vlan_filtering)
+        static = lan.addressing == LanAddressing.STATIC
+        self.lan_address.setEnabled(static)
+        self.lan_gateway.setEnabled(static)
+
     def on_inventory(self, inventory) -> None:
         self._refresh_ports(self.controller.profile)
 
@@ -284,13 +285,13 @@ class LanBridgePage(Page):
         self.vlan_filtering.setChecked(bridge.vlan_filtering)
         self.pvid.setValue(bridge.pvid)
         self.frame_types.setCurrentIndex(self.frame_types.findData(bridge.frame_types))
-        self.pvid.setEnabled(bridge.vlan_filtering)
-        self.frame_types.setEnabled(bridge.vlan_filtering)
         self.ip_firewall.setChecked(bridge.use_ip_firewall)
         self.offload_mode.setCurrentIndex(self.offload_mode.findData(bridge.hw_offload))
         self._refresh_ports(profile)
         self.addressing.setCurrentIndex(self.addressing.findData(lan.addressing))
-        self._refresh_lan(profile)
+        self.lan_address.setText(str(lan.address) if lan.address else "")
+        self.lan_gateway.setText(str(lan.gateway) if lan.gateway else "")
+        self.dhcp_enabled.setChecked(dhcp.enabled)
         self.pool_start.setText(str(dhcp.pool.start))
         self.pool_end.setText(str(dhcp.pool.end))
         self.dhcp_gateway.setText(str(dhcp.gateway) if dhcp.gateway else "")

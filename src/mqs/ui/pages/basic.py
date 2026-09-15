@@ -195,6 +195,8 @@ class BasicPage(Page):
         self.wan_list.setChecked(wan.add_to_wan_list)
         self.wan_mss.setChecked(wan.mss_clamping)
         self.wan_nat.setChecked(wan.nat_masquerade)
+
+    def refresh_state(self, profile: DeviceProfile) -> None:
         for widget in (self.wan_interface, self.wan_type, self.settings_stack, self.wan_list,
                        self.wan_mss, self.wan_nat):
-            widget.setEnabled(wan.enabled)
+            widget.setEnabled(profile.wan.enabled)
