@@ -384,6 +384,26 @@ any GUI exists — handy for you to review generated scripts early.
 
 ---
 
+## 8a. Progress
+
+| Milestone | State |
+|---|---|
+| M0 scaffolding | done |
+| M1 model + validation | done |
+| M2 IR, renderer, feature table, hardening parser/binding/access | done |
+| M3 capabilities + HW offload | done |
+| M4 generator v6/v7 + golden files | done |
+| M5a transports (API-SSL, SSH), fallback, discovery | done |
+| M5b MNDP network discovery | done |
+| M5c MAC connection | **waiting for a decision** (see §10.3) |
+| M6 apply flow (backup, upload, rollback, reconnect, verify) | done |
+| M7 profiles + logging | done |
+| M8 GUI | done |
+| M9 packaging + README | in progress |
+
+Deviation from §2: `blocks/services.py` was folded into `blocks/system.py`; the default hardening
+block lives in `model/resources/`; data files live in `src/mqs/data/` so they are packaged.
+
 ## 9. Decisions (plan approved 2026-09-14, recommendations accepted)
 
 | # | Topic | Decision |
@@ -448,7 +468,15 @@ The strategies below are tried in order:
   EC-SRP5 math is tested for internal consistency (client and simulated server derive the
   same key); interoperability can only be verified on a device.
 
-### 10.3 Updated milestones
+### 10.3 Status of the MAC connection (2026-09-15)
+
+Not implemented yet. MAC-Telnet authentication on RouterOS 6.43+ (EC-SRP5) is only known from
+reverse engineering; implementing it from memory would break the "never invent" rule. Options
+put to the user: A) MD5-only MAC-Telnet, B) EC-SRP5 based on a public reference implementation
+(after a licence check), C) IPv6 link-local only. Recommendation: B + C. The GUI button
+"Připojit přes MAC" is disabled until this is decided.
+
+### 10.4 Updated milestones
 
 M5 becomes **M5a** Transport (TLS, API-SSL, SSH, discovery) + **M5b** MNDP discovery +
 **M5c** MAC connection (link-local, MAC-Telnet bootstrap). All other milestones are unchanged.
