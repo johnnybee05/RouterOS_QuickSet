@@ -1,15 +1,249 @@
 # Optional enrichment only. Live detection from the device ALWAYS takes precedence;
 # the application must work for boards that are not listed here.
-# Keys are `board-name` values from /system resource print. NUTNO OVĚŘIT.
+#
+# SOURCE: MikroTik documentation read 2026-09-15 - the "RouterBoard / Switch-chip
+# description" table in *Switch Chip Features*, the models tables in *Marvell Prestera
+# switch chip features* and *CRS1xx and 2xx series switches*. Documentation, not devices:
+# NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
+#
+# Keys are matched against `board-name` from /system resource print by longest normalised
+# prefix (case and punctuation ignored), because the reported name carries suffixes the
+# documentation does not use - "RB4011iGS+5HacQ2HnD" for "RB4011iGS+". Longest wins, which
+# is what keeps RB750Gr3 (MT7621) off the unrelated RB750G (Atheros8316) entry, so always
+# add the most specific spelling of a model as its own entry.
+#
+# Notes are shown in the UI after connecting. Keep them short and in Czech.
 
 devices:
-  RB4011iGS+:
+  # --- Marvell Prestera: CRS3xx, CRS5xx, CCR21xx, RDS ------------------------------
+  "CRS304-4XG":
+    notes: ["Marvell-98DX2528 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS305-1G-4S+IN":
+    notes: ["Marvell-98DX3236 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS305-1G-4S+OUT":
+    notes: ["Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS309-1G-8S+":
+    notes: ["Marvell-98DX8208 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS310-1G-5S-4S+":
+    notes: ["Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS310-8G+2S+":
+    notes: ["Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS312-4C+8XG":
+    notes: ["Marvell-98DX8212 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS317-1G-16S+":
+    notes: ["Marvell-98DX8216 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS318-1Fi-15Fr-2S":
+    notes: ["netPower 15FR, Marvell-98DX224S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS318-16P-2S+":
+    notes: ["netPower 16P, Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS320-8P-8B-4S+":
+    notes: ["Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS326-24G-2S+":
+    notes: ["Marvell-98DX3236 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS326-24S+2Q+":
+    notes: ["Marvell-98DX8332 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS326-4C+20G+2Q+":
+    notes: ["Marvell-98DX8332 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS328-24P-4S+":
+    notes: ["Marvell-98DX3236 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS328-4C-20S-4S+":
+    notes: ["Marvell-98DX3236 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS354-48G-4S+2Q+":
+    notes: ["Marvell-98DX3257 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS354-48P-4S+2Q+":
+    notes: ["Marvell-98DX3257 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS418-8P-8G-2S+":
+    notes: ["Marvell-98DX226S (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS504-4XQ":
+    notes: ["Marvell-98DX4310 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS510-8XS-2XQ":
+    notes: ["Marvell-98DX4310 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS518-16XS-2XQ":
+    notes: ["Marvell-98DX8525 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS520-4XS-16XQ":
+    notes: ["Marvell-98CX8410 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS804-4DDQ":
+    notes: ["Marvell-98DX7335 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CRS812-8DS-2DQ-2DDQ":
+    notes: ["Marvell-98DX7335 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CCR2116-12G-4S+":
+    notes: ["Marvell-98DX3255 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "CCR2216-1G-12XS-2XQ":
+    notes: ["Marvell-98DX8525 (Prestera): MSTP i vlan-filtering se offloadují."]
+  "RDS2216":
+    notes: ["Marvell-98DX4310 (Prestera): MSTP i vlan-filtering se offloadují."]
+
+  # --- CRS1xx / CRS2xx -------------------------------------------------------------
+  "CRS105-5S-FB":
+    notes: ["QCA-8511: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS106-1C-5S":
+    notes: ["QCA-8511: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS112-8G-4S":
+    notes: ["QCA-8511: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS109-8G-1S-2HnD":
+    notes: ["QCA-8513L: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS125-24G-1S":
+    notes: ["QCA-8513L: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS210-8G-2S+":
+    notes: ["QCA-8519: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS212-1G-10S-1S+":
+    notes: ["QCA-8519: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+  "CRS226-24G-2S+":
+    notes: ["QCA-8519: MSTP ani vlan-filtering se na tomto čipu neoffloadují."]
+
+  # --- Marvell Link Street ---------------------------------------------------------
+  "RB5009":
+    notes: ["88E6393X (ether1–8 a sfp-sfpplus1). MSTP se offloaduje, vlan-filtering od v7."]
+  "L009":
+    notes: ["88E6190 (ether2–8 a sfp1). MSTP se offloaduje, vlan-filtering od v7."]
+  "CCR2004-16G-2S+":
     notes:
-      - "Dva switch čipy (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
-      - "SFP+ port je připojený přímo k CPU, neoffloaduje se."
-  RB4011iGS+5HacQ2HnD:
+      - "Dva čipy 88E6191X (ether1–8 a ether9–16); provoz mezi skupinami jde přes CPU."
+      - "MSTP se offloaduje, vlan-filtering od RouterOS v7."
+
+  # --- Realtek RTL8367 -------------------------------------------------------------
+  "RB4011iGS+":
     notes:
-      - "Dva switch čipy (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
-  RB5009UG+S+:
+      - "Dva switch čipy RTL8367 (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
+      - "SFP+ port není na switch čipu, neoffloaduje se."
+      - "MSTP se offloaduje, vlan-filtering až od RouterOS 7.1."
+  "RB1100AHx4":
     notes:
-      - "ether1 a SFP+ nejsou na hlavním switch čipu."
+      - "Tři čipy RTL8367 (ether1–5, ether6–10, ether11–13); mezi skupinami jde provoz přes CPU."
+      - "MSTP se offloaduje, vlan-filtering až od RouterOS 7.1."
+
+  # --- MediaTek / Econet -----------------------------------------------------------
+  "RB750Gr3":
+    notes: ["hEX, MT7621 (ether1–5). MSTP se offloaduje, vlan-filtering až od RouterOS 7.1."]
+  "RB760iGS":
+    notes: ["hEX S, MT7621 (ether1–5). MSTP se offloaduje, vlan-filtering až od RouterOS 7.1."]
+  "RBM33G":
+    notes: ["MT7621 (ether1–3). MSTP se offloaduje, vlan-filtering až od RouterOS 7.1."]
+  "L41G-2axD":
+    notes: ["hAP ax lite, MT7531 (ether1–4). Vlan-filtering se offloaduje až od RouterOS 7.1."]
+  "E50UG":
+    notes: ["hEX Refresh, EN7523 (ether2–5). Vlan-filtering se offloaduje až od RouterOS 7.1."]
+
+  # --- IPQ-PPE: MikroTik zde HW offload bridge nedoporučuje ------------------------
+  "C52iG-5HaxD2HaxD":
+    notes: ["hAP ax2, IPQ-PPE (ether1–5). MikroTik doporučuje softwarový bridge s RSTP."]
+  "C53UiG+5HPaxD2HPaxD":
+    notes: ["hAP ax3, IPQ-PPE (ether1–5). MikroTik doporučuje softwarový bridge s RSTP."]
+  "cAPGi-5HaxD2HaxD":
+    notes: ["cAP ax, IPQ-PPE (ether1–2). MikroTik doporučuje softwarový bridge s RSTP."]
+
+  # --- QCA8337 ---------------------------------------------------------------------
+  "RB3011":
+    notes:
+      - "Dva čipy QCA8337 (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."
+      - "MSTP ani vlan-filtering se na QCA8337 neoffloadují."
+  "RB750Gr2":
+    notes: ["hEX, QCA8337 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB962UiGS-5HacT2HnT":
+    notes: ["hAP ac, QCA8337 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB960PGS":
+    notes: ["hEX PoE / PowerBox Pro, QCA8337 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RBOmniTikPG-5HacD":
+    notes: ["OmniTik ac, QCA8337 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+
+  # --- Atheros8327 -----------------------------------------------------------------
+  "RB2011":
+    notes:
+      - "Atheros8327 (ether1–5 + sfp1) a Atheros8227 (ether6–10); mezi skupinami jde provoz přes CPU."
+      - "MSTP ani vlan-filtering se na těchto čipech neoffloadují."
+  "RB1100AH":
+    notes: ["Dva čipy Atheros8327 (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."]
+  "RB1100AHx2":
+    notes: ["Dva čipy Atheros8327 (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."]
+  "RB953GS":
+    notes: ["Atheros8327 (ether1–3 + sfp1). MSTP ani vlan-filtering se neoffloadují."]
+  "RB850Gx2":
+    notes: ["Atheros8327 (ether1–5), ether1 lze ze switche vyjmout (switch-all-ports)."]
+  "RB750GL":
+    notes: ["Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB751G-2HnD":
+    notes: ["Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB951G-2HnD":
+    notes: ["Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RBD52G-5HacD2HnD":
+    notes: ["hAP ac², Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RBD53":
+    notes: ["hAP ac³ / Chateau, Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RBcAPGi-5acD2nD":
+    notes: ["cAP ac, Atheros8327 (ether1–2). MSTP ani vlan-filtering se neoffloadují."]
+  "RBwAPG-5HacD2HnD":
+    notes: ["wAP ac, Atheros8327 (ether1–2). MSTP ani vlan-filtering se neoffloadují."]
+  "RBwAPGR-5HacD2HnD":
+    notes: ["wAP R ac / wAP ac LTE, Atheros8327 (ether1–2)."]
+  "RBD25G":
+    notes: ["Audience, Atheros8327 (ether1–2). MSTP ani vlan-filtering se neoffloadují."]
+  "RBD22UGS-5HPacD2HnD":
+    notes: ["mANTBox 52 15s, Atheros8327 (ether1 + sfp1)."]
+  "CCR1009-8G-1S":
+    notes: ["Atheros8327 (ether1–4); ostatní porty jsou přímo na CPU."]
+  "RB450Gx4":
+    notes: ["Atheros8327 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB433GL":
+    notes: ["Atheros8327 (ether1–3). MSTP ani vlan-filtering se neoffloadují."]
+
+  # --- Atheros8316 -----------------------------------------------------------------
+  "RB493G":
+    notes: ["Dva čipy Atheros8316 (ether1 + ether6–9 a ether2–5); mezi skupinami jde provoz přes CPU."]
+  "RB435G":
+    notes: ["Atheros8316 (ether1–3), ether1 lze ze switche vyjmout (switch-all-ports)."]
+  "RB450G":
+    notes: ["Atheros8316 (ether1–5), ether1 lze ze switche vyjmout (switch-all-ports)."]
+  "RB750G":
+    notes: ["Atheros8316 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB1200":
+    notes: ["Atheros8316 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB1100":
+    notes: ["Dva čipy Atheros8316 (ether1–5 a ether6–10); provoz mezi skupinami jde přes CPU."]
+
+  # --- Atheros8227 -----------------------------------------------------------------
+  "RB941-2nD":
+    notes: ["hAP lite, Atheros8227 (ether1–4). MSTP ani vlan-filtering se neoffloadují."]
+  "RBwsAP-5Hac2nD":
+    notes: ["wsAP ac lite, Atheros8227 (ether1–3)."]
+  "RB951Ui-2nD":
+    notes: ["hAP, Atheros8227 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB951Ui-2HnD":
+    notes: ["Atheros8227 (ether1–5). MSTP ani vlan-filtering se neoffloadují."]
+  "RB952Ui-5ac2nD":
+    notes: ["hAP ac lite, Atheros8227 (ether1–5)."]
+  "RB750r2":
+    notes: ["hEX lite, Atheros8227 (ether1–5)."]
+  "RB750UPr2":
+    notes: ["hEX PoE lite, Atheros8227 (ether1–5)."]
+  "RB750P-PBr2":
+    notes: ["PowerBox, Atheros8227 (ether1–5)."]
+  "RBOmniTikU-5HnDr2":
+    notes: ["OmniTIK 5, Atheros8227 (ether1–5)."]
+  "RBOmniTikUPA-5HnDr2":
+    notes: ["OmniTIK 5 PoE, Atheros8227 (ether1–5)."]
+  "RBmAP2nD":
+    notes: ["mAP, Atheros8227 (ether1–2)."]
+  "DISC Lite5":
+    notes: ["Atheros8227 (ether1)."]
+
+  # --- Atheros7240 -----------------------------------------------------------------
+  "RBmAP2n":
+    notes: ["Atheros7240 (ether1–2)."]
+  "RB750":
+    notes: ["Atheros7240 (ether2–5); ether1 je přímo na CPU."]
+  "RB750UP":
+    notes: ["Atheros7240 (ether2–5); ether1 je přímo na CPU."]
+  "RB751U-2HnD":
+    notes: ["Atheros7240 (ether2–5); ether1 je přímo na CPU."]
+  "RB951-2n":
+    notes: ["Atheros7240 (ether2–5); ether1 je přímo na CPU."]
+
+  # --- ICPlus ----------------------------------------------------------------------
+  "RB433":
+    notes: ["ICPlus175D (ether2–3), starší kusy ICPlus175C; HW offload bridge se zde nenabízí."]
+  "RB450":
+    notes: ["ICPlus175D (ether2–5), starší kusy ICPlus175C; HW offload bridge se zde nenabízí."]
+  "RB493":
+    notes: ["ICPlus178C (ether2–9); HW offload bridge se zde nenabízí."]
+  "RB816":
+    notes: ["ICPlus178C (ether1–16); HW offload bridge se zde nenabízí."]

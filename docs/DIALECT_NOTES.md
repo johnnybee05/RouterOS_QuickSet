@@ -55,6 +55,7 @@ Prestera switch chip features*, *CRS1xx and 2xx series switches*.
 | IPQ-PPE offload | `data/switch_chips.yaml`, `capabilities/offload.py` | Footnote 9: HW offloaded bridge support is still work in progress and MikroTik recommends the non-offloaded bridge with RSTP → `hw_offload: false`, offload is not offered (the user can still force it) | NUTNO OVĚŘIT |
 | Unlisted Prestera parts | `data/switch_chips.yaml` families | `Marvell-98DX*` and `Marvell-98CX*` that are not listed fall back to Prestera capabilities | NUTNO OVĚŘIT |
 | 98PX1012 | `data/switch_chips.yaml` | Switch Chip Features gives it `no` for port switching, mirroring, host and VLAN tables, and it is absent from the offload table → no bridge HW offload | NUTNO OVĚŘIT |
+| Known device notes | `data/known_devices.yaml`, `capabilities/chips.py:device_notes` | Boards and their chips come from the RouterBoard-to-chip table of *Switch Chip Features* plus the model tables of the Prestera and CRS1xx/2xx manuals. Matched by longest normalised `board-name` prefix: the reported name carries suffixes the documentation omits (`RB4011iGS+5HacQ2HnD`), while `RB750G`, `RB750Gr2` and `RB750Gr3` are three different chips, so the most specific entry has to win | NUTNO OVĚŘIT (the `board-name` strings devices actually report) |
 
 ## 2. Transport and apply notes
 

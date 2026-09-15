@@ -66,6 +66,7 @@ MAC_NO_INTERFACE = ("Nepodařilo se zjistit, přes kterou síťovou kartu je za�
                     "Spusťte vyhledávání znovu.")
 MAC_NO_ADDRESS = "V síti této karty není volná adresa, kterou by šlo dočasně přidělit."
 DEVICE_INFO_GROUP = "Detekce"
+DEVICE_NOTES = "Poznámky k modelu (z dokumentace MikroTiku, neověřeno na zařízení):"
 DEVICE_PORTS_GROUP = "Porty"
 DEVICE_PORT_COLUMNS = ["Port", "Typ", "Switch čip", "Stav", "MAC"]
 DEVICE_OFFLINE_GROUP = "Offline (bez zařízení)"

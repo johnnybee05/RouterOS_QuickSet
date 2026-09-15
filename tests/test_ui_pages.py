@@ -106,7 +106,7 @@ def two_chip_inventory():
     port_switch |= {f"ether{i}": "switch2" for i in range(6, 11)}
     return make_inventory("7.15.3", TEN_PORTS, switches={"switch1": "QCA8337",
                                                          "switch2": "QCA8337"},
-                          port_switch=port_switch)
+                          port_switch=port_switch, board_name="RB3011UiAS-RM")
 
 
 class RecordingOrchestrator:
@@ -208,7 +208,9 @@ def test_connect_updates_status_badge_and_ports(window, qtbot):
     assert "192.168.88.1" in window.status_connection.text()
     assert "nešifrovaná identita" in window.status_security.text()
     assert window.device_page.ports_table.rowCount() == 10
-    assert window.device_page.info_labels["board"].text() == "test-board"
+    assert window.device_page.info_labels["board"].text() == "RB3011UiAS-RM"
+    notes = window.device_page.device_notes
+    assert notes.isVisibleTo(window.device_page) and "QCA8337" in notes.text()
     assert window.controller.ports() == TEN_PORTS
     window.device_page.disconnect_device()
     assert window.status_connection.text() == "Odpojeno"

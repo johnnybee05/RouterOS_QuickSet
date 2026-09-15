@@ -103,5 +103,19 @@ def _known_devices() -> dict[str, Any]:
 
 
 def device_notes(board_name: str) -> list[str]:
-    entry = _known_devices().get(board_name) or {}
-    return list(entry.get("notes") or [])
+    """Notes for a board, matched on the longest normalised key prefix.
+
+    /system resource print reports names the documentation does not use verbatim
+    ("RB4011iGS+5HacQ2HnD" for "RB4011iGS+"), so an exact lookup misses. Taking the
+    longest matching prefix is what keeps RB750Gr3 (MT7621) off the RB750G entry
+    (Atheros8316), which a first-match rule would happily return.
+    """
+    key = _normalize(board_name)
+    if not key:
+        return []
+    best_len, best_notes = 0, []
+    for name, entry in _known_devices().items():
+        prefix = _normalize(name)
+        if prefix and key.startswith(prefix) and len(prefix) > best_len:
+            best_len, best_notes = len(prefix), list((entry or {}).get("notes") or [])
+    return best_notes

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
 from mqs.logging_setup import SecretRegistry
 from mqs.model.inventory import DeviceInventory, Ipv6PackageState
@@ -248,6 +249,10 @@ class DevicePage(Page):
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.info_labels[key] = value
             form.addRow(label, value)
+        self.device_notes = QLabel()
+        self.device_notes.setWordWrap(True)
+        self.device_notes.hide()
+        form.addRow(self.device_notes)
         return box
 
     def _ports_group(self) -> QGroupBox:
@@ -489,6 +494,7 @@ class DevicePage(Page):
         if inventory is None:
             for label in labels.values():
                 label.setText("—")
+            self.device_notes.hide()
             self.ports_table.setRowCount(0)
             return
         resource = inventory.resource
@@ -504,6 +510,12 @@ class DevicePage(Page):
         labels["wireless"].setText(inventory.wireless.value)
         labels["ipv6"].setText(S.IPV6_STATES.get(inventory.ipv6_package_state.value,
                                                  inventory.ipv6_package_state.value))
+        notes = device_notes(resource.board_name)
+        if notes:
+            self.device_notes.setText(
+                S.DEVICE_NOTES + "\n" + "\n".join(f"• {note}" for note in notes)
+            )
+        self.device_notes.setVisible(bool(notes))
         selectable = set(inventory.port_names)
         rows = [i for i in inventory.interfaces if i.name in selectable]
         self.ports_table.setRowCount(len(rows))

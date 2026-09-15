@@ -311,3 +311,24 @@ def test_chip_database_helpers():
     assert chip.mstp == Tri.NO
     assert device_notes("RB4011iGS+")
     assert device_notes("unknown-board") == []
+
+
+def test_device_notes_match_the_longest_prefix():
+    # /system resource print reports suffixes the documentation does not use.
+    assert "RTL8367" in device_notes("RB4011iGS+5HacQ2HnD")[0]
+
+    # RB750, RB750G, RB750Gr2 and RB750Gr3 are four different switch chips, so a
+    # first-match prefix rule would answer with the wrong one.
+    assert "Atheros7240" in device_notes("RB750")[0]
+    assert "Atheros8316" in device_notes("RB750G")[0]
+    assert "QCA8337" in device_notes("RB750Gr2")[0]
+    assert "MT7621" in device_notes("RB750Gr3")[0]
+    assert "Atheros8227" in device_notes("RB750UPr2")[0]
+
+    # RB1100AHx4 must not fall back to the RB1100 entry.
+    assert "RTL8367" in device_notes("RB1100AHx4")[0]
+    assert "Atheros8316" in device_notes("RB1100")[0]
+    assert "Atheros8327" in device_notes("RB1100AHx2")[0]
+
+    assert device_notes("") == []
+    assert device_notes("Generic-Board") == []

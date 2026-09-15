@@ -34,7 +34,9 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
      nebo zadejte IP adresu ručně.
    - Zadejte uživatele a heslo a klikněte na *Připojit*.
    - Aplikace načte verzi, model, porty, switch čipy, balíčky a služby. V hlavičce okna
-     se zobrazí dialekt RouterOS **v6** nebo **v7**.
+     se zobrazí dialekt RouterOS **v6** nebo **v7**. U známých modelů se pod detekcí
+     vypíšou poznámky z databáze zařízení: kolik má switch čipů, které porty na nich jsou
+     a co daný čip neoffloaduje.
    - Zařízení bez použitelné IP adresy připojíte tlačítkem *Připojit přes MAC*
      (viz [Připojení přes MAC adresu](#připojení-přes-mac-adresu)).
    - Bez zařízení vyberte vpravo cílovou verzi a vypište porty (offline režim).
