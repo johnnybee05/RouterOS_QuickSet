@@ -55,6 +55,14 @@ Legend:
 | MNDP TLV type codes | UDP 5678; type table in `transport/mndp.py` | NUTNO OVĚŘIT |
 | MAC-Telnet | UDP 20561; MD5 auth < 6.43, EC-SRP5 6.43+; requires `/tool mac-server` allowed on the interface | NUTNO OVĚŘIT |
 | Identity charset | conservative `[A-Za-z0-9._-]`, max 64 | NUTNO OVĚŘIT (real RouterOS rules) |
+| Verified TLS strictness | Python 3.13 strict X.509 checks are disabled (`VERIFY_X509_STRICT` off) because device-generated certificates may lack e.g. Authority Key Identifier; chain is still verified | NUTNO OVĚŘIT |
+| SSH output parsing | list menus: `print terse` (+ `detail` for bridge ports), singleton menus: `print` with `key: value`; singleton list in `transport/ssh.py:SINGLETON_MENUS` | NUTNO OVĚŘIT |
+| SSH error detection | output patterns in `transport/cli_output.py:ERROR_PATTERNS` (`failure:`, `bad command name`, `syntax error`, `expected ...`, `no such item`, ...) | NUTNO OVĚŘIT |
+| API selectors | CLI index / item name / `[ find k=v ]` resolved to `.id` via print; `[ find where ... ]` requires SSH | NUTNO OVĚŘIT (console index order = API print order) |
+| FastTrack `hw-offload` probe | v7: `/console/inspect request=child path=ip,firewall,filter,add` must list `hw-offload`; failure = not confirmed = parameter omitted | NUTNO OVĚŘIT |
+| Flash directory detection | `/file print` item `name=flash` with `type=disk` or `directory` | NUTNO OVĚŘIT |
+| Session ingress port | `/ip arp` lookup of the client IP, then `/interface bridge host` `on-interface` for bridged MACs | NUTNO OVĚŘIT |
+| Wireless stack presence | v7: `/interface/wifi` then `/interface/wireless`; v6: `/interface/wireless` | NUTNO OVĚŘIT |
 
 ## 3. Verification log
 
