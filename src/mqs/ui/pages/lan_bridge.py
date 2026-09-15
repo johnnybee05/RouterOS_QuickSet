@@ -67,6 +67,7 @@ class LanBridgePage(Page):
             "bridge.priority": self.priority,
             "bridge.ageing_time_s": self.ageing,
             "lan.address": self.lan_address,
+            "lan.gateway": self.lan_gateway,
             "lan.dhcp_server.enabled": self.dhcp_enabled,
             "lan.dhcp_server.pool": self.pool_start,
             "lan.dhcp_server.gateway": self.dhcp_gateway,
@@ -175,15 +176,46 @@ class LanBridgePage(Page):
         self.addressing = QComboBox()
         for value, label in S.LAN_ADDRESSINGS.items():
             self.addressing.addItem(label, LanAddressing(value))
-        self.addressing.currentIndexChanged.connect(
-            lambda _: self.push_value("lan.addressing", self.addressing.currentData()))
+        self.addressing.currentIndexChanged.connect(self._addressing_changed)
         form.addRow(S.LAN_ADDRESSING, self.addressing)
         self.lan_address = QLineEdit()
         self.lan_address.setPlaceholderText("192.168.88.1/24")
         self.lan_address.textEdited.connect(lambda t: self.push_parsed(
             "lan.address", lambda: parse_cidr(t) if t.strip() else None))
         form.addRow(S.LAN_ADDRESS, self.lan_address)
+        self.lan_gateway = QLineEdit()
+        self.lan_gateway.setPlaceholderText("192.168.88.1")
+        self.lan_gateway.textEdited.connect(lambda t: self.push_parsed(
+            "lan.gateway", lambda: parse_optional_ip(t)))
+        form.addRow(S.LAN_GATEWAY, self.lan_gateway)
+        lan_help = QLabel(S.LAN_HELP)
+        lan_help.setWordWrap(True)
+        form.addRow(lan_help)
         return box
+
+    def _addressing_changed(self, _index: int) -> None:
+        if self._loading:
+            return
+        addressing = self.addressing.currentData()
+        self.push(lambda profile: profile.model_copy(
+            update={"lan": profile.lan.with_addressing(addressing)}))
+        # The page that made the edit gets no profileChanged back, so the widgets that
+        # depend on the addressing mode have to be refreshed here.
+        self._loading = True
+        try:
+            self._refresh_lan(self.controller.profile)
+        finally:
+            self._loading = False
+
+    def _refresh_lan(self, profile: DeviceProfile) -> None:
+        """Widgets that follow the addressing mode: only static has an address to edit."""
+        lan = profile.lan
+        static = lan.addressing == LanAddressing.STATIC
+        self.lan_address.setText(str(lan.address) if lan.address else "")
+        self.lan_address.setEnabled(static)
+        self.lan_gateway.setText(str(lan.gateway) if lan.gateway else "")
+        self.lan_gateway.setEnabled(static)
+        self.dhcp_enabled.setChecked(lan.dhcp_server.enabled)
 
     def _dhcp_group(self) -> QGroupBox:
         box = QGroupBox(S.DHCP_GROUP)
@@ -258,9 +290,7 @@ class LanBridgePage(Page):
         self.offload_mode.setCurrentIndex(self.offload_mode.findData(bridge.hw_offload))
         self._refresh_ports(profile)
         self.addressing.setCurrentIndex(self.addressing.findData(lan.addressing))
-        self.lan_address.setText(str(lan.address) if lan.address else "")
-        self.lan_address.setEnabled(lan.addressing == LanAddressing.STATIC)
-        self.dhcp_enabled.setChecked(dhcp.enabled)
+        self._refresh_lan(profile)
         self.pool_start.setText(str(dhcp.pool.start))
         self.pool_end.setText(str(dhcp.pool.end))
         self.dhcp_gateway.setText(str(dhcp.gateway) if dhcp.gateway else "")

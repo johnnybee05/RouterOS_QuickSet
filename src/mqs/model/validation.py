@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from ipaddress import IPv4Interface
 
 from mqs.issues import Issue, Severity
 from mqs.model.bridge import LanAddressing
@@ -135,6 +136,8 @@ def _lan(profile: DeviceProfile) -> list[Issue]:
                       {"lan": str(lan.address.network), "wan": str(wan_settings.address.network)})
             )
 
+    issues += _lan_gateway(profile, address)
+
     dhcp = lan.dhcp_server
     if not dhcp.enabled:
         return issues
@@ -158,6 +161,39 @@ def _lan(profile: DeviceProfile) -> list[Issue]:
                   {"gateway": str(dhcp.gateway), "network": str(network)})
         )
     return issues
+
+
+def _lan_gateway(profile: DeviceProfile, address: IPv4Interface | None) -> list[Issue]:
+    """Default route through the LAN gateway, used by devices without a WAN of their own."""
+    gateway = profile.lan.gateway
+    if gateway is None:
+        return []
+    if profile.lan.addressing != LanAddressing.STATIC:
+        return [Issue("lan.gateway_requires_static", W, "lan.gateway")]
+
+    issues: list[Issue] = []
+    if address is not None:
+        if gateway == address.ip:
+            issues.append(Issue("lan.gateway_is_address", E, "lan.gateway"))
+        elif gateway not in address.network:
+            issues.append(
+                Issue("lan.gateway_outside_subnet", E, "lan.gateway",
+                      {"gateway": str(gateway), "network": str(address.network)})
+            )
+    if _wan_adds_default_route(profile):
+        issues.append(Issue("lan.gateway_conflicts_wan", W, "lan.gateway"))
+    return issues
+
+
+def _wan_adds_default_route(profile: DeviceProfile) -> bool:
+    """True when the WAN already installs a default route of its own."""
+    wan = profile.wan
+    if not (wan.enabled and wan.interface):
+        return False
+    settings = wan.settings
+    if isinstance(settings, StaticWan):
+        return True
+    return settings.add_default_route
 
 
 def _firewall(profile: DeviceProfile) -> list[Issue]:

@@ -11,7 +11,7 @@ from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
 from mqs.generator.ir import Command, SectionKey
 from mqs.issues import codes
-from mqs.model.bridge import HwOffloadMode, ProtocolMode
+from mqs.model.bridge import HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.inventory import Ipv6PackageState, PackageInfo, ServiceInfo
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
@@ -54,6 +54,14 @@ def bridge_ap() -> DeviceProfile:
     return _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.NONE))
 
 
+def bridge_ap_static() -> DeviceProfile:
+    """AP with a fixed management address and a default route; it has no WAN of its own."""
+    profile = bridge_ap()
+    lan = _u(profile.lan.with_addressing(LanAddressing.STATIC),
+             address=IPv4Interface("192.168.88.10/24"), gateway=IPv4Address("192.168.88.1"))
+    return _u(profile, lan=lan)
+
+
 def custom_hardening() -> DeviceProfile:
     profile = router_dhcp()
     text = profile.services.hardening_text
@@ -71,6 +79,7 @@ SCENARIOS = {
     "router_static": router_static,
     "router_pppoe_fasttrack": router_pppoe_fasttrack,
     "bridge_ap": bridge_ap,
+    "bridge_ap_static": bridge_ap_static,
     "custom_hardening": custom_hardening,
 }
 
@@ -367,6 +376,22 @@ def test_bridge_ap_and_open_resolver():
     profile = router_dhcp()
     profile = _u(profile, firewall=_u(profile.firewall, basic_filter=False))
     assert "dns.open_resolver" in codes(generate(profile, target("7.15.3")).issues)
+
+
+def test_bridge_ap_static_address_and_default_route():
+    for version in TARGETS:
+        result = generate(bridge_ap_static(), target(version))
+        assert "/ip address\nadd address=192.168.88.10/24 interface=bridge\n" in result.text
+        assert "/ip route\nadd dst-address=0.0.0.0/0 gateway=192.168.88.1\n" in result.text
+        assert "/ip dhcp-client" not in result.text
+        assert "/ip dhcp-server" not in result.text
+        assert not result.has_errors, [str(i) for i in result.issues]
+
+
+def test_lan_gateway_is_omitted_without_a_static_address():
+    profile = bridge_ap_static()
+    dhcp = _u(profile, lan=profile.lan.with_addressing(LanAddressing.DHCP_CLIENT))
+    assert "/ip route" not in generate(dhcp, target("7.15.3")).text
 
 
 def test_services_extensions_and_robust_logging():

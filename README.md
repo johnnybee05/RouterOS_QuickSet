@@ -46,6 +46,11 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
 3. **LAN / Bridge**
    - Nastavte bridge, protocol-mode, členské porty (WAN port je vyloučený automaticky),
      IP adresu a DHCP server.
+   - *Adresace bridge* je **Statická**, **DHCP client**, nebo **Žádná**. U statické adresy jde
+     zadat i **bránu**; z ní se vygeneruje výchozí trasa
+     `/ip route add dst-address=0.0.0.0/0 gateway=…`. Díky tomu se i zařízení v režimu
+     Bridge / AP, které nemá vlastní WAN, dostane na DNS, NTP a SNMP mimo svoji síť.
+     Pokud je zapnutá WAN, výchozí trasu přidává už ona a aplikace na druhou upozorní.
    - Tabulka HW offloadu ukazuje u každého portu, zda poběží v hardwaru, a proč.
 4. **Firewall**: základní filtr a FastTrack. Při zapnutí FastTracku se aplikace zeptá na
    tvarování provozu.

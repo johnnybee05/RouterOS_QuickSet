@@ -30,6 +30,11 @@ def build(
                 Comment("LAN address"),
                 cmd("/ip address", "add", address=str(lan.address), interface=bridge.name),
             )
+            if lan.gateway is not None:
+                section.add(
+                    Comment("Default route through the LAN gateway"),
+                    cmd("/ip route", "add", dst_address="0.0.0.0/0", gateway=str(lan.gateway)),
+                )
         elif lan.addressing == LanAddressing.DHCP_CLIENT:
             section.add(
                 Comment("Management address from DHCP on the bridge"),

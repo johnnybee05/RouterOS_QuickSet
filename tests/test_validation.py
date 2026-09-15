@@ -3,11 +3,12 @@ from ipaddress import IPv4Address, IPv4Interface
 import pytest
 from pydantic import SecretStr
 
-from factories import make_inventory, router_profile
+from factories import FIVE_PORTS, make_inventory, router_profile
 from mqs.issues import Severity, codes, has_errors
 from mqs.model.bridge import LanAddressing
 from mqs.model.network import Ipv4Range
-from mqs.model.profile import Mode
+from mqs.model.presets import apply_preset
+from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.validation import validate_profile
 from mqs.model.wan import PppoeWan, StaticWan
 
@@ -23,6 +24,10 @@ def _with_wan_settings(profile, settings):
 def _with_dhcp(profile, **changes):
     dhcp = _update(profile.lan.dhcp_server, **changes)
     return _update(profile, lan=_update(profile.lan, dhcp_server=dhcp))
+
+
+def _with_lan(profile, **changes):
+    return _update(profile, lan=_update(profile.lan, **changes))
 
 
 def _static(address, gateway):
@@ -172,6 +177,46 @@ def test_dhcp_requires_static_addressing():
     profile = router_profile()
     profile = _update(profile, lan=_update(profile.lan, addressing=LanAddressing.DHCP_CLIENT))
     assert "dhcp.requires_static" in codes(validate_profile(profile))
+
+
+def test_lan_gateway_must_be_reachable():
+    profile = router_profile()  # LAN 192.168.88.1/24
+    same = _with_lan(profile, gateway=IPv4Address("192.168.88.1"))
+    assert "lan.gateway_is_address" in codes(validate_profile(same))
+    outside = _with_lan(profile, gateway=IPv4Address("10.9.9.1"))
+    assert "lan.gateway_outside_subnet" in codes(validate_profile(outside))
+
+
+def test_lan_gateway_warns_when_wan_already_routes():
+    profile = _with_lan(router_profile(), gateway=IPv4Address("192.168.88.254"))
+    issues = validate_profile(profile)
+    assert "lan.gateway_conflicts_wan" in codes(issues)
+    assert not has_errors(issues)
+
+    no_route = _update(profile.wan, settings=_update(profile.wan.settings,
+                                                     add_default_route=False))
+    assert "lan.gateway_conflicts_wan" not in codes(
+        validate_profile(_update(profile, wan=no_route)))
+
+
+def test_bridge_ap_with_static_address_and_gateway_is_valid():
+    """The Bridge / AP scenario the GUI produces: fixed management IP plus a default route."""
+    profile = apply_preset(DeviceProfile(identity="AP1"), Mode.BRIDGE_AP, FIVE_PORTS)
+    lan = _update(profile.lan.with_addressing(LanAddressing.STATIC),
+                  address=IPv4Interface("192.168.88.10/24"),
+                  gateway=IPv4Address("192.168.88.1"))
+    issues = validate_profile(_update(profile, lan=lan), make_inventory())
+    assert not has_errors(issues), [str(i) for i in issues]
+    assert "lan.gateway_conflicts_wan" not in codes(issues)  # no WAN of its own
+
+
+def test_lan_gateway_without_static_addressing_warns():
+    profile = _with_lan(router_profile(), addressing=LanAddressing.DHCP_CLIENT,
+                        gateway=IPv4Address("192.168.88.1"))
+    issues = validate_profile(profile)
+    assert "lan.gateway_requires_static" in codes(issues)
+    gateway_issue = next(i for i in issues if i.code == "lan.gateway_requires_static")
+    assert gateway_issue.severity == Severity.WARNING
 
 
 def test_fasttrack_warnings():

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from ipaddress import IPv4Interface
 
-from mqs.model.bridge import BridgeConfig, DhcpServerConfig, LanAddressing, LanConfig
+from mqs.model.bridge import (
+    DEFAULT_LAN_ADDRESS,
+    BridgeConfig,
+    DhcpServerConfig,
+    LanAddressing,
+    LanConfig,
+)
 from mqs.model.firewall import FirewallConfig
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import DhcpWan, WanConfig
-
-DEFAULT_LAN_ADDRESS = IPv4Interface("192.168.88.1/24")
 
 
 def apply_preset(profile: DeviceProfile, mode: Mode, ports: Sequence[str]) -> DeviceProfile:

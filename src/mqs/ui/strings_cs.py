@@ -124,6 +124,12 @@ LAN_GROUP = "IP adresa LAN"
 LAN_ADDRESSING = "Adresace bridge"
 LAN_ADDRESSINGS = {"static": "Statická", "dhcp-client": "DHCP client", "none": "Žádná"}
 LAN_ADDRESS = "Adresa / maska (CIDR)"
+LAN_GATEWAY = "Brána (výchozí trasa, volitelně)"
+LAN_HELP = (
+    "V režimu Bridge / AP zvolte Statická, pokud má mít zařízení pevnou adresu pro správu. "
+    "Brána vytvoří výchozí trasu (/ip route add dst-address=0.0.0.0/0), aby zařízení dosáhlo "
+    "na DNS, NTP a SNMP mimo svoji síť. Pokud je zapnutá WAN, výchozí trasu přidává už ona."
+)
 DHCP_GROUP = "DHCP server"
 DHCP_ENABLED = "Zapnout DHCP server"
 DHCP_POOL_START = "Pool od"

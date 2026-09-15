@@ -6,7 +6,7 @@ from pydantic import SecretStr, ValidationError
 from factories import make_inventory, router_profile
 from mqs.issues import Issue, Severity, codes, has_errors
 from mqs.messages_cs import format_message
-from mqs.model.bridge import BridgeConfig
+from mqs.model.bridge import DEFAULT_LAN_ADDRESS, BridgeConfig, LanAddressing, LanConfig
 from mqs.model.inventory import Ipv6PackageState, PackageInfo
 from mqs.model.network import Ipv4Range, usable_host
 from mqs.model.profile import DeviceProfile
@@ -52,6 +52,21 @@ def test_wan_with_type_defaults():
     assert static.mss_clamping is False
     assert static.with_type(WanType.STATIC) is static
     assert static.with_type(WanType.DHCP).type == WanType.DHCP
+
+
+def test_lan_with_addressing():
+    empty = LanConfig(addressing=LanAddressing.DHCP_CLIENT, address=None)
+    static = empty.with_addressing(LanAddressing.STATIC)
+    assert static.address == DEFAULT_LAN_ADDRESS  # always something to edit
+    assert static.with_addressing(LanAddressing.STATIC) is static
+
+    configured = LanConfig(address=IPv4Interface("10.0.0.1/24"), gateway=IPv4Address("10.0.0.254"))
+    assert configured.dhcp_server.enabled
+    dropped = configured.with_addressing(LanAddressing.DHCP_CLIENT)
+    assert dropped.gateway is None  # both need a static address of their own
+    assert not dropped.dhcp_server.enabled
+    assert dropped.address == IPv4Interface("10.0.0.1/24")  # kept for switching back
+    assert dropped.with_addressing(LanAddressing.NONE).address == IPv4Interface("10.0.0.1/24")
 
 
 def test_ipv4_range():

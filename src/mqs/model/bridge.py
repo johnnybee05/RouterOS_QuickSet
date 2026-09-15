@@ -65,9 +65,35 @@ class DhcpServerConfig(BaseModel):
     comment: str = ""
 
 
+DEFAULT_LAN_ADDRESS = IPv4Interface("192.168.88.1/24")
+
+
 class LanConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     addressing: LanAddressing = LanAddressing.STATIC
-    address: IPv4Interface | None = IPv4Interface("192.168.88.1/24")
+    address: IPv4Interface | None = DEFAULT_LAN_ADDRESS
+    # Default route out of the LAN. On a device without its own WAN (bridge / AP) this is
+    # the only way to reach DNS, NTP and SNMP outside the management subnet.
+    gateway: IPv4Address | None = None
     dhcp_server: DhcpServerConfig = Field(default_factory=DhcpServerConfig)
+
+    def with_addressing(self, addressing: LanAddressing) -> LanConfig:
+        """Switch addressing, keeping the rest of the LAN consistent.
+
+        Static always ends up with an address to edit; the other modes drop the gateway and
+        the DHCP server, because both of them need a static address of their own.
+        """
+        if addressing == self.addressing:
+            return self
+        if addressing == LanAddressing.STATIC:
+            return self.model_copy(
+                update={"addressing": addressing, "address": self.address or DEFAULT_LAN_ADDRESS}
+            )
+        return self.model_copy(
+            update={
+                "addressing": addressing,
+                "gateway": None,
+                "dhcp_server": self.dhcp_server.model_copy(update={"enabled": False}),
+            }
+        )

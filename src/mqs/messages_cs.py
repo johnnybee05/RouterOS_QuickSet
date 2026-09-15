@@ -32,6 +32,12 @@ MESSAGES: dict[str, str] = {
     "lan.address_missing": "Zadejte IP adresu bridge.",
     "lan.address_not_host": "Adresa {address} je adresa sítě nebo broadcast.",
     "lan.overlaps_wan": "Síť LAN {lan} se překrývá se sítí WAN {wan}.",
+    "lan.gateway_is_address": "Brána nesmí být stejná jako adresa bridge.",
+    "lan.gateway_outside_subnet": "Brána {gateway} neleží v síti {network}, není dosažitelná.",
+    "lan.gateway_requires_static": "Brána se použije jen se statickou adresou bridge – "
+    "s jinou adresací se výchozí trasa nevygeneruje.",
+    "lan.gateway_conflicts_wan": "Výchozí trasu už přidává WAN. Dvě výchozí trasy se budou "
+    "překrývat – nechte jen jednu.",
     "dhcp.requires_static": "DHCP server vyžaduje statickou IP adresu na bridge.",
     "dhcp.pool_outside_subnet": "Rozsah {pool} neleží celý v síti {network}.",
     "dhcp.pool_contains_address": "Rozsah {pool} obsahuje adresu bridge {address}.",

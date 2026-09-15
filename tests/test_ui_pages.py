@@ -16,7 +16,7 @@ from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.verify import CheckResult
-from mqs.model.bridge import ProtocolMode
+from mqs.model.bridge import LanAddressing, ProtocolMode
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import AuthError
@@ -25,7 +25,7 @@ from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
 from mqs.transport.netifs import LocalInterface
 from mqs.ui.main_window import MainWindow
-from mqs.ui.pages.base import parse_cidr
+from mqs.ui.pages.base import parse_cidr, parse_optional_ip
 
 pytestmark = pytest.mark.qt
 
@@ -340,6 +340,26 @@ def test_lan_page_locks_wan_and_shows_offload_conflict(window, qtbot):
     window.controller.recompute()
     assert window.controller.profile.bridge.protocol_mode == ProtocolMode.RSTP
     assert not page.switch_to_rstp.isVisibleTo(page)
+
+
+def test_lan_page_static_address_and_gateway(window):
+    page = window.lan_page
+    page.addressing.setCurrentIndex(page.addressing.findData(LanAddressing.DHCP_CLIENT))
+    assert not page.lan_address.isEnabled() and not page.lan_gateway.isEnabled()
+    assert not window.controller.profile.lan.dhcp_server.enabled
+
+    page.addressing.setCurrentIndex(page.addressing.findData(LanAddressing.STATIC))
+    assert page.lan_address.isEnabled() and page.lan_gateway.isEnabled()
+    assert page.lan_address.text() == "192.168.88.1/24"
+    page.push_parsed("lan.gateway", lambda: parse_optional_ip("192.168.88.254"))
+    assert str(window.controller.profile.lan.gateway) == "192.168.88.254"
+    window.controller.recompute()
+    assert "add dst-address=0.0.0.0/0 gateway=192.168.88.254" in \
+        window.preview_page.views[7].toPlainText()
+
+    page.addressing.setCurrentIndex(page.addressing.findData(LanAddressing.NONE))
+    assert window.controller.profile.lan.gateway is None
+    assert page.lan_gateway.text() == ""
 
 
 def test_firewall_fasttrack_asks_about_shaping(window):

@@ -419,6 +419,7 @@ block lives in `model/resources/`; data files live in `src/mqs/data/` so they ar
 | Q9 | Identity | Conservative `[A-Za-z0-9._-]`, max 64 chars, one constant |
 | Q10 | run-after-reset | Configurable `:delay` at the start of the reset file only (default NUTNO OVĚŘIT) |
 | Q11 | Milestones | No waiting for approval — commit + short report, then continue |
+| Q12 | LAN gateway (added 2026-09-15) | A static bridge address can carry a gateway, generating `/ip route add dst-address=0.0.0.0/0`. Bridge / AP has no WAN of its own, so this is its only way out; Winbox QuickSet offers the same field in bridge mode. A gateway next to a WAN that already routes is a warning, not an error |
 
 ---
 
