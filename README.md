@@ -119,16 +119,14 @@ Rozdíl proti Winboxu: Winbox jede celou relaci přes vlastní MAC protokol, tat
 přes MAC jen nabootstrapuje spojení a dál pracuje přes api-ssl nebo SSH. Díky tomu funguje
 i záloha, přenos souborů a ověření konfigurace po aplikaci.
 
-> **Tato cesta zatím nefunguje spolehlivě — stav k 16. 9. 2026.** Na RouterOS 7.20.7 je
-> ověřené, že zařízení odpovídá a že přihlášení přes EC-SRP5 projde. Spouštění příkazů
-> přes MAC-Telnet ale vrací prázdný výstup a handshake občas selže, takže **přidání
-> dočasné adresy není prokázané**. Podrobnosti a rozpracované stopy jsou v
-> `docs/DIALECT_NOTES.md`. Než to bude hotové, připojujte se přes IP adresu.
+> **Ověřeno 16. 9. 2026** na hEX S s RouterOS 7.20.7: vyhledání, přihlášení přes
+> MAC-Telnet, přidání dočasné adresy i následné připojení přes api-ssl proběhly celé.
+> Zjištěné odchylky protokolu jsou popsané v `docs/DIALECT_NOTES.md`.
 >
 > MAC-Telnet ani EC-SRP5 nejsou od MikroTiku dokumentované; implementace vychází z veřejné
-> referenční implementace (viz `THIRD_PARTY_NOTICES.md`). Vyžaduje také, aby na daném
-> rozhraní byl povolený `/tool mac-server`. Přihlášení MD5 pro RouterOS starší než 6.43
-> implementované není.
+> referenční implementace (viz `THIRD_PARTY_NOTICES.md`). Vyžaduje, aby na daném rozhraní
+> byl povolený `/tool mac-server`, a účet nesmí být expirovaný — RouterOS to hlásí stejně
+> jako špatné heslo. Přihlášení MD5 pro RouterOS starší než 6.43 implementované není.
 
 Soubory se na zařízení přenášejí přes SFTP, SCP, nebo dočasným HTTP serverem na tomto PC
 a `/tool fetch`. Pokud nic z toho nefunguje, v režimu `/import` se příkazy pošlou po
@@ -194,10 +192,9 @@ se po uplynutí času samo vrátí na zálohu.
 ## Omezení a známé nejistoty
 
 - Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
-- **Připojení přes MAC adresu zatím nefunguje.** Ověřeno 16. 9. 2026 na RouterOS 7.20.7:
-  přihlášení projde, ale spouštění příkazů přes MAC-Telnet ne, takže aplikace dočasnou
-  adresu nepřidá. Připojujte se přes IP. Pro RouterOS starší než 6.43 (přihlášení MD5)
-  není MAC-Telnet implementovaný vůbec.
+- **Připojení přes MAC adresu** je ověřené na RouterOS 7.20.7 (16. 9. 2026), včetně
+  přidání dočasné adresy a připojení přes ni. Pro RouterOS starší než 6.43 (přihlášení
+  MD5) není MAC-Telnet implementovaný vůbec.
 - **Databáze switch čipů** (`src/mqs/data/switch_chips.yaml`) vychází z dokumentace MikroTiku
   (tabulka Bridge Hardware Offloading, Switch Chip Features, Marvell Prestera a CRS1xx/2xx),
   ne z měření na zařízeních. Čip, který v databázi není, se neblokuje – použijí se obecná

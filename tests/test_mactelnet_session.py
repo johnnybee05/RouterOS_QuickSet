@@ -10,6 +10,7 @@ from fake_mactelnet_device import FakeChannel, FakeDevice
 from fake_transport import FakeTransport
 from mqs.transport.base import (
     AuthError,
+    ConnectionLost,
     ConnectionParams,
     ServiceUnavailable,
     TransportKind,
@@ -18,6 +19,7 @@ from mqs.transport.factory import ConnectFailed, ConnectOutcome
 from mqs.transport.mac_connect import (
     TEMP_COMMENT,
     MacConnectMethod,
+    bootstrap_interface,
     connect_by_mac,
     link_local_host,
     remove_temp_address,
@@ -277,3 +279,32 @@ def test_service_unavailable_link_local_falls_back():
     result = connect_by_mac(device_with_ipv6("fe80::1"), PARAMS, IPv4Address("192.168.88.253"),
                             LOCAL, connect=connect, session_factory=factory)
     assert result.method == MacConnectMethod.MAC_TELNET
+
+
+def test_bootstrap_interface_targets_the_bridge_not_the_port():
+    """MNDP reports a bridged port as "<bridge>/<port>"; verified on a hEX S 2026-09-16.
+
+    The temporary address belongs on the bridge: the reported name is not a valid
+    interface name, and a slave port would not carry the address anyway.
+    """
+    assert bootstrap_interface("bridge/ether1") == "bridge"
+    assert bootstrap_interface("bridge1/ether2-BEE-PC") == "bridge1"
+    assert bootstrap_interface("ether5") == "ether5"
+    assert bootstrap_interface(None) == "ether1"
+    assert bootstrap_interface("") == "ether1"
+
+
+def test_remove_temp_address_tolerates_the_connection_dying():
+    """We remove the address we are connected through, so losing the session is success."""
+
+    class DyingTransport:
+        def __init__(self):
+            self.tried = False
+
+        def execute_command(self, command):
+            self.tried = True
+            raise ConnectionLost("api-ssl timed out during /ip/address/remove")
+
+    transport = DyingTransport()
+    remove_temp_address(transport, "192.168.55.254/24")
+    assert transport.tried

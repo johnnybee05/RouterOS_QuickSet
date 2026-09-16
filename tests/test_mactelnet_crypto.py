@@ -198,3 +198,12 @@ def test_mac_helpers():
     assert format_mac(bytes.fromhex("488f5a010203")) == "48:8F:5A:01:02:03"
     with pytest.raises(PacketError):
         mac_bytes("00:11:22")
+
+
+def test_byte_counter_wraps_at_32_bits():
+    """The header counter is the 4-byte field: real traffic carries values like 0x0004E8B7."""
+    from mqs.transport.mactelnet.client import _counter
+
+    assert _counter(0x0004E8B7) == 0x0004E8B7
+    assert _counter(2**32) == 0
+    assert _counter(2**32 + 5) == 5

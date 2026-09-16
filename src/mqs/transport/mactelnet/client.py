@@ -38,8 +38,12 @@ def _strip_console(text: str, command: str) -> str:
     """Drop the echoed command line and the trailing prompt from console output."""
     lines = text.splitlines()
     wanted = command.strip()
-    if wanted and lines and lines[0].strip().endswith(wanted):
-        lines = lines[1:]
+    # Drop everything up to and including the echoed command. splitlines() also splits
+    # on the bare CRs the console uses to redraw, so the echo is not always line 0.
+    for index, line in enumerate(lines):
+        if wanted and line.strip().endswith(wanted):
+            lines = lines[index + 1:]
+            break
     # sanitize() trims the prompt's trailing space, so match on the bracket-arrow tail.
     while lines and (not lines[-1].strip() or lines[-1].rstrip().endswith(">")):
         lines.pop()
@@ -65,7 +69,10 @@ class DatagramChannel(Protocol):
 
 
 def _counter(value: int) -> int:
-    return value % 65536
+    # The byte counter is the 4-byte field of the header, not 2: real traffic carries
+    # values like 0x0004E8B7. Wrapping at 2**16 desynchronised every ACK past 64 KiB,
+    # which is less than one RouterOS login banner plus log backlog.
+    return value % 2**32
 
 
 class UdpBroadcastChannel:
@@ -218,9 +225,20 @@ class MacTelnetSession:
         ]
         self._send(reply)
 
-        end = self._wait_for(deadline, MessageType.DATA)
-        if not any(cp.type == ControlType.END_AUTHENTICATION for cp in end.control_packets):
-            raise MacTelnetAuthError("device did not end the authentication phase")
+        # The device may interleave terminal data before END_AUTHENTICATION, so read on
+        # instead of judging the first DATA packet: that made authenticate() fail at
+        # random against a real device.
+        while True:
+            try:
+                packet = self._wait_for(deadline, MessageType.DATA)
+            except MacTelnetError as exc:
+                raise MacTelnetAuthError(
+                    "device did not end the authentication phase") from exc
+            if any(cp.type == ControlType.END_AUTHENTICATION for cp in packet.control_packets):
+                break
+            text = packet.data.decode("utf-8", errors="replace")
+            if LOGIN_FAILED in text.lower():
+                raise MacTelnetAuthError(text.strip().splitlines()[-1].strip())
         self._authenticated = True
         self._check_login(deadline)
 
@@ -265,15 +283,19 @@ class MacTelnetSession:
         data.data = (line + "\r").encode()
         self._send(data)
 
-    def _collect(self, timeout: float, quiet: float) -> str:
+    def _collect(self, timeout: float, quiet: float, expect: str = "") -> str:
         """Read terminal output until the prompt comes back, or the stream goes quiet."""
         collected: list[bytes] = []
         overall = self._clock() + timeout
-        last = self._clock()
+        last: float | None = None
         while self._clock() < overall:
-            packet = self._recv(min(overall, last + quiet))
+            # Wait the whole timeout for the first byte: after a login the console needs
+            # about 2.5 s before it starts sending its banner (verified on 7.20.7), and a
+            # quiet window that short would give up long before it speaks. Once it is
+            # talking, a quiet gap does mean the output is finished.
+            packet = self._recv(overall if last is None else min(overall, last + quiet))
             if packet is None:
-                if self._clock() >= last + quiet:
+                if last is None or self._clock() >= last + quiet:
                     break
                 continue
             if packet.message_type == MessageType.DATA:
@@ -285,26 +307,38 @@ class MacTelnetSession:
                     # would stop on the echoed command, which the console prefixes
                     # with the previous prompt, cutting the real output off.
                     acc = b"".join(collected).decode("utf-8", errors="replace")
-                    if acc.rstrip(" \t\r\n").endswith(">"):
+                    # Wait until the console has echoed our command: a prompt left over
+                    # from the banner would otherwise end the read straight away and be
+                    # returned as the command's output.
+                    echoed = not expect or expect in acc
+                    if echoed and acc.rstrip(" \t\r\n").endswith(">"):
                         break
             elif packet.message_type == MessageType.END_SESSION:
                 break
         return b"".join(collected).decode("utf-8", errors="replace")
+
+    def _prime(self, timeout: float) -> None:
+        """Wake the console and swallow everything it says before it is ready.
+
+        Verified on RouterOS 7.20.7: after a login the console stays silent until it gets
+        input, then takes about 2.5 s to send its banner, the unread log backlog and its
+        prompt - twice. A command issued during that is swallowed, and the leftover second
+        prompt would be returned as the first command's output.
+        """
+        self._send_line("")
+        self._collect(max(timeout, 15.0), 1.0)
+        self._collect(2.0, 0.5)
+        self._primed = True
 
     def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0) -> str:
         """Send one CLI line and return its output, without echo or prompt."""
         if not self._authenticated:
             raise MacTelnetError("not authenticated")
         if not self._primed:
-            # Verified on RouterOS 7.20.7: the console stays silent until it gets its
-            # first input, then floods the banner, the unread log backlog and finally
-            # the prompt. Anything sent before that is swallowed by the banner.
-            self._send_line("")
-            self._collect(timeout, quiet)
-            self._primed = True
+            self._prime(timeout)
 
         self._send_line(line)
-        text = sanitize(self._collect(timeout, quiet))
+        text = sanitize(self._collect(timeout, quiet, expect=line.strip()))
         error = find_error(text)
         if error is not None:
             raise MacTelnetError(f"{line}: {error}")

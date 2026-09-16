@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import socket
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -21,6 +22,56 @@ class LocalInterface:
     @property
     def broadcast(self) -> IPv4Address:
         return self.network.broadcast_address
+
+
+class _AdapterAddresses(ctypes.Structure):
+    """Head of the Win32 IP_ADAPTER_ADDRESSES_LH, up to the physical address."""
+
+
+_AdapterAddresses._fields_ = [
+    ("Length", ctypes.c_ulong),
+    ("IfIndex", ctypes.c_ulong),
+    ("Next", ctypes.POINTER(_AdapterAddresses)),
+    ("AdapterName", ctypes.c_char_p),
+    ("FirstUnicastAddress", ctypes.c_void_p),
+    ("FirstAnycastAddress", ctypes.c_void_p),
+    ("FirstMulticastAddress", ctypes.c_void_p),
+    ("FirstDnsServerAddress", ctypes.c_void_p),
+    ("DnsSuffix", ctypes.c_wchar_p),
+    ("Description", ctypes.c_wchar_p),
+    ("FriendlyName", ctypes.c_wchar_p),
+    ("PhysicalAddress", ctypes.c_ubyte * 8),
+    ("PhysicalAddressLength", ctypes.c_ulong),
+]
+_ERROR_BUFFER_OVERFLOW = 111
+
+
+def interface_mac(index: int | None) -> bytes | None:
+    """Hardware address of the adapter with this interface index, or None.
+
+    MAC-Telnet needs the address of the NIC the request leaves from, because the device
+    answers the source MAC carried in the payload. uuid.getnode() is no substitute: on a
+    multi-adapter machine it returns a random locally-administered address, which the
+    device silently ignores (verified against RouterOS 7.20.7 on 2026-09-16).
+    """
+    if index is None or not hasattr(ctypes, "windll"):
+        return None
+    size = ctypes.c_ulong(15000)
+    for _ in range(2):
+        buffer = ctypes.create_string_buffer(size.value)
+        result = ctypes.windll.iphlpapi.GetAdaptersAddresses(
+            0, 0, None, ctypes.byref(buffer), ctypes.byref(size))
+        if result == 0:
+            node = ctypes.cast(buffer, ctypes.POINTER(_AdapterAddresses))
+            while node:
+                adapter = node.contents
+                if adapter.IfIndex == index and adapter.PhysicalAddressLength == 6:
+                    return bytes(adapter.PhysicalAddress[:6])
+                node = adapter.Next
+            return None
+        if result != _ERROR_BUFFER_OVERFLOW:
+            return None
+    return None
 
 
 def list_ipv4_interfaces(
