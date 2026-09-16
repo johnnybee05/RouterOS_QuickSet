@@ -58,7 +58,7 @@ def test_authenticate_and_run_command():
     assert device.authenticated
     output = session.run("/ip address add address=192.168.88.2/24 interface=ether1")
     assert device.commands == ["/ip address add address=192.168.88.2/24 interface=ether1"]
-    assert "admin@MikroTik" in output
+    assert output == "ok"  # the echoed command and the trailing prompt are stripped
     session.close()
     assert session.channel.closed
 

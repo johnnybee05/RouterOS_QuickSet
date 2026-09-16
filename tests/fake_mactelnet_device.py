@@ -29,7 +29,7 @@ class FakeDevice:
         password: str = "",
         *,
         user: RegisteredUser | None = None,
-        command_reply: Callable[[str], str] = lambda line: line + "\n[admin@MikroTik] > ",
+        command_reply: Callable[[str], str] = lambda line: line + "\nok\n[admin@MikroTik] > ",
         server_private: bytes | None = None,
     ) -> None:
         self.mac = mac_bytes(mac)
@@ -75,9 +75,13 @@ class FakeDevice:
         out: list[bytes] = []
         if not packet.control_packets:
             line = packet.data.decode("utf-8", errors="replace").rstrip("\r\n")
-            self.commands.append(line)
             reply = self._packet(MessageType.DATA)
-            reply.data = self.command_reply(line).encode()
+            if line:
+                self.commands.append(line)
+                reply.data = self.command_reply(line).encode()
+            else:
+                # A bare CR is not a command; the console only redraws its prompt.
+                reply.data = b"[admin@MikroTik] > "
             self._emit(reply, out)
             return out
 
@@ -96,10 +100,14 @@ class FakeDevice:
         elif ControlType.PASSWORD in types:
             cc = types[ControlType.PASSWORD].data
             if self.reject_confirmation or cc != self.expected_cc:
-                # A real device signals auth failure as terminal data, not a control packet.
+                # Verified on RouterOS 7.20.7: the device ends the authentication
+                # phase normally and only then writes the refusal into the terminal.
                 reply = self._packet(MessageType.DATA)
-                reply.data = b"login failure for user admin\r\n"
+                reply.control_packets = [ControlPacket(ControlType.END_AUTHENTICATION)]
                 self._emit(reply, out)
+                banner = self._packet(MessageType.DATA)
+                banner.data = b"Login failed, incorrect username or password\r\n"
+                self._emit(banner, out)
             else:
                 self.authenticated = True
                 reply = self._packet(MessageType.DATA)

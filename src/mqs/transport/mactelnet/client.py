@@ -28,6 +28,23 @@ from mqs.transport.mactelnet.packet import (
     mac_bytes,
 )
 
+# RouterOS writes this into the terminal stream when it refuses a login.
+LOGIN_FAILED = "login failed"
+# Tail of the interactive console prompt, e.g. "[bee@QuickSet] > ".
+PROMPT = "] > "
+
+
+def _strip_console(text: str, command: str) -> str:
+    """Drop the echoed command line and the trailing prompt from console output."""
+    lines = text.splitlines()
+    wanted = command.strip()
+    if wanted and lines and lines[0].strip().endswith(wanted):
+        lines = lines[1:]
+    # sanitize() trims the prompt's trailing space, so match on the bracket-arrow tail.
+    while lines and (not lines[-1].strip() or lines[-1].rstrip().endswith(">")):
+        lines.pop()
+    return "\n".join(lines).strip()
+
 
 class MacTelnetError(TransportError):
     pass
@@ -52,25 +69,36 @@ def _counter(value: int) -> int:
 
 
 class UdpBroadcastChannel:
-    """Real MAC-Telnet channel: a UDP socket bound to :20561 sending L2 broadcasts.
+    """Real MAC-Telnet channel: broadcasts to :20561 from an ephemeral source port.
 
-    `local_address` binds to one NIC so the broadcast leaves the right interface. Windows
-    Firewall may block inbound UDP 20561; that surfaces as a receive timeout.
+    Two things are load-bearing here, both verified on RouterOS 7.20.7:
+
+    * The source port must NOT be 20561. The device answers to whatever port the request
+      came from (its reply arrives from source IP 0.0.0.0), so a socket bound to 20561
+      never sees it.
+    * The socket must bind INADDR_ANY. The reply is a broadcast, and Windows does not
+      deliver broadcast datagrams to a socket bound to a specific unicast address.
+      Interface selection therefore comes from `broadcast` (the subnet's directed
+      broadcast), not from the bind address.
     """
 
-    def __init__(self, local_address: str = "0.0.0.0", port: int = MACTELNET_PORT) -> None:
+    def __init__(self, local_address: str = "0.0.0.0", port: int = MACTELNET_PORT,
+                 broadcast: str = "255.255.255.255") -> None:
         self.port = port
+        # Directed broadcast (192.168.55.255) picks the interface via the routing table;
+        # binding to the NIC address instead would lose the reply, see the docstring.
+        self.broadcast = broadcast if local_address != "0.0.0.0" else "255.255.255.255"
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            self._sock.bind((local_address, port))
+            self._sock.bind(("", 0))
         except OSError:
             self._sock.close()
             raise
 
     def send(self, data: bytes) -> None:
-        self._sock.sendto(data, ("255.255.255.255", self.port))
+        self._sock.sendto(data, (self.broadcast, self.port))
 
     def receive(self, timeout: float) -> bytes | None:
         self._sock.settimeout(max(0.0, timeout))
@@ -114,6 +142,7 @@ class MacTelnetSession:
         self.receive_counter = 0
         self._srp = EcSrpClient(username, password)
         self._authenticated = False
+        self._primed = False
 
     # ------------------------------------------------------------ low level
 
@@ -139,8 +168,13 @@ class MacTelnetSession:
                 packet = Packet.from_bytes(raw)
             except PacketError:
                 continue
-            if packet.session_id != self.session_id or packet.src_mac == self.src_mac:
-                continue  # not our session, or our own broadcast echoed back
+            if packet.src_mac == self.src_mac:
+                continue  # our own broadcast echoed back
+            # RouterOS answers with the two 16-bit header fields in the opposite order
+            # from the request: verified on 7.20.7, a request carrying session 0xBEEF in
+            # the first field is answered with 0x0015 there and 0xBEEF in the second.
+            if self.session_id not in (packet.session_id, packet.client_type):
+                continue  # not our session
             return packet
         return None
 
@@ -188,6 +222,31 @@ class MacTelnetSession:
         if not any(cp.type == ControlType.END_AUTHENTICATION for cp in end.control_packets):
             raise MacTelnetAuthError("device did not end the authentication phase")
         self._authenticated = True
+        self._check_login(deadline)
+
+    def _check_login(self, deadline: float, window: float = 1.5) -> None:
+        """A rejected login arrives as terminal text, not as a control packet.
+
+        Verified on RouterOS 7.20.7: the handshake finishes normally, END_AUTHENTICATION
+        and all, and only then does the device write "Login failed, incorrect username or
+        password" into the terminal stream. Without this check authenticate() reports
+        success for a login the device refused.
+        """
+        end = min(deadline, self._clock() + window)
+        text = ""
+        while self._clock() < end:
+            packet = self._recv(end)
+            if packet is None:
+                break
+            if packet.message_type != MessageType.DATA:
+                continue
+            self._send_ack(packet)
+            if packet.control_packets:
+                continue
+            text += packet.data.decode("utf-8", errors="replace")
+            if LOGIN_FAILED in text.lower():
+                self._authenticated = False
+                raise MacTelnetAuthError(text.strip().splitlines()[-1].strip())
 
     def _read_challenge(self, packet: Packet) -> ServerChallenge:
         control = next((cp for cp in packet.control_packets
@@ -201,14 +260,13 @@ class MacTelnetSession:
 
     # ------------------------------------------------------------ commands
 
-    def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0) -> str:
-        """Send one CLI line and collect terminal output until it goes quiet."""
-        if not self._authenticated:
-            raise MacTelnetError("not authenticated")
+    def _send_line(self, line: str) -> None:
         data = self._packet(MessageType.DATA)
         data.data = (line + "\r").encode()
         self._send(data)
 
+    def _collect(self, timeout: float, quiet: float) -> str:
+        """Read terminal output until the prompt comes back, or the stream goes quiet."""
         collected: list[bytes] = []
         overall = self._clock() + timeout
         last = self._clock()
@@ -223,13 +281,34 @@ class MacTelnetSession:
                 if not packet.control_packets:
                     collected.append(packet.data)
                     last = self._clock()
+                    # Stop at a prompt that ENDS the output. Testing for "contains"
+                    # would stop on the echoed command, which the console prefixes
+                    # with the previous prompt, cutting the real output off.
+                    acc = b"".join(collected).decode("utf-8", errors="replace")
+                    if acc.rstrip(" \t\r\n").endswith(">"):
+                        break
             elif packet.message_type == MessageType.END_SESSION:
                 break
-        text = sanitize(b"".join(collected).decode("utf-8", errors="replace"))
+        return b"".join(collected).decode("utf-8", errors="replace")
+
+    def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0) -> str:
+        """Send one CLI line and return its output, without echo or prompt."""
+        if not self._authenticated:
+            raise MacTelnetError("not authenticated")
+        if not self._primed:
+            # Verified on RouterOS 7.20.7: the console stays silent until it gets its
+            # first input, then floods the banner, the unread log backlog and finally
+            # the prompt. Anything sent before that is swallowed by the banner.
+            self._send_line("")
+            self._collect(timeout, quiet)
+            self._primed = True
+
+        self._send_line(line)
+        text = sanitize(self._collect(timeout, quiet))
         error = find_error(text)
         if error is not None:
             raise MacTelnetError(f"{line}: {error}")
-        return text
+        return _strip_console(text, line)
 
     def close(self) -> None:
         try:
