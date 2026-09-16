@@ -55,7 +55,7 @@ Prestera switch chip features*, *CRS1xx and 2xx series switches*.
 | IPQ-PPE offload | `data/switch_chips.yaml`, `capabilities/offload.py` | Footnote 9: HW offloaded bridge support is still work in progress and MikroTik recommends the non-offloaded bridge with RSTP → `hw_offload: false`, offload is not offered (the user can still force it) | NUTNO OVĚŘIT |
 | Unlisted Prestera parts | `data/switch_chips.yaml` families | `Marvell-98DX*` and `Marvell-98CX*` that are not listed fall back to Prestera capabilities | NUTNO OVĚŘIT |
 | 98PX1012 | `data/switch_chips.yaml` | Switch Chip Features gives it `no` for port switching, mirroring, host and VLAN tables, and it is absent from the offload table → no bridge HW offload | NUTNO OVĚŘIT |
-| Known device notes | `data/known_devices.yaml`, `capabilities/chips.py:device_notes` | Boards and their chips come from the RouterBoard-to-chip table of *Switch Chip Features* plus the model tables of the Prestera and CRS1xx/2xx manuals. Matched by longest normalised `board-name` prefix: the reported name carries suffixes the documentation omits (`RB4011iGS+5HacQ2HnD`), while `RB750G`, `RB750Gr2` and `RB750Gr3` are three different chips, so the most specific entry has to win | NUTNO OVĚŘIT (the `board-name` strings devices actually report) |
+| Known device notes | `data/known_devices.yaml`, `capabilities/chips.py:device_notes` | Boards and their chips come from the RouterBoard-to-chip table of *Switch Chip Features* plus the model tables of the Prestera and CRS1xx/2xx manuals. Keyed and matched on `model` from `/system routerboard print`, with `board-name` only as a fallback, by longest normalised prefix: reported names carry suffixes the documentation omits (`RB4011iGS+5HacQ2HnD`), while `RB750G`, `RB750Gr2` and `RB750Gr3` are three different chips | **OVĚŘENO 2026-09-16** that `board-name` is unusable for this: a hEX S reports `board-name=hEX S` for both the MT7621 RB760iGS and the EN7523 E60iUGS |
 
 ## 2. Transport and apply notes
 
@@ -89,4 +89,23 @@ Prestera switch chip features*, *CRS1xx and 2xx series switches*.
 
 ## 3. Verification log
 
-(empty — add rows as `YYYY-MM-DD | RouterOS version | board | feature key | result`)
+Board, version and chip come from the device the row was tested on.
+
+Device A: **hEX S**, `board-name=hEX S`, `model=E60iUGS`, switch chip `EN7523`, RouterOS **7.20.7**
+(long-term), reached over SSH on port 122. The QuickSet Plus hardening block had already been
+applied to it, so several rows below are confirmed by the resulting device state.
+
+| Date | Version | Board | Feature key | Result |
+|---|---|---|---|---|
+| 2026-09-16 | 7.20.7 | hEX S | `ntp_servers_menu` | **OVĚŘENO** — `/system ntp client servers print` lists both servers the block added; `/system ntp client print` mirrors them in a `servers=` property |
+| 2026-09-16 | 7.20.7 | hEX S | `snmp_any_address` | **OVĚŘENO** — `addresses=::/0` is accepted on v7 and `set [ find default=yes ] disabled=yes` disabled the `public` community |
+| 2026-09-16 | 7.20.7 | hEX S | `bridge_port_hw` | **OVĚŘENO** — `hw=yes/no` is a property, the active state is the `H` flag in `print detail`; `to_optional_bool(p, "hw-offload", "H")` reads both. ether2–5 (on the chip) ran `H`, ether1 `hw=no` |
+| 2026-09-16 | 7.20.7 | hEX S | `logging_indexes` | **OVĚŘENO** — default rules are info, error, warning, critical (`.id=*1`..`*4`), the order `LOGGING_INDEX_TOPICS` assumes |
+| 2026-09-16 | 7.20.7 | hEX S | `fasttrack_hw_offload` | **OVĚŘENO** — `/console inspect request=child path=ip,firewall,filter,add` lists `hw-offload`, so the runtime probe finds it |
+| 2026-09-16 | 7.20.7 | hEX S | `neighbor_discovery_interface_list` | **OVĚŘENO** — `discover-interface-list=!dynamic` in effect |
+| 2026-09-16 | 7.20.7 | hEX S | `ipv6_disable_setting` | **OVĚŘENO** — `/ipv6 settings set disable-ipv6=yes` on v7 |
+| 2026-09-16 | 7.20.7 | hEX S | `ip_service_ssl` | **OVĚŘENO** — api-ssl 8729 present with `certificate=none`, www-ssl disabled, ssh moved to 122 |
+| 2026-09-16 | 7.20.7 | hEX S | Files on flash | **OVĚŘENO** — this board has no `flash/` directory; uploads live in the root |
+| 2026-09-16 | 7.20.7 | hEX S | Chip `type` string | **OVĚŘENO** — `/interface ethernet switch print` reports `EN7523`: bare, no vendor prefix and no hyphen. The `Atheros-8327` spelling in the docs is therefore not universal — normalising the key was the right call |
+| 2026-09-16 | 7.20.7 | hEX S | API-SSL anonymous DH | **OVĚŘENO** — the device serves api-ssl 8729 with `certificate=none` and the application's own log records `connected to 192.168.55.68 via api-ssl`, so the ADH path (SECLEVEL=0, TLS 1.2 cap, no hostname check) completes a real handshake |
+| 2026-09-16 | 7.20.7 | hEX S | `board-name` vs `model` | **PROBLÉM (opraveno)** — `board-name` is the marketing name and MikroTik reuses it across revisions: the documented hEX S (`RB760iGS`) has MT7621, this one is `model=E60iUGS` with EN7523. Device notes must be matched on `model`, never on `board-name` |

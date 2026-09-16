@@ -6,9 +6,13 @@
 # switch chip features* and *CRS1xx and 2xx series switches*. Documentation, not devices:
 # NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 #
-# Keys are matched against `board-name` from /system resource print by longest normalised
-# prefix (case and punctuation ignored), because the reported name carries suffixes the
-# documentation does not use - "RB4011iGS+5HacQ2HnD" for "RB4011iGS+". Longest wins, which
+# Keys are `model` designations from /system routerboard print (RB4011iGS+, E50UG), which
+# is what the documentation's RouterBoard column lists. NEVER key on `board-name`: that is
+# the marketing name and MikroTik reuses it across revisions with different chips - a
+# "hEX S" is RB760iGS with MT7621 or E60iUGS with EN7523 (verified on a device 2026-09-16).
+#
+# Matching is by longest normalised prefix (case and punctuation ignored), because reported
+# names carry suffixes the documentation omits ("RB4011iGS+5HacQ2HnD"). Longest wins, which
 # is what keeps RB750Gr3 (MT7621) off the unrelated RB750G (Atheros8316) entry, so always
 # add the most specific spelling of a model as its own entry.
 #
@@ -123,6 +127,12 @@ devices:
     notes: ["hAP ax lite, MT7531 (ether1–4). Vlan-filtering se offloaduje až od RouterOS 7.1."]
   "E50UG":
     notes: ["hEX Refresh, EN7523 (ether2–5). Vlan-filtering se offloaduje až od RouterOS 7.1."]
+  # OVĚŘENO na zařízení 2026-09-16 (RouterOS 7.20.7): novější hEX S, board-name hlásí
+  # jen "hEX S", ale čip je EN7523, ne MT7621 jako u staršího RB760iGS.
+  "E60iUGS":
+    notes:
+      - "hEX S (novější revize), EN7523 (ether2–5); ether1 a sfp1 nejsou na switch čipu."
+      - "Vlan-filtering se offloaduje až od RouterOS 7.1."
 
   # --- IPQ-PPE: MikroTik zde HW offload bridge nedoporučuje ------------------------
   "C52iG-5HaxD2HaxD":

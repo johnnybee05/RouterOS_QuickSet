@@ -102,20 +102,35 @@ def _known_devices() -> dict[str, Any]:
     return _read_yaml("known_devices.yaml").get("devices") or {}
 
 
-def device_notes(board_name: str) -> list[str]:
-    """Notes for a board, matched on the longest normalised key prefix.
+def device_notes(*names: str) -> list[str]:
+    """Notes for a board; pass the most specific identifier first.
 
-    /system resource print reports names the documentation does not use verbatim
-    ("RB4011iGS+5HacQ2HnD" for "RB4011iGS+"), so an exact lookup misses. Taking the
-    longest matching prefix is what keeps RB750Gr3 (MT7621) off the RB750G entry
-    (Atheros8316), which a first-match rule would happily return.
+    Match on `model` from /system routerboard print (E60iUGS, RB760iGS), which identifies
+    the hardware. `board-name` is only a fallback: it is the marketing name and MikroTik
+    reuses it across revisions with different switch chips - a "hEX S" is either RB760iGS
+    with MT7621 or E60iUGS with EN7523 (verified 2026-09-16) - so it must never be allowed
+    to decide which chip a board has.
     """
-    key = _normalize(board_name)
+    for name in names:
+        notes = _notes_for(name)
+        if notes:
+            return notes
+    return []
+
+
+def _notes_for(name: str) -> list[str]:
+    """Longest normalised prefix wins.
+
+    Reported names carry suffixes the documentation omits ("RB4011iGS+5HacQ2HnD" for
+    "RB4011iGS+"), so an exact lookup misses; taking the longest match is what keeps
+    RB750Gr3 (MT7621) off the RB750G entry (Atheros8316).
+    """
+    key = _normalize(name)
     if not key:
         return []
     best_len, best_notes = 0, []
-    for name, entry in _known_devices().items():
-        prefix = _normalize(name)
+    for entry_name, entry in _known_devices().items():
+        prefix = _normalize(entry_name)
         if prefix and key.startswith(prefix) and len(prefix) > best_len:
             best_len, best_notes = len(prefix), list((entry or {}).get("notes") or [])
     return best_notes

@@ -510,7 +510,7 @@ class DevicePage(Page):
         labels["wireless"].setText(inventory.wireless.value)
         labels["ipv6"].setText(S.IPV6_STATES.get(inventory.ipv6_package_state.value,
                                                  inventory.ipv6_package_state.value))
-        notes = device_notes(resource.board_name)
+        notes = device_notes(rb.model if rb else "", resource.board_name)
         if notes:
             self.device_notes.setText(
                 S.DEVICE_NOTES + "\n" + "\n".join(f"• {note}" for note in notes)

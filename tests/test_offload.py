@@ -332,3 +332,16 @@ def test_device_notes_match_the_longest_prefix():
 
     assert device_notes("") == []
     assert device_notes("Generic-Board") == []
+
+
+def test_device_notes_prefer_model_over_board_name():
+    """`board-name` is a marketing name MikroTik reuses across hardware revisions.
+
+    Verified on a device 2026-09-16: a hEX S reports `board-name=hEX S` both as the
+    documented RB760iGS (MT7621) and as model E60iUGS (EN7523), so the marketing name
+    must never be what decides which switch chip a board has.
+    """
+    assert "MT7621" in device_notes("RB760iGS", "hEX S")[0]
+    assert "EN7523" in device_notes("E60iUGS", "hEX S")[0]
+    assert device_notes("hEX S") == []
+    assert device_notes("", "RB4011iGS+")  # model unknown -> board-name still tried
