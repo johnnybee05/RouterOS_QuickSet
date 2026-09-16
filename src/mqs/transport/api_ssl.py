@@ -191,6 +191,19 @@ class ApiSslTransport:
             raise CommandError(command.api_path, f"no such item {selector}")
         return ids
 
+    def file_reference(self, name: str) -> str:
+        """Value that refers to an uploaded file in a command argument.
+
+        The API matches such arguments against file `.id` values, not names. Verified on
+        RouterOS 7.20.7: `/system/reset-configuration run-after-reset=<name>` is refused
+        with "input does not match any value of run-after-reset" even though the file is
+        listed, while the same call with the `.id` runs.
+        """
+        for item in self._call(self._word("/file", "print"), {}):
+            if item.get("name") == name:
+                return str(item[".id"])
+        return name
+
     def execute_command(self, command: Command) -> Reply:
         args = dict(command.args)
         if command.selector is not None:

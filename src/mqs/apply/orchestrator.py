@@ -252,8 +252,10 @@ class ApplyOrchestrator:
         file = self.names.remote_script
         self._event("apply.step.execute_reset", StepStatus.RUNNING, file=file)
         try:
+            # The API wants the file's .id here, the console wants its name.
             self.transport.execute("/system/reset-configuration", no_defaults=True,
-                                   skip_backup=False, run_after_reset=file)
+                                   skip_backup=False,
+                                   run_after_reset=self.transport.file_reference(file))
         except ConnectionLost:
             pass  # the device reboots immediately; losing the session is the expected outcome
         except TransportError as exc:

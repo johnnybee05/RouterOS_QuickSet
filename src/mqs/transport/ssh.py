@@ -163,6 +163,9 @@ class SshTransport:
         self.run(line)
         return []
 
+    def file_reference(self, name: str) -> str:
+        return name  # the console resolves file names itself, unlike the API
+
     def execute_command(self, command: Command) -> Reply:
         self.run(render_inline(command))
         return []

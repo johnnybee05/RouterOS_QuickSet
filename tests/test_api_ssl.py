@@ -183,3 +183,19 @@ def test_traps_and_connection_loss():
     assert not transport.connected
     with pytest.raises(ConnectionLost):
         transport.execute("/system/identity/print")
+
+
+def test_file_reference_resolves_the_file_id():
+    """File arguments are matched by `.id` over the API, not by name.
+
+    Verified on RouterOS 7.20.7: `/system/reset-configuration run-after-reset=<name>` is
+    refused with "input does not match any value of run-after-reset" even though the file
+    is listed, while the same call carrying the `.id` runs.
+    """
+    transport = ApiSslTransport(PARAMS, connect_func=lambda *a, **k: None)
+    transport._call = lambda word, args: [
+        {".id": "*1", "name": "other.rsc"},
+        {".id": "*2", "name": "quickset-20260916-174633.rsc"},
+    ]
+    assert transport.file_reference("quickset-20260916-174633.rsc") == "*2"
+    assert transport.file_reference("not-uploaded.rsc") == "not-uploaded.rsc"

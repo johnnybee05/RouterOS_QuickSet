@@ -191,6 +191,9 @@ class RouterSession:
                   for k, v in args.items()}
         return self.router.handle(self, self._word(path), values)
 
+    def file_reference(self, name: str) -> str:
+        return name
+
     def execute_command(self, command: Command) -> Reply:
         if not self.alive:
             raise ConnectionLost("session gone")

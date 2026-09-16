@@ -49,6 +49,9 @@ class FakeTransport:
             raise CommandError(key, "bad command name")
         return [dict(r) for r in self.replies[key]]
 
+    def file_reference(self, name: str) -> str:
+        return name
+
     def execute_command(self, command: Command) -> Reply:
         self.commands.append(command)
         return []
