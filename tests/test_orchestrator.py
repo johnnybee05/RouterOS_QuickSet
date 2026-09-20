@@ -2,20 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
+from ipaddress import IPv4Address, IPv4Interface
 
 import pytest
 
 from factories import make_inventory
 from fake_router import FakeRouter, RouterUploader
-from mqs.apply.orchestrator import ApplyAborted, ApplyContext, ApplyOrchestrator, StepStatus
+from mqs.apply.orchestrator import (
+    RESET_ARM_ATTEMPTS,
+    RESET_SETTLE_S,
+    ApplyAborted,
+    ApplyContext,
+    ApplyOrchestrator,
+    StepStatus,
+)
 from mqs.apply.plan import ROLLBACK_JOB, ApplyMode, ApplyOptions
-from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget, reconnect_with_retry
+from mqs.apply.reconnect import (
+    ReconnectFailed,
+    ReconnectTarget,
+    reconnect_hosts,
+    reconnect_with_retry,
+)
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import codes
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
+from mqs.model.wan import StaticWan
 from mqs.transport.base import AuthError, ConnectionParams, ServiceUnavailable, TransportKind
 from mqs.transport.factory import ConnectFailed, ConnectOutcome
 
@@ -146,16 +161,13 @@ def test_reset_flow_reconnects_as_admin_with_new_password():
     router, orchestrator, _, reconnects = build(
         ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik")
     report = orchestrator.run()
-    # The device is armed with the bootstrap, and the configuration reaches it only
-    # because the bootstrap imports the second file by name.
     assert router.reboots == 1
-    assert router.run_after_reset == "quickset-20260915-100000-boot.rsc"
+    assert router.run_after_reset == "quickset-20260915-100000.rsc"
     assert router.state.identity == "PV-R1" and router.state.admin_password == "N3w"
     assert reconnects[0].params.username == "admin" and reconnects[0].params.password == "N3w"
     assert report.connection_lost_during == "reset"
     assert report.succeeded
     assert "quickset-20260915-100000.rsc" not in router.files  # removed by the script itself
-    assert "quickset-20260915-100000-boot.rsc" not in router.files
     assert not report.rollback_pending
 
 
@@ -331,6 +343,135 @@ def test_reconnect_gives_up_and_auth_is_fatal():
     with pytest.raises(Cancelled):
         reconnect_with_retry(target, timeout_s=60, connect=refuse, sleep=clock.sleep, clock=clock,
                              cancelled=lambda: True)
+
+
+def _reset_build():
+    return build(ApplyMode.RESET_AND_IMPORT, admin_password="N3w",
+                 confirmed_identity="MikroTik")
+
+
+def test_reset_waits_for_the_script_to_settle_before_arming():
+    """RouterOS lists an SFTP-written file at once, with its final size, and still
+    refuses it for run-after-reset for a moment. Verified on 7.20.7: the same 2011-byte
+    script was refused 0.02 s after the upload and accepted 3.01 s after it."""
+    router, orchestrator, _, _ = _reset_build()
+    orchestrator.ctx.sleep = lambda seconds: router.log.append(f"slept {seconds}")
+    orchestrator.run()
+    assert router.log.index(f"slept {RESET_SETTLE_S}") < \
+        router.log.index("/system/reset-configuration")
+
+
+def test_a_device_that_is_not_ready_yet_is_asked_again():
+    router, orchestrator, _, _ = _reset_build()
+    router.reset_refusals = 2  # "cannot use file", then accepted
+    report = orchestrator.run()
+    assert router.log.count("/system/reset-configuration") == 3
+    assert router.reboots == 1 and report.succeeded
+    assert "apply.reset_retry" in codes(report.issues)
+
+
+def test_a_device_that_never_takes_the_script_is_reported():
+    router, orchestrator, _, _ = _reset_build()
+    router.reset_refusals = 99
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    assert err.value.issue.code == "apply.failed.execute"
+    assert router.log.count("/system/reset-configuration") == RESET_ARM_ATTEMPTS
+    assert router.reboots == 0, "the device was never reset"
+
+
+def test_another_reset_error_is_not_retried():
+    """Only "cannot use file" is worth waiting out; anything else will not improve."""
+    router, orchestrator, _, _ = _reset_build()
+    router.fail["/system/reset-configuration"] = "no such item"
+    with pytest.raises(ApplyAborted):
+        orchestrator.run()
+    assert router.log.count("/system/reset-configuration") == 1
+
+
+def _static_wan_profile():
+    """Router preset, but with a WAN address that can be predicted after the apply."""
+    profile = apply_preset(DeviceProfile(identity="R1"), Mode.ROUTER, PORTS)
+    wan = profile.wan.model_copy(update={
+        "settings": StaticWan(address=IPv4Interface("192.168.55.68/24"),
+                              gateway=IPv4Address("192.168.55.1"))})
+    return profile.model_copy(update={"wan": wan})
+
+
+def test_reconnect_hosts_lead_with_where_our_own_port_will_answer():
+    """Connect-by-MAC reaches a device on a temporary address, and the reset wipes it, so
+    the address in use is the one certain not to answer afterwards."""
+    hosts = reconnect_hosts(_static_wan_profile(), current_host="192.168.55.254",
+                            session_port="ether1", expiring=["192.168.55.254/24"])
+    assert hosts[0] == "192.168.55.68", "the address ether1 carries once applied"
+    assert hosts[-1] == "192.168.55.254", "the wiped address is tried last, not dropped"
+    assert "192.168.88.1" in hosts, "the LAN address is worth a try as well"
+
+
+def test_reconnect_hosts_on_a_bridge_port_lead_with_the_lan_address():
+    profile = apply_preset(DeviceProfile(), Mode.ROUTER, PORTS)  # DHCP WAN
+    hosts = reconnect_hosts(profile, current_host="192.168.55.254", session_port="ether3",
+                            expiring=["192.168.55.254"])
+    assert hosts[0] == "192.168.88.1"
+    assert hosts[-1] == "192.168.55.254"
+
+
+def test_reconnect_hosts_keep_the_current_address_when_nothing_better_is_known():
+    profile = apply_preset(DeviceProfile(), Mode.ROUTER, PORTS)
+    hosts = reconnect_hosts(profile, current_host="10.9.9.9", session_port="ether1")
+    assert hosts[0] == "10.9.9.9", "a DHCP WAN address cannot be predicted"
+    assert hosts == list(dict.fromkeys(hosts)), "no address is tried twice"
+
+
+def test_reconnect_sweeps_every_address_before_backing_off():
+    clock = Clock()
+    tried = []
+
+    def connect(params, choice, api_port, ssh_port):
+        tried.append(params.host)
+        if params.host != "10.0.0.2":
+            raise ServiceUnavailable("refused")
+        return ConnectOutcome("transport")
+
+    target = ReconnectTarget(ConnectionParams(host="10.0.0.1", username="u"), 8729, 122,
+                             alternatives=("10.0.0.2",))
+    assert reconnect_with_retry(target, timeout_s=60, connect=connect, sleep=clock.sleep,
+                                clock=clock) == "transport"
+    assert tried == ["10.0.0.1", "10.0.0.2"]
+    assert clock.now == 0, "the second address answered in the same round, so no backoff"
+
+
+def test_a_refused_login_does_not_stop_the_sweep():
+    """That address may belong to something else by now. Only when nothing answers at all
+    is the refused login the more useful thing to report."""
+    clock = Clock()
+    tried = []
+
+    def connect(params, choice, api_port, ssh_port):
+        tried.append(params.host)
+        if params.host == "10.0.0.1":
+            raise AuthError("bad password")
+        raise ServiceUnavailable("refused")
+
+    target = ReconnectTarget(ConnectionParams(host="10.0.0.1", username="u"), 8729, 122,
+                             alternatives=("10.0.0.2",))
+    with pytest.raises(AuthError):
+        reconnect_with_retry(target, timeout_s=60, connect=connect, sleep=clock.sleep, clock=clock)
+    assert tried == ["10.0.0.1", "10.0.0.2"]
+
+
+def test_reset_does_not_lead_with_the_address_it_wipes():
+    """The whole flow: reaching the device by MAC and then resetting used to send the
+    reconnect straight at the temporary address, which the reset had just removed."""
+    _, orchestrator, _, reconnects = build(
+        ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik")
+    orchestrator.ctx.transport.params = replace(orchestrator.ctx.transport.params,
+                                                host="192.168.55.254")
+    orchestrator.ctx.session_port = "ether2"  # a bridge member, so the LAN address applies
+    orchestrator.ctx.temp_address = "192.168.55.254/24"
+    orchestrator.run()
+    assert reconnects[0].hosts[0] == "192.168.88.1"
+    assert reconnects[0].hosts[-1] == "192.168.55.254"
 
 
 def test_one_transfer_connection_released_before_the_reset(tmp_path):

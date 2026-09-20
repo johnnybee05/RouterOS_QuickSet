@@ -16,11 +16,10 @@ from mqs.apply.plan import (
     ApplyMode,
     ApplyNames,
     ApplyOptions,
-    build_bootstrap_script,
     build_upload_script,
     make_names,
 )
-from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget
+from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget, reconnect_hosts
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.verify import CheckResult, verify_configuration
 from mqs.generator.base import GenerationResult
@@ -37,6 +36,12 @@ from mqs.transport.base import (
     TransportError,
 )
 from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, UploadStrategy
+
+# The device needs a moment after an SFTP write before it will arm the script for
+# run-after-reset, and a refused reset costs nothing, so it is simply asked again.
+RESET_SETTLE_S = 3.0
+RESET_ARM_ATTEMPTS = 5
+FILE_NOT_READY = "cannot use file"
 
 
 class StepStatus(StrEnum):
@@ -95,6 +100,8 @@ class ApplyContext:
     transport: Transport
     uploader_factory: Callable[[Transport], FileUploader]
     reconnect: Reconnector
+    session_port: str | None = None  # device interface this session comes in on
+    temp_address: str | None = None  # address connect-by-MAC added, which a reset wipes
     now: Callable[[], datetime] = datetime.now
     sleep: Callable[[float], None] = lambda seconds: None
     cancelled: Callable[[], bool] = lambda: False
@@ -208,14 +215,6 @@ class ApplyOrchestrator:
                 self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
             raise self._abort("apply.failed.upload_reset_needs_file")
         self.report.upload = result
-        if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
-            # run-after-reset takes the bootstrap, which imports the configuration: the
-            # configuration itself is far past the size RouterOS accepts there.
-            boot = build_bootstrap_script(self.ctx.options, self.names)
-            try:
-                uploader.upload(boot.encode("utf-8"), self.names.remote_boot_script)
-            except UploadFailed as exc:
-                raise self._abort("apply.failed.upload", repr(exc), error=str(exc)) from exc
         uploader.release()
         self._event("apply.step.upload", StepStatus.OK, file=file, strategy=result.strategy.value)
 
@@ -263,15 +262,34 @@ class ApplyOrchestrator:
                            at=self.report.rollback_at.strftime("%H:%M:%S"))
             raise self._abort("apply.failed.execute", repr(exc), error=str(exc)) from exc
 
+    def _arm_reset(self, file: str) -> None:
+        """Arm the reset, giving the script just written time to settle first.
+
+        RouterOS lists an SFTP-written file at once, with its final size and as a script,
+        and still refuses it for run-after-reset with "cannot use file" for a moment
+        afterwards. Verified on 7.20.7: the same 2011-byte script was refused 0.02 s after
+        the upload and accepted 3.01 s after it, and a 2750-byte one behaved the same, so
+        it is the wait that matters and not the size. A refused reset changes nothing on
+        the device, which is what makes simply asking again the right answer to the jitter.
+        """
+        for attempt in range(1, RESET_ARM_ATTEMPTS + 1):
+            self.ctx.sleep(RESET_SETTLE_S)
+            try:
+                # The API wants the file's .id here, the console wants its name.
+                self.transport.execute("/system/reset-configuration", no_defaults=True,
+                                       skip_backup=False,
+                                       run_after_reset=self.transport.file_reference(file))
+                return
+            except CommandError as exc:
+                if FILE_NOT_READY not in str(exc) or attempt == RESET_ARM_ATTEMPTS:
+                    raise
+                self._warn("apply.reset_retry", attempt=attempt, total=RESET_ARM_ATTEMPTS)
+
     def _execute_reset(self) -> None:
-        file = self.names.remote_script  # what the device ends up running, for the log
-        boot = self.names.remote_boot_script
+        file = self.names.remote_script
         self._event("apply.step.execute_reset", StepStatus.RUNNING, file=file)
         try:
-            # The API wants the file's .id here, the console wants its name.
-            self.transport.execute("/system/reset-configuration", no_defaults=True,
-                                   skip_backup=False,
-                                   run_after_reset=self.transport.file_reference(boot))
+            self._arm_reset(file)
         except ConnectionLost:
             pass  # the device reboots immediately; losing the session is the expected outcome
         except TransportError as exc:
@@ -284,20 +302,28 @@ class ApplyOrchestrator:
     def _reconnect(self) -> None:
         access = self.ctx.result.access
         params = self.transport.params
+        expiring: tuple[str, ...] = ()
         if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
             params = replace(params, username="admin", password=self.ctx.options.admin_password)
-        target = ReconnectTarget(params=replace(params, port=None),
-                                 api_port=access.api_ssl_port, ssh_port=access.ssh_port)
+            # A reset takes every address with it, including the temporary one that
+            # connect-by-MAC added to reach the device - the very one we are talking to.
+            expiring = (self.ctx.temp_address,) if self.ctx.temp_address else ()
+        hosts = reconnect_hosts(self.ctx.profile, current_host=params.host,
+                                session_port=self.ctx.session_port, expiring=expiring)
+        target = ReconnectTarget(params=replace(params, port=None, host=hosts[0]),
+                                 api_port=access.api_ssl_port, ssh_port=access.ssh_port,
+                                 alternatives=tuple(hosts[1:]))
         if self.ctx.options.mode == ApplyMode.IMPORT and self.transport.connected:
             try:
                 self.transport.execute("/system/identity/print")
-                self._event("apply.step.reconnect", StepStatus.SKIPPED,
+                self._event("apply.step.reconnect", StepStatus.SKIPPED, hosts=params.host,
                             api_port=target.api_port, ssh_port=target.ssh_port)
                 return
             except ConnectionLost:
                 self.report.connection_lost_during = self.report.connection_lost_during or \
                     "verify"
         self._event("apply.step.reconnect", StepStatus.RUNNING,
+                    hosts=", ".join(target.hosts),
                     api_port=target.api_port, ssh_port=target.ssh_port)
         try:
             new_transport = self.ctx.reconnect(target)
@@ -307,7 +333,7 @@ class ApplyOrchestrator:
                               api_port=target.api_port, ssh_port=target.ssh_port,
                               error=str(exc)) from exc
         self.report.transport = new_transport
-        self._event("apply.step.reconnect", StepStatus.OK,
+        self._event("apply.step.reconnect", StepStatus.OK, hosts=new_transport.params.host,
                     api_port=target.api_port, ssh_port=target.ssh_port)
 
     def _verify(self) -> None:

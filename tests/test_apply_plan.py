@@ -7,7 +7,6 @@ from fake_transport import FakeTransport
 from mqs.apply.plan import (
     ApplyMode,
     ApplyOptions,
-    build_bootstrap_script,
     build_upload_script,
     make_names,
 )
@@ -56,27 +55,14 @@ def test_reset_script_wrapping():
                            admin_password='pa ss"1')
     text = build_upload_script("/system identity\nset name=R1\n", options, names)
     lines = text.splitlines()
-    assert lines[1:3] == ["/system identity", "set name=R1"]
-    assert ":delay" not in text, "the delay belongs in the bootstrap, which runs first"
+    assert lines[1] == ":delay 20s"
+    assert lines[2:4] == ["/system identity", "set name=R1"]
     assert lines[-2] == '/user set [ find name=admin ] password="pa ss\\"1"'
     assert lines[-1] == '/file remove [ find name=flash/quickset-20260915-140509.rsc ]'
     masked = build_upload_script("x\n", options, names, mask_secrets=True)
     assert "pa ss" not in masked and 'password="********"' in masked
     no_password = build_upload_script("x\n", ApplyOptions(ApplyMode.RESET_AND_IMPORT), names)
     assert "/user set" not in no_password
-
-
-def test_bootstrap_stays_small_and_imports_the_configuration():
-    """RouterOS answers "cannot use file" for a run-after-reset script much over 2 kB
-    (measured on 7.20.7: accepted at 2131 bytes, refused at 2150), so what it is given
-    is these few lines and the configuration arrives through /import."""
-    names = make_names(NOW, has_flash_dir=True)
-    options = ApplyOptions(ApplyMode.RESET_AND_IMPORT, reset_delay_s=20)
-    lines = build_bootstrap_script(options, names).splitlines()
-    assert lines[1] == ":delay 20s"
-    assert lines[2] == "/import file-name=flash/quickset-20260915-140509.rsc"
-    assert lines[3] == "/file remove [ find name=flash/quickset-20260915-140509-boot.rsc ]"
-    assert len(build_bootstrap_script(options, names)) < 2000
 
 
 # ---------------------------------------------------------------- rollback

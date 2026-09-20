@@ -50,6 +50,7 @@ class FakeRouter:
         self.drop_on: set[str] = set()  # words that drop the session
         self.pending_import_effects: dict[str, object] = {}
         self.run_after_reset: str | None = None
+        self.reset_refusals = 0  # how many times to answer "cannot use file" first
         self.offload_running = True
 
     # ------------------------------------------------------------ simulation helpers
@@ -117,6 +118,10 @@ class FakeRouter:
                 raise ConnectionLost("ssh session closed by port change")
             return []
         if word == "/system/reset-configuration":
+            # A device refuses a just-written script for a moment; the flow waits it out.
+            if self.reset_refusals > 0:
+                self.reset_refusals -= 1
+                raise CommandError(word, "cannot use file")
             self.run_after_reset = args["run-after-reset"]
             session.alive = False
             self.reboots += 1
@@ -139,23 +144,11 @@ class FakeRouter:
         raise CommandError(word, "bad command name")
 
     def _run_after_reset(self, name: str | None) -> None:
-        """Run the armed script, following its `/import` the way the device does.
-
-        RouterOS refuses a configuration-sized script for run-after-reset, so the file
-        armed here is a bootstrap and the configuration only lands if the file it imports
-        is on the device under exactly the name the bootstrap names.
-        """
         script = self.files.get(name or "")
         if script is None:
             return
-        for line in script.splitlines():
-            if not line.startswith("/import file-name="):
-                continue
-            target = line.removeprefix("/import file-name=").strip()
-            if target in self.files:
-                self._apply_import()
-                self.state.admin_password = self.pending_import_effects.get("admin_password", "")
-                self.files.pop(target, None)
+        self._apply_import()
+        self.state.admin_password = self.pending_import_effects.get("admin_password", "")
         self.files.pop(name or "", None)
 
     def _apply_import(self) -> None:

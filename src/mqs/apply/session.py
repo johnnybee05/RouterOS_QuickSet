@@ -152,6 +152,10 @@ def build_apply_context(
         options=options,
         inventory=session.inventory,
         transport=session.transport,
+        # Both are needed to work out where the device will answer once the new
+        # configuration is on it, which is not always where it answers now.
+        session_port=session.session_port,
+        temp_address=session.temp_address,
         uploader_factory=uploader_factory_builder(session, options),
         reconnect=lambda target: reconnect_fn(
             target, timeout_s=options.reconnect_timeout_s, cancelled=cancelled),

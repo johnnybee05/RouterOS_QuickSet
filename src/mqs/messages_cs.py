@@ -177,7 +177,10 @@ MESSAGES: dict[str, str] = {
     "apply.step.execute_import": "Import skriptu {file}",
     "apply.step.execute_lines": "Aplikace příkazů řádek po řádku ({count})",
     "apply.step.execute_reset": "Reset konfigurace, po restartu se spustí {file}",
-    "apply.step.reconnect": "Připojení po aplikaci (api-ssl {api_port}, SSH {ssh_port})",
+    "apply.reset_retry": "Zařízení zatím nahraný skript nepřijalo, zkouším znovu "
+    "({attempt}/{total}).",
+    "apply.step.reconnect": "Připojení po aplikaci na {hosts} (api-ssl {api_port}, "
+    "SSH {ssh_port})",
     "apply.step.verify": "Ověření konfigurace na zařízení",
     "apply.step.cleanup": "Odstranění nahraného skriptu ze zařízení",
     "apply.step.confirm": "Konfigurace potvrzena, rollback pojistka zrušena",
