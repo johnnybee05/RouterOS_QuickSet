@@ -116,8 +116,11 @@ def confirmed(args: argparse.Namespace, options: ApplyOptions, session: DeviceSe
     if not sys.stdin.isatty():
         print("refusing to change the device: pass --yes", file=sys.stderr)
         return False
-    answer = input(f"{options.mode.value} on {session.inventory.identity}"
-                   f" ({session.params.host}) — type yes: ")
+    try:
+        answer = input(f"{options.mode.value} on {session.inventory.identity}"
+                       f" ({session.params.host}) — type yes: ")
+    except EOFError:  # redirected stdin that still claims to be a terminal
+        return False
     return answer.strip().lower() == "yes"
 
 

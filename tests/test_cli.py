@@ -105,6 +105,17 @@ def test_a_change_is_refused_without_yes(router, profile_file, monkeypatch):
     assert "/import" not in router.log, "the device was touched without confirmation"
 
 
+def test_no_answer_is_not_a_yes(router, profile_file, monkeypatch):
+    """A terminal whose input has run out must not be read as consent."""
+    monkeypatch.setenv("MQS_PASSWORD", "")  # so the terminal is only used for the question
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError))
+    code, _out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                      "--mode", "import"], router=router)
+    assert code == cli.REFUSED
+    assert "/import" not in router.log
+
+
 def test_reset_without_the_identity_is_blocked(router, profile_file):
     code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
                      "--mode", "reset", "--yes"], router=router)
