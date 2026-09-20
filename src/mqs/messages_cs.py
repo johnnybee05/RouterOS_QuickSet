@@ -212,6 +212,12 @@ MESSAGES: dict[str, str] = {
 }
 
 
+# One apply step, keyed by StepStatus value: the window and the CLI label them alike.
+STEP_PREFIX: dict[str, str] = {
+    "running": "…", "ok": "OK", "warning": "!", "failed": "CHYBA", "skipped": "–",
+}
+
+
 def format_message(code: str, params: Mapping[str, Any] | None = None) -> str:
     template = MESSAGES.get(code)
     if template is None:

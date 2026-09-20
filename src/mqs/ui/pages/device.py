@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from ipaddress import IPv4Address
 from typing import Any
 
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mqs.apply.session import DeviceSession, discover_session, find_session_port
 from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
 from mqs.logging_setup import SecretRegistry
@@ -40,7 +41,7 @@ from mqs.transport.base import (
     Transport,
     TransportError,
 )
-from mqs.transport.discovery import collect_inventory, probe_features, session_interface
+from mqs.transport.discovery import collect_inventory, probe_features
 from mqs.transport.factory import ConnectFailed, TransportChoice, connect_transport
 from mqs.transport.mac_connect import MacConnectResult, connect_by_mac
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
@@ -49,7 +50,6 @@ from mqs.transport.netifs import (
     interface_for,
     list_ipv4_interfaces,
     propose_free_address,
-    route_source_address,
 )
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import ProfileController
@@ -63,18 +63,6 @@ SOLICIT_EVERY_TICKS = 10
 DEVICE_MAX_AGE_S = 120.0
 
 
-@dataclass
-class DeviceSession:
-    params: ConnectionParams
-    transport: Transport
-    inventory: DeviceInventory
-    probes: dict[str, bool] = field(default_factory=dict)
-    session_port: str | None = None
-    fell_back: bool = False
-    temp_address: str | None = None  # bootstrap IP added by connect-by-MAC, to remove later
-    mac_method: str | None = None
-
-
 def describe_error(exc: BaseException) -> str:
     if isinstance(exc, AuthError):
         return S.CONNECT_AUTH_FAILED
@@ -86,13 +74,6 @@ def describe_error(exc: BaseException) -> str:
     if isinstance(exc, TransportError):
         return str(exc)
     return f"{type(exc).__name__}: {exc}"
-
-
-def find_session_port(transport: Transport, host: str) -> str | None:
-    try:
-        return session_interface(transport, route_source_address(host))
-    except (OSError, TransportError):
-        return None
 
 
 def default_scanner() -> MndpScanner:
@@ -346,11 +327,11 @@ class DevicePage(Page):
         temp_address: str | None = None,
         mac_method: str | None = None,
     ) -> DeviceSession:
-        inventory = self.discover_fn(transport, on_step=report)
-        probes = self.probe_fn(transport, inventory.version)
-        port = self.session_port_fn(transport, params.host)
-        return DeviceSession(params, transport, inventory, probes, port, fell_back,
-                             temp_address=temp_address, mac_method=mac_method)
+        return discover_session(
+            transport, params, on_step=report, fell_back=fell_back,
+            temp_address=temp_address, mac_method=mac_method,
+            discover=self.discover_fn, probe=self.probe_fn, session_port=self.session_port_fn,
+        )
 
     def connect_device(self) -> None:
         params = self.connection_params()

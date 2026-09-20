@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import time
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,77 +35,26 @@ from mqs.apply.orchestrator import (
     ApplyEvent,
     ApplyOrchestrator,
     ApplyReport,
-    StepStatus,
 )
 from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
 from mqs.apply.preflight import collect_existing, preflight
 from mqs.apply.reconnect import reconnect_with_retry
+from mqs.apply.session import DeviceSession, build_apply_context, build_uploader_factory
 from mqs.apply.verify import CheckResult
 from mqs.issues import Issue, Severity
+from mqs.messages_cs import STEP_PREFIX
 from mqs.paths import backups_dir
-from mqs.transport.base import ConnectionParams, Transport
-from mqs.transport.netifs import route_source_address
-from mqs.transport.ssh import SshTransport
-from mqs.transport.upload import FileUploader, HttpFetchStrategy, ScpStrategy, SftpStrategy
+from mqs.transport.base import Transport
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page
-from mqs.ui.pages.device import DeviceSession
 from mqs.ui.theme import ERROR_RED, OK_GREEN
 from mqs.ui.widgets.common import IssueList, LogView
 from mqs.ui.workers import TaskRunner
 
 log = logging.getLogger(__name__)
 IDENTITY_CHECKED_IN_DIALOG = "apply.reset_identity_mismatch"
-
-
-class _LazySsh:
-    """SSH connection opened only when a file strategy needs it (main transport is API)."""
-
-    def __init__(self, params: ConnectionParams) -> None:
-        self.params = params
-        self._transport: SshTransport | None = None
-
-    def _connected(self) -> SshTransport:
-        if self._transport is None:
-            transport = SshTransport(self.params)
-            transport.connect()
-            self._transport = transport
-        return self._transport
-
-    def open_sftp(self) -> Any:
-        return self._connected().open_sftp()
-
-    def paramiko_transport(self) -> Any:
-        return self._connected().paramiko_transport()
-
-    def close(self) -> None:
-        if self._transport is not None:
-            self._transport.close()
-            self._transport = None
-
-
-def build_uploader_factory(session: DeviceSession,
-                           options: ApplyOptions) -> Callable[[Transport], FileUploader]:
-    ssh_service = next((s for s in session.inventory.services if s.name == "ssh"), None)
-    ssh_port = ssh_service.port if ssh_service else 22
-
-    def factory(transport: Transport) -> FileUploader:
-        owned: _LazySsh | None = None
-        if isinstance(transport, SshTransport):
-            ssh: Any = transport  # the application's own session, not ours to close
-        else:
-            owned = _LazySsh(replace(session.params, port=ssh_port))
-            ssh = owned
-        strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
-        with contextlib.suppress(OSError):  # no route to the device: skip HTTP + fetch
-            strategies.append(HttpFetchStrategy(transport,
-                                                route_source_address(session.params.host)))
-        return FileUploader(strategies, allow_line_by_line=options.mode == ApplyMode.IMPORT,
-                            release=owned.close if owned is not None else None)
-
-    return factory
 
 
 class ApplyPage(Page):
@@ -330,19 +276,11 @@ class ApplyPage(Page):
         self.result_label.setText("")
 
         def task(token, report):
-            ctx = ApplyContext(
-                profile=self.controller.profile,
-                result=result,
-                options=options,
-                inventory=session.inventory,
-                transport=session.transport,
-                uploader_factory=self.uploader_factory_builder(session, options),
-                reconnect=lambda target: self.reconnect_fn(
-                    target, timeout_s=options.reconnect_timeout_s, cancelled=token.cancelled),
-                now=self.now,
-                sleep=lambda seconds: None if token.cancelled() else time.sleep(seconds),
-                cancelled=token.cancelled,
-                on_event=report,
+            ctx = build_apply_context(
+                self.controller.profile, result, options, session,
+                on_event=report, now=self.now, cancelled=token.cancelled,
+                uploader_factory_builder=self.uploader_factory_builder,
+                reconnect_fn=self.reconnect_fn,
             )
             self.orchestrator = self.orchestrator_factory(ctx)
             return self.orchestrator.run()
@@ -351,9 +289,7 @@ class ApplyPage(Page):
                           on_progress=self._event)
 
     def _event(self, event: ApplyEvent) -> None:
-        prefix = {StepStatus.RUNNING: "…", StepStatus.OK: "OK", StepStatus.WARNING: "!",
-                  StepStatus.FAILED: "CHYBA", StepStatus.SKIPPED: "–"}[event.status]
-        self.log_view.append_line(f"[{prefix}] {event.message}")
+        self.log_view.append_line(f"[{STEP_PREFIX[event.status]}] {event.message}")
         log.info("%s %s %s", event.status.value, event.step, event.detail)
 
     def _show_report(self, report: ApplyReport) -> None:

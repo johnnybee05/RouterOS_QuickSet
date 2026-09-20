@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mqs.apply.session import DeviceSession
 from mqs.logging_setup import SecretRegistry
 from mqs.messages_cs import format_message
 from mqs.model.presets import apply_preset
@@ -28,7 +29,7 @@ from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.apply import ApplyPage
 from mqs.ui.pages.basic import BasicPage
-from mqs.ui.pages.device import DevicePage, DeviceSession
+from mqs.ui.pages.device import DevicePage
 from mqs.ui.pages.firewall import FirewallPage
 from mqs.ui.pages.lan_bridge import LanBridgePage
 from mqs.ui.pages.preview import PreviewPage
