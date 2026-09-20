@@ -83,6 +83,11 @@ class _LazySsh:
     def paramiko_transport(self) -> Any:
         return self._connected().paramiko_transport()
 
+    def close(self) -> None:
+        if self._transport is not None:
+            self._transport.close()
+            self._transport = None
+
 
 def build_uploader_factory(session: DeviceSession,
                            options: ApplyOptions) -> Callable[[Transport], FileUploader]:
@@ -90,13 +95,18 @@ def build_uploader_factory(session: DeviceSession,
     ssh_port = ssh_service.port if ssh_service else 22
 
     def factory(transport: Transport) -> FileUploader:
-        ssh: Any = transport if isinstance(transport, SshTransport) else _LazySsh(
-            replace(session.params, port=ssh_port))
+        owned: _LazySsh | None = None
+        if isinstance(transport, SshTransport):
+            ssh: Any = transport  # the application's own session, not ours to close
+        else:
+            owned = _LazySsh(replace(session.params, port=ssh_port))
+            ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
         with contextlib.suppress(OSError):  # no route to the device: skip HTTP + fetch
             strategies.append(HttpFetchStrategy(transport,
                                                 route_source_address(session.params.host)))
-        return FileUploader(strategies, allow_line_by_line=options.mode == ApplyMode.IMPORT)
+        return FileUploader(strategies, allow_line_by_line=options.mode == ApplyMode.IMPORT,
+                            release=owned.close if owned is not None else None)
 
     return factory
 

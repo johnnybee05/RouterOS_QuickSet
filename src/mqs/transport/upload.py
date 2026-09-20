@@ -156,9 +156,23 @@ class HttpFetchStrategy:
 
 
 class FileUploader:
-    def __init__(self, strategies: Sequence[Any], *, allow_line_by_line: bool = False) -> None:
+    def __init__(self, strategies: Sequence[Any], *, allow_line_by_line: bool = False,
+                 release: Callable[[], None] | None = None) -> None:
         self.strategies = list(strategies)
         self.allow_line_by_line = allow_line_by_line
+        self._release = release
+
+    def release(self) -> None:
+        """Close a transfer connection this uploader opened for itself.
+
+        RouterOS refuses `run-after-reset` with "cannot use file" while the SSH session
+        that wrote the script is still open: verified on 7.20.7 on 2026-09-20, where the
+        identical call succeeded from a process holding no such session. The connection
+        therefore has to go before the reset is issued.
+        """
+        if self._release is not None:
+            self._release()
+            self._release = None
 
     def upload(self, data: bytes, remote_path: str) -> UploadResult:
         attempts: list[tuple[UploadStrategy, str]] = []

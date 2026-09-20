@@ -328,3 +328,22 @@ def test_reconnect_gives_up_and_auth_is_fatal():
     with pytest.raises(Cancelled):
         reconnect_with_retry(target, timeout_s=60, connect=refuse, sleep=clock.sleep, clock=clock,
                              cancelled=lambda: True)
+
+
+def test_upload_releases_the_transfer_connection_before_the_reset():
+    """RouterOS answers run-after-reset with "cannot use file" while the SSH session that
+    wrote the script is still open. Verified on 7.20.7 on 2026-09-20: the identical call
+    succeeded from a process holding no such session and failed from the application,
+    which kept its uploader connection.
+    """
+    router, orchestrator, _events, _ = build(ApplyMode.RESET_AND_IMPORT, admin_password="N3w")
+    released: list[str] = []
+
+    class RecordingUploader(RouterUploader):
+        def release(self):
+            released.append("released")
+
+    orchestrator.ctx.uploader_factory = lambda transport: RecordingUploader(router)
+    report = orchestrator.run()
+    assert released == ["released"], "the transfer connection is never let go of"
+    assert report.succeeded

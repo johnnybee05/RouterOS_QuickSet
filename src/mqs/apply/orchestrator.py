@@ -202,6 +202,9 @@ class ApplyOrchestrator:
                 self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
             raise self._abort("apply.failed.upload_reset_needs_file")
         self.report.upload = result
+        # Let go of the transfer connection: RouterOS will not use the script for
+        # run-after-reset while the session that wrote it is still open.
+        uploader.release()
         self._event("apply.step.upload", StepStatus.OK, file=file, strategy=result.strategy.value)
 
     def _schedule_rollback(self) -> None:
