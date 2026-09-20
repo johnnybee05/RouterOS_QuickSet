@@ -13,6 +13,7 @@ from mqs.transport.base import (
     ConnectionLost,
     ConnectionParams,
     ServiceUnavailable,
+    TransportError,
     TransportKind,
 )
 from mqs.transport.factory import ConnectFailed, ConnectOutcome
@@ -205,7 +206,9 @@ def test_link_local_unreachable_falls_back_to_bootstrap():
     assert result.temp_address == "192.168.88.253/24"
     assert result.device_interface == "ether5"
     assert device.commands == [
-        "/ip address add address=192.168.88.253/24 interface=ether5 comment=mqs-temp"]
+        "/ip address add address=192.168.88.253/24 interface=ether5 comment=mqs-temp",
+        ':put [:len [/ip address find comment="mqs-temp"]]',  # the bootstrap is confirmed
+    ]
     assert calls == ["fe80::1%12", "192.168.88.253"]
     assert steps == ["link-local", "mac-telnet"]
     assert created["local"] == "192.168.88.254"
@@ -308,3 +311,44 @@ def test_remove_temp_address_tolerates_the_connection_dying():
     transport = DyingTransport()
     remove_temp_address(transport, "192.168.55.254/24")
     assert transport.tried
+
+
+def test_run_rejects_a_command_it_could_not_confirm():
+    """Silence is not success.
+
+    The console swallows input while it is still printing its banner and log backlog.
+    Treating that as a completed command is how a device once reported a bootstrap
+    address as set while it had added nothing at all.
+    """
+    device = FakeDevice(password="pw", command_reply=lambda line: "")
+    session = make_session(device, "pw")
+    session.authenticate()
+    with pytest.raises(MacTelnetError, match="cannot be confirmed"):
+        session.run("/ip address add address=1.2.3.4/24 interface=ether1")
+
+
+def test_bootstrap_fails_when_the_device_did_not_add_the_address():
+    def reply(line: str) -> str:
+        found = "0" if line.startswith(":put") else "ok"  # the device added nothing
+        return line + "\n" + found + "\n[admin@MikroTik] > "
+
+    device = FakeDevice(password="pw", command_reply=reply)
+    factory, _ = bootstrap_session_factory(device)
+    connect, calls = fake_connect_factory()
+    with pytest.raises(MacTelnetError, match="did not add the temporary address"):
+        connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                       LOCAL, connect=connect, session_factory=factory)
+    assert calls == []  # never claims reachability for an address that was not added
+
+
+def test_temp_address_is_taken_back_when_the_device_is_unreachable_on_it():
+    device = FakeDevice(password="pw")
+    factory, _ = bootstrap_session_factory(device)
+
+    def connect(params, choice=None, **kwargs):
+        raise TransportError("no transport available")
+
+    with pytest.raises(MacTelnetError, match="removed again"):
+        connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                       LOCAL, connect=connect, session_factory=factory)
+    assert any("remove" in command for command in device.commands)

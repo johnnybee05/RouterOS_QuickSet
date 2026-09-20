@@ -265,6 +265,11 @@ class MacTelnetSession:
             if LOGIN_FAILED in text.lower():
                 self._authenticated = False
                 raise MacTelnetAuthError(text.strip().splitlines()[-1].strip())
+            if text.rstrip(" \t\r\n").endswith(">"):
+                # The console already got as far as its prompt here, so run() must not
+                # wait for a banner that has been and gone.
+                self._primed = True
+                return
 
     def _read_challenge(self, packet: Packet) -> ServerChallenge:
         control = next((cp for cp in packet.control_packets
@@ -283,8 +288,13 @@ class MacTelnetSession:
         data.data = (line + "\r").encode()
         self._send(data)
 
-    def _collect(self, timeout: float, quiet: float, expect: str = "") -> str:
-        """Read terminal output until the prompt comes back, or the stream goes quiet."""
+    def _collect(self, timeout: float, quiet: float, expect: str = "") -> tuple[str, bool]:
+        """Read terminal output; returns the text and whether a prompt ended it.
+
+        The flag matters: a command that finished always leaves a prompt behind, so text
+        without one means we stopped reading early and cannot say the command ran.
+        """
+        saw_prompt = False
         collected: list[bytes] = []
         overall = self._clock() + timeout
         last: float | None = None
@@ -312,10 +322,11 @@ class MacTelnetSession:
                     # returned as the command's output.
                     echoed = not expect or expect in acc
                     if echoed and acc.rstrip(" \t\r\n").endswith(">"):
+                        saw_prompt = True
                         break
             elif packet.message_type == MessageType.END_SESSION:
                 break
-        return b"".join(collected).decode("utf-8", errors="replace")
+        return b"".join(collected).decode("utf-8", errors="replace"), saw_prompt
 
     def _prime(self, timeout: float) -> None:
         """Wake the console and swallow everything it says before it is ready.
@@ -325,9 +336,14 @@ class MacTelnetSession:
         prompt - twice. A command issued during that is swallowed, and the leftover second
         prompt would be returned as the first command's output.
         """
+        deadline = max(timeout, 20.0)
         self._send_line("")
-        self._collect(max(timeout, 15.0), 1.0)
-        self._collect(2.0, 0.5)
+        # Wait for a prompt, not for a gap. The banner and the unread log backlog arrive
+        # in bursts with pauses between them, so stopping at the first pause leaves the
+        # console still talking - and it then swallows the command we send next.
+        _, saw_prompt = self._collect(deadline, deadline)
+        if saw_prompt:
+            self._collect(1.0, 0.5)  # the console repeats its prompt; drop the leftover
         self._primed = True
 
     def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0) -> str:
@@ -338,10 +354,21 @@ class MacTelnetSession:
             self._prime(timeout)
 
         self._send_line(line)
-        text = sanitize(self._collect(timeout, quiet, expect=line.strip()))
+        # The prompt delimits the reply, the timeout bounds it; a pause in between means
+        # nothing, because the console streams long output in bursts.
+        raw, saw_prompt = self._collect(timeout, max(quiet, timeout), expect=line.strip())
+        text = sanitize(raw)
         error = find_error(text)
         if error is not None:
             raise MacTelnetError(f"{line}: {error}")
+        if not saw_prompt:
+            # Silence is not success. The console swallows input while it is still
+            # printing its banner and log backlog, and reporting that as "done" is how
+            # a bootstrap address was reported as set when the device never added it.
+            raise MacTelnetError(
+                f"{line}: the console did not return a prompt, so the command cannot be "
+                f"confirmed as executed"
+            )
         return _strip_console(text, line)
 
     def close(self) -> None:

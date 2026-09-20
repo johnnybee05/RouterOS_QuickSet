@@ -129,18 +129,34 @@ def connect_by_mac(
             f"/ip address add address={address} interface={device_interface} "
             f"comment={TEMP_COMMENT}"
         )
+        # Ask the device whether it really has the address. A command whose output we
+        # could not read is not a command we may claim ran: a device once reported the
+        # bootstrap as done while the console had swallowed the input and added nothing,
+        # which turned into a misleading "set but not reachable" further down.
+        if session.run(f':put [:len [/ip address find comment="{TEMP_COMMENT}"]]').strip() \
+                in ("", "0"):
+            raise MacTelnetError(
+                f"the device did not add the temporary address {address} on "
+                f"{device_interface}"
+            )
     except MacTelnetError:
         session.close()
         raise
-    session.close()
 
     ip_params = replace(params, host=str(proposed_address))
     try:
         outcome = connect(ip_params, choice)
     except TransportError as exc:
+        # Take the address back over the session we still hold, so a failed attempt does
+        # not leave the device carrying an address nobody can reach it on.
+        with contextlib.suppress(MacTelnetError):
+            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
+        session.close()
         raise MacTelnetError(
-            f"temporary address {address} was set but the device is not reachable on it: {exc}"
+            f"temporary address {address} was added on {device_interface} but the device "
+            f"is not reachable on it, so it was removed again: {exc}"
         ) from exc
+    session.close()
     return MacConnectResult(outcome, MacConnectMethod.MAC_TELNET,
                             temp_address=address, device_interface=device_interface)
 
