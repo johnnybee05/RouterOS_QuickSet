@@ -29,7 +29,9 @@ class FakeDevice:
         password: str = "",
         *,
         user: RegisteredUser | None = None,
-        command_reply: Callable[[str], str] = lambda line: line + "\nok\n[admin@MikroTik] > ",
+        command_reply: Callable[[str], str] = (
+            lambda line: (line + "\nok\n" if line else "") + "[admin@MikroTik] > "
+        ),
         server_private: bytes | None = None,
     ) -> None:
         self.mac = mac_bytes(mac)
@@ -77,11 +79,8 @@ class FakeDevice:
             line = packet.data.decode("utf-8", errors="replace").rstrip("\r\n")
             reply = self._packet(MessageType.DATA)
             if line:
-                self.commands.append(line)
-                reply.data = self.command_reply(line).encode()
-            else:
-                # A bare CR is not a command; the console only redraws its prompt.
-                reply.data = b"[admin@MikroTik] > "
+                self.commands.append(line)  # a bare CR is not a command
+            reply.data = self.command_reply(line).encode()
             self._emit(reply, out)
             return out
 

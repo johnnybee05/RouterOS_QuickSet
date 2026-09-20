@@ -32,18 +32,34 @@ from mqs.transport.mactelnet.packet import (
 LOGIN_FAILED = "login failed"
 # Tail of the interactive console prompt, e.g. "[bee@QuickSet] > ".
 PROMPT = "] > "
+# RouterOS 7.13+ asks this on the first console login after a reset and waits for an
+# answer instead of showing a prompt, which stalls everything sent afterwards.
+LICENSE_QUESTION = "software license"
+
+
+def _squash(text: str) -> str:
+    """Whitespace-free form, for matching an echo the console may have wrapped.
+
+    A command longer than the terminal width comes back broken by carriage returns and
+    padding, so the echo never matches the command literally.
+    """
+    return "".join(text.split())
 
 
 def _strip_console(text: str, command: str) -> str:
     """Drop the echoed command line and the trailing prompt from console output."""
     lines = text.splitlines()
-    wanted = command.strip()
-    # Drop everything up to and including the echoed command. splitlines() also splits
-    # on the bare CRs the console uses to redraw, so the echo is not always line 0.
-    for index, line in enumerate(lines):
-        if wanted and line.strip().endswith(wanted):
-            lines = lines[index + 1:]
-            break
+    wanted = _squash(command)
+    # Drop everything up to and including the echoed command. splitlines() also splits on
+    # the bare CRs the console uses to redraw, and a command wider than the terminal comes
+    # back split across lines, so match on the whitespace-free form as it accumulates.
+    if wanted:
+        seen = ""
+        for index, line in enumerate(lines):
+            seen += _squash(line)
+            if wanted in seen:
+                lines = lines[index + 1:]
+                break
     # sanitize() trims the prompt's trailing space, so match on the bracket-arrow tail.
     while lines and (not lines[-1].strip() or lines[-1].rstrip().endswith(">")):
         lines.pop()
@@ -131,7 +147,7 @@ class MacTelnetSession:
         *,
         src_mac: bytes | None = None,
         term_type: bytes = b"vt100",
-        term_size: tuple[int, int] = (80, 24),
+        term_size: tuple[int, int] = (200, 24),  # wide enough that commands do not wrap
         connect_timeout: float = 10.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -320,10 +336,13 @@ class MacTelnetSession:
                     # Wait until the console has echoed our command: a prompt left over
                     # from the banner would otherwise end the read straight away and be
                     # returned as the command's output.
-                    echoed = not expect or expect in acc
-                    if echoed and acc.rstrip(" \t\r\n").endswith(">"):
+                    echoed = not expect or _squash(expect) in _squash(acc)
+                    tail = acc.rstrip(" \t\r\n")
+                    if echoed and tail.endswith(">"):
                         saw_prompt = True
                         break
+                    if tail.endswith(":") and LICENSE_QUESTION in acc.lower():
+                        break  # a question is waiting for an answer, not for more reading
             elif packet.message_type == MessageType.END_SESSION:
                 break
         return b"".join(collected).decode("utf-8", errors="replace"), saw_prompt
@@ -338,15 +357,22 @@ class MacTelnetSession:
         """
         deadline = max(timeout, 20.0)
         self._send_line("")
-        # Wait for a prompt, not for a gap. The banner and the unread log backlog arrive
-        # in bursts with pauses between them, so stopping at the first pause leaves the
-        # console still talking - and it then swallows the command we send next.
-        _, saw_prompt = self._collect(deadline, deadline)
-        if saw_prompt:
-            self._collect(1.0, 0.5)  # the console repeats its prompt; drop the leftover
+        for _ in range(3):
+            # Wait for a prompt, not for a gap. The banner and the unread log backlog
+            # arrive in bursts with pauses between them, so stopping at the first pause
+            # leaves the console still talking - and it swallows the next command.
+            text, saw_prompt = self._collect(deadline, deadline)
+            if saw_prompt:
+                self._collect(1.0, 0.5)  # the console repeats its prompt; drop that
+                break
+            if LICENSE_QUESTION in text.lower():
+                self._send_line("n")  # decline to have the licence printed, then carry on
+                continue
+            break
         self._primed = True
 
-    def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0) -> str:
+    def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0,
+            confirm: bool = True) -> str:
         """Send one CLI line and return its output, without echo or prompt."""
         if not self._authenticated:
             raise MacTelnetError("not authenticated")
@@ -361,10 +387,12 @@ class MacTelnetSession:
         error = find_error(text)
         if error is not None:
             raise MacTelnetError(f"{line}: {error}")
-        if not saw_prompt:
-            # Silence is not success. The console swallows input while it is still
-            # printing its banner and log backlog, and reporting that as "done" is how
-            # a bootstrap address was reported as set when the device never added it.
+        if confirm and not saw_prompt:
+            # Silence is not success: the console swallows input while it is still
+            # printing its banner, and calling that "done" is how a bootstrap address
+            # was once reported as set when the device had added nothing. Callers that
+            # verify the outcome by asking the device pass confirm=False instead, because
+            # an unreadable prompt says nothing about whether the command ran.
             raise MacTelnetError(
                 f"{line}: the console did not return a prompt, so the command cannot be "
                 f"confirmed as executed"

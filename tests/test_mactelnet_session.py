@@ -206,6 +206,7 @@ def test_link_local_unreachable_falls_back_to_bootstrap():
     assert result.temp_address == "192.168.88.253/24"
     assert result.device_interface == "ether5"
     assert device.commands == [
+        '/ip address remove [find comment="mqs-temp"]',  # leftovers from earlier attempts
         "/ip address add address=192.168.88.253/24 interface=ether5 comment=mqs-temp",
         ':put [:len [/ip address find comment="mqs-temp"]]',  # the bootstrap is confirmed
     ]
@@ -267,7 +268,8 @@ def test_bootstrap_default_interface_when_unknown():
     result = connect_by_mac(plain, PARAMS, IPv4Address("192.168.88.253"), LOCAL,
                             connect=connect, session_factory=factory)
     assert result.device_interface == "ether1"  # fallback
-    assert "interface=ether1" in device.commands[0]
+    added = next(c for c in device.commands if c.startswith("/ip address add"))
+    assert "interface=ether1" in added
 
 
 def test_service_unavailable_link_local_falls_back():
@@ -311,6 +313,40 @@ def test_remove_temp_address_tolerates_the_connection_dying():
     transport = DyingTransport()
     remove_temp_address(transport, "192.168.55.254/24")
     assert transport.tried
+
+
+def test_prime_answers_the_licence_question():
+    """RouterOS 7.13+ asks this on the first console login after a reset, and waits.
+
+    Verified on a device 2026-09-20: until it is answered the console never shows a
+    prompt, so every command sent afterwards is swallowed without a trace.
+    """
+    asked = []
+
+    def reply(line: str) -> str:
+        if not asked:
+            asked.append(line)
+            return "\r\n\r\nDo you want to see the software license? [Y/n]: "
+        return (line + "\nok\n" if line else "") + "[admin@MikroTik] > "
+
+    device = FakeDevice(password="pw", command_reply=reply)
+    session = make_session(device, "pw")
+    session.authenticate()
+    assert session.run("/system identity print") == "ok"
+
+
+def test_wrapped_echo_is_still_recognised():
+    """A command wider than the terminal comes back split across lines."""
+
+    def reply(line: str) -> str:
+        half = len(line) // 2
+        return line[:half] + "\r\n" + line[half:] + "\nok\n[admin@MikroTik] > "
+
+    device = FakeDevice(password="pw", command_reply=reply)
+    session = make_session(device, "pw")
+    session.authenticate()
+    long_command = "/ip address add address=192.168.55.254/24 interface=ether1 comment=mqs-temp"
+    assert session.run(long_command) == "ok"
 
 
 def test_run_rejects_a_command_it_could_not_confirm():

@@ -125,21 +125,33 @@ def connect_by_mac(
     session = session_factory(device, params, str(interface.address))
     try:
         session.authenticate()
+        # Drop leftovers from an earlier attempt first: a command we could not confirm
+        # may still have run, and a stale address makes the add fail with
+        # "already have such address".
+        # These two write commands are not judged by how readable the console was; the
+        # query below asks the device itself, which is the only answer that counts.
+        session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]', confirm=False)
         session.run(
             f"/ip address add address={address} interface={device_interface} "
-            f"comment={TEMP_COMMENT}"
+            f"comment={TEMP_COMMENT}",
+            confirm=False,
         )
         # Ask the device whether it really has the address. A command whose output we
         # could not read is not a command we may claim ran: a device once reported the
         # bootstrap as done while the console had swallowed the input and added nothing,
         # which turned into a misleading "set but not reachable" further down.
-        if session.run(f':put [:len [/ip address find comment="{TEMP_COMMENT}"]]').strip() \
-                in ("", "0"):
+        found = session.run(f':put [:len [/ip address find comment="{TEMP_COMMENT}"]]',
+                            timeout=20.0)
+        if found.strip() in ("", "0"):
             raise MacTelnetError(
                 f"the device did not add the temporary address {address} on "
                 f"{device_interface}"
             )
     except MacTelnetError:
+        # An unconfirmed command may still have run, so take the address back rather than
+        # leaving one behind for the next attempt to trip over.
+        with contextlib.suppress(MacTelnetError):
+            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
         session.close()
         raise
 
