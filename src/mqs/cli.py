@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
-from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
+from mqs.apply.plan import ApplyMode, ApplyOptions, build_preview, make_names
 from mqs.apply.preflight import collect_existing, preflight
 from mqs.apply.session import DeviceSession, build_apply_context, open_session, probe_summary
 from mqs.generator.base import generate
@@ -203,7 +203,7 @@ def cmd_apply(
     names = make_names(now(), session.inventory.has_flash_dir)
     if args.show_script:
         print("\nscript to upload (secrets masked):", file=out)
-        print(build_upload_script(result.text, options, names, mask_secrets=True), file=out)
+        print(build_preview(result.text, options, names), file=out)
     if mode == ApplyMode.GENERATE_ONLY:
         return OK
     if not confirmed(args, options, session):

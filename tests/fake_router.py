@@ -121,10 +121,7 @@ class FakeRouter:
             session.alive = False
             self.reboots += 1
             self.state = RouterState()
-            if self.run_after_reset in self.files:
-                self._apply_import()
-                self.state.admin_password = self.pending_import_effects.get("admin_password", "")
-                self.files.pop(self.run_after_reset, None)
+            self._run_after_reset(self.run_after_reset)
             raise ConnectionLost("rebooting")
         if word == "/system/identity/print":
             return [{"name": s.identity}]
@@ -140,6 +137,26 @@ class FakeRouter:
         if word == "/interface/bridge/port/print":
             return [dict(p) for p in s.bridge_ports]
         raise CommandError(word, "bad command name")
+
+    def _run_after_reset(self, name: str | None) -> None:
+        """Run the armed script, following its `/import` the way the device does.
+
+        RouterOS refuses a configuration-sized script for run-after-reset, so the file
+        armed here is a bootstrap and the configuration only lands if the file it imports
+        is on the device under exactly the name the bootstrap names.
+        """
+        script = self.files.get(name or "")
+        if script is None:
+            return
+        for line in script.splitlines():
+            if not line.startswith("/import file-name="):
+                continue
+            target = line.removeprefix("/import file-name=").strip()
+            if target in self.files:
+                self._apply_import()
+                self.state.admin_password = self.pending_import_effects.get("admin_password", "")
+                self.files.pop(target, None)
+        self.files.pop(name or "", None)
 
     def _apply_import(self) -> None:
         effects = self.pending_import_effects

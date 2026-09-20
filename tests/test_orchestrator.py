@@ -146,13 +146,16 @@ def test_reset_flow_reconnects_as_admin_with_new_password():
     router, orchestrator, _, reconnects = build(
         ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik")
     report = orchestrator.run()
-    assert router.reboots == 1 and router.run_after_reset == "quickset-20260915-100000.rsc"
+    # The device is armed with the bootstrap, and the configuration reaches it only
+    # because the bootstrap imports the second file by name.
+    assert router.reboots == 1
+    assert router.run_after_reset == "quickset-20260915-100000-boot.rsc"
     assert router.state.identity == "PV-R1" and router.state.admin_password == "N3w"
     assert reconnects[0].params.username == "admin" and reconnects[0].params.password == "N3w"
     assert report.connection_lost_during == "reset"
     assert report.succeeded
-    uploaded_text = "quickset-20260915-100000.rsc"
-    assert uploaded_text not in router.files  # removed by the script itself
+    assert "quickset-20260915-100000.rsc" not in router.files  # removed by the script itself
+    assert "quickset-20260915-100000-boot.rsc" not in router.files
     assert not report.rollback_pending
 
 

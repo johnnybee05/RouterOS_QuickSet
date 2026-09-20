@@ -16,6 +16,7 @@ from mqs.apply.plan import (
     ApplyMode,
     ApplyNames,
     ApplyOptions,
+    build_bootstrap_script,
     build_upload_script,
     make_names,
 )
@@ -207,8 +208,14 @@ class ApplyOrchestrator:
                 self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
             raise self._abort("apply.failed.upload_reset_needs_file")
         self.report.upload = result
-        # Let go of the transfer connection: RouterOS will not use the script for
-        # run-after-reset while the session that wrote it is still open.
+        if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
+            # run-after-reset takes the bootstrap, which imports the configuration: the
+            # configuration itself is far past the size RouterOS accepts there.
+            boot = build_bootstrap_script(self.ctx.options, self.names)
+            try:
+                uploader.upload(boot.encode("utf-8"), self.names.remote_boot_script)
+            except UploadFailed as exc:
+                raise self._abort("apply.failed.upload", repr(exc), error=str(exc)) from exc
         uploader.release()
         self._event("apply.step.upload", StepStatus.OK, file=file, strategy=result.strategy.value)
 
@@ -257,13 +264,14 @@ class ApplyOrchestrator:
             raise self._abort("apply.failed.execute", repr(exc), error=str(exc)) from exc
 
     def _execute_reset(self) -> None:
-        file = self.names.remote_script
+        file = self.names.remote_script  # what the device ends up running, for the log
+        boot = self.names.remote_boot_script
         self._event("apply.step.execute_reset", StepStatus.RUNNING, file=file)
         try:
             # The API wants the file's .id here, the console wants its name.
             self.transport.execute("/system/reset-configuration", no_defaults=True,
                                    skip_backup=False,
-                                   run_after_reset=self.transport.file_reference(file))
+                                   run_after_reset=self.transport.file_reference(boot))
         except ConnectionLost:
             pass  # the device reboots immediately; losing the session is the expected outcome
         except TransportError as exc:
