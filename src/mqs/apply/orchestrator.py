@@ -135,31 +135,37 @@ class ApplyOrchestrator:
     # ---------------------------------------------------------------- flow
 
     def run(self) -> ApplyReport:
-        self._check_cancel()
-        self._backup()
-        self._download_backups()
-        self._check_cancel()
+        # One transfer connection for both directions, released as early as possible:
+        # download and upload used to open one each, and the download's stayed open for
+        # the whole flow, including the reset.
         uploader = self.ctx.uploader_factory(self.transport)
-        self._upload(uploader)
-        self._check_cancel()
-        if self.ctx.options.mode == ApplyMode.IMPORT and self.ctx.options.rollback_minutes:
-            self._schedule_rollback()
-        self._check_cancel()
-        # No cancellation beyond this point: the device is being changed.
-        if self.ctx.options.mode == ApplyMode.IMPORT:
-            self._execute_import()
-        else:
-            self._execute_reset()
-        self._reconnect()
-        self._verify()
-        if self.ctx.options.mode == ApplyMode.IMPORT and self.report.upload \
-                and self.report.upload.remote_path:
-            self._cleanup()
-        if self.report.rollback_pending:
-            self._event("apply.rollback_pending", StepStatus.WARNING,
-                        at=self.report.rollback_at.strftime("%H:%M:%S"))
-        self.report.succeeded = all(c.ok for c in self.report.checks)
-        return self.report
+        try:
+            self._check_cancel()
+            self._backup()
+            self._download_backups(uploader)
+            self._check_cancel()
+            self._upload(uploader)
+            self._check_cancel()
+            if self.ctx.options.mode == ApplyMode.IMPORT and self.ctx.options.rollback_minutes:
+                self._schedule_rollback()
+            self._check_cancel()
+            # No cancellation beyond this point: the device is being changed.
+            if self.ctx.options.mode == ApplyMode.IMPORT:
+                self._execute_import()
+            else:
+                self._execute_reset()
+            self._reconnect()
+            self._verify()
+            if self.ctx.options.mode == ApplyMode.IMPORT and self.report.upload \
+                    and self.report.upload.remote_path:
+                self._cleanup()
+            if self.report.rollback_pending:
+                self._event("apply.rollback_pending", StepStatus.WARNING,
+                            at=self.report.rollback_at.strftime("%H:%M:%S"))
+            self.report.succeeded = all(c.ok for c in self.report.checks)
+            return self.report
+        finally:
+            uploader.release()  # also on the failure paths
 
     def _backup(self) -> None:
         name = self.names.backup_name
@@ -172,12 +178,11 @@ class ApplyOrchestrator:
             raise self._abort("apply.failed.backup", repr(exc), error=str(exc)) from exc
         self._event("apply.step.backup", StepStatus.OK, name=name)
 
-    def _download_backups(self) -> None:
+    def _download_backups(self, uploader: FileUploader) -> None:
         target_dir = self.ctx.options.download_dir
         if target_dir is None:
             self._event("apply.step.download", StepStatus.SKIPPED, dir="-")
             return
-        uploader = self.ctx.uploader_factory(self.transport)
         target_dir.mkdir(parents=True, exist_ok=True)
         for remote in (self.names.backup_file, self.names.export_file):
             local = target_dir / remote.rsplit("/", 1)[-1]

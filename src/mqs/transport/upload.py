@@ -165,10 +165,11 @@ class FileUploader:
     def release(self) -> None:
         """Close a transfer connection this uploader opened for itself.
 
-        RouterOS refuses `run-after-reset` with "cannot use file" while the SSH session
-        that wrote the script is still open: verified on 7.20.7 on 2026-09-20, where the
-        identical call succeeded from a process holding no such session. The connection
-        therefore has to go before the reset is issued.
+        On 7.20.7 the same `/system/reset-configuration run-after-reset=...` call is
+        accepted from a process that holds no SSH session and answered "cannot use file"
+        from the application, which holds one. That correlation is not a proven cause
+        (see docs/DIALECT_NOTES.md), but nothing is gained by keeping the connection, so
+        it goes before the reset is issued.
         """
         if self._release is not None:
             self._release()

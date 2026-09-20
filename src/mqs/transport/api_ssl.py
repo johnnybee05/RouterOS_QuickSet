@@ -194,10 +194,10 @@ class ApiSslTransport:
     def file_reference(self, name: str) -> str:
         """Value that refers to an uploaded file in a command argument.
 
-        The API matches such arguments against file `.id` values, not names. Verified on
-        RouterOS 7.20.7: `/system/reset-configuration run-after-reset=<name>` is refused
-        with "input does not match any value of run-after-reset" even though the file is
-        listed, while the same call with the `.id` runs.
+        RouterOS 7.20.7 accepts both the file name and its `.id` here; what it refuses is
+        the name without its `.rsc` extension. The `.id` is sent because that is the only
+        form seen to carry a reset through to the end over the API. A name that is not
+        listed is passed on unchanged, so the device names it in the error.
         """
         for item in self._call(self._word("/file", "print"), {}):
             if item.get("name") == name:

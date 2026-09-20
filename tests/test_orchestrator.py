@@ -330,20 +330,33 @@ def test_reconnect_gives_up_and_auth_is_fatal():
                              cancelled=lambda: True)
 
 
-def test_upload_releases_the_transfer_connection_before_the_reset():
-    """RouterOS answers run-after-reset with "cannot use file" while the SSH session that
-    wrote the script is still open. Verified on 7.20.7 on 2026-09-20: the identical call
-    succeeded from a process holding no such session and failed from the application,
-    which kept its uploader connection.
+def test_one_transfer_connection_released_before_the_reset(tmp_path):
+    """The reset is issued with no transfer session left open.
+
+    Download and upload used to open a connection each, and the download's stayed open
+    for the whole flow. On 7.20.7 the same reset call is accepted from a process holding
+    no SSH session and answered "cannot use file" from the application, which holds one;
+    the link is unproven (docs/DIALECT_NOTES.md), but the flow now opens one connection
+    and lets it go before the reset.
     """
-    router, orchestrator, _events, _ = build(ApplyMode.RESET_AND_IMPORT, admin_password="N3w")
-    released: list[str] = []
+    router, orchestrator, _events, _ = build(ApplyMode.RESET_AND_IMPORT, admin_password="N3w",
+                                             download_dir=tmp_path)
+    log_at_release: list[list[str]] = []
 
     class RecordingUploader(RouterUploader):
         def release(self):
-            released.append("released")
+            log_at_release.append(list(router.log))
 
-    orchestrator.ctx.uploader_factory = lambda transport: RecordingUploader(router)
+    made: list[RouterUploader] = []
+
+    def factory(transport):
+        made.append(RecordingUploader(router))
+        return made[-1]
+
+    orchestrator.ctx.uploader_factory = factory
     report = orchestrator.run()
-    assert released == ["released"], "the transfer connection is never let go of"
+    assert len(made) == 1, "the flow opens more than one transfer connection"
+    assert log_at_release, "the transfer connection is never let go of"
+    assert "/system/reset-configuration" not in log_at_release[0], \
+        "the reset was issued while a transfer connection was still open"
     assert report.succeeded
