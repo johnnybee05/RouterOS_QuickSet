@@ -79,6 +79,35 @@ def parse_terse(text: str) -> list[dict[str, str]]:
     return items
 
 
+def parse_columns(text: str) -> list[dict[str, str]]:
+    """Parse a column table (`/console inspect` over SSH on 7.20.7):
+
+        Columns: TYPE, NAME, NODE-TYPE
+        TYPE   NAME        NODE-TYPE
+        child  hw-offload  arg
+
+    Cells are cut at the header's column offsets, so an empty cell does not shift the rest.
+    Keys are the lower-cased column names.
+    """
+    lines = sanitize(text).split("\n")
+    start = next((i for i, line in enumerate(lines) if line.startswith("Columns:")), None)
+    if start is None or start + 1 >= len(lines):
+        return []
+    names = [n.strip() for n in lines[start][len("Columns:"):].split(",")]
+    header = lines[start + 1]
+    offsets = [header.find(name) for name in names]
+    if any(o < 0 for o in offsets):
+        return []
+    bounds = [*offsets[1:], None]
+    rows: list[dict[str, str]] = []
+    for line in lines[start + 2:]:
+        if not line.strip():
+            continue
+        rows.append({name.lower(): line[begin:end].strip()
+                     for name, begin, end in zip(names, offsets, bounds, strict=True)})
+    return rows
+
+
 _KV_RE = re.compile(r"^\s*(?P<key>[a-z][\w.-]*):\s?(?P<value>.*)$")
 
 

@@ -33,7 +33,13 @@ from mqs.transport.base import (
     args_from_kwargs,
     split_path,
 )
-from mqs.transport.cli_output import find_error, parse_key_value, parse_terse, sanitize
+from mqs.transport.cli_output import (
+    find_error,
+    parse_columns,
+    parse_key_value,
+    parse_terse,
+    sanitize,
+)
 
 LOGIN_SUFFIX = "+cet"
 
@@ -173,6 +179,9 @@ class SshTransport:
             detail = " detail" if values.pop("detail", "no") == "yes" else ""
             return parse_terse(self.run(f"{menu} print{detail} terse"))
         selector = values.pop("numbers", None)
+        if (menu, verb) == ("/console", "inspect"):
+            # Answers with a column table, unlike the other commands, which say nothing.
+            return parse_columns(self.run(render_inline(cmd(menu, verb, args=values))))
         if menu == ROOT_MENU:  # /export, /import
             line = " ".join([f"/{verb}", *(f"{k}={quote(v)}" for k, v in values.items())])
         else:

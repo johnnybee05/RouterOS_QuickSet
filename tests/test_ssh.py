@@ -161,6 +161,27 @@ def test_print_singleton_and_list():
     assert client.commands[0] == ("/system resource print", 7)
 
 
+def test_console_inspect_column_table():
+    # Shortened from 7.20.7 (hEX S); the empty NODE-TYPE cell is made up.
+    transport, _ = connected({
+        "/console inspect request=child path=ip,firewall,filter,add": (
+            b"Columns: TYPE, NAME, NODE-TYPE\r\n"
+            b"TYPE   NAME                       NODE-TYPE\r\n"
+            b"self   add                        cmd      \r\n"
+            b"child  chain                      \r\n"
+            b"child  hw-offload                 arg      \r\n\r\n"
+        ),
+    })
+    rows = transport.execute("/console/inspect", request="child", path="ip,firewall,filter,add")
+    assert rows == [
+        {"type": "self", "name": "add", "node-type": "cmd"},
+        {"type": "child", "name": "chain", "node-type": ""},
+        {"type": "child", "name": "hw-offload", "node-type": "arg"},
+    ]
+    # An unknown path prints a blank line: no rows, so the probe says "not confirmed".
+    assert transport.execute("/console/inspect", request="child", path="ip,nonsense") == []
+
+
 def test_set_command_line_and_quoting():
     transport, client = connected()
     assert transport.execute("/ip/service/set", numbers="ssh", port=122) == []
