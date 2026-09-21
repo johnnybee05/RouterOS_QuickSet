@@ -168,7 +168,7 @@ def test_fasttrack_is_followed_by_accept(name, version, result):
             follower = commands[i + 1]
             assert follower.arg("chain") == "forward"
             assert follower.arg("action") == "accept"
-            assert follower.arg("connection-state") == "established,related"
+            assert follower.arg("connection-state") == "established,related,untracked"
 
 
 def test_deterministic():
@@ -288,7 +288,8 @@ def test_acceptance_router_v7_contents():
     assert "add name=bridge protocol-mode=rstp" in text
     assert "add interface=ether5 list=WAN" in text
     assert "add interface=ether5 use-peer-dns=yes add-default-route=yes disabled=no" in text
-    assert "add chain=srcnat action=masquerade out-interface-list=WAN" in text
+    assert ('add chain=srcnat action=masquerade comment="quickset: masquerade to WAN" '
+            "out-interface-list=WAN") in text
     assert "add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no" \
         in text
     assert "allow-remote-requests=yes" in text

@@ -28,24 +28,25 @@ add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=n
 /ip dhcp-server network
 add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.88.1
 # ---- FIREWALL / NAT ----
-# Firewall: input
+# Firewall: input (traffic to the router itself)
 /ip firewall filter
-add chain=input action=accept connection-state=established,related,untracked
-add chain=input action=drop connection-state=invalid
-add chain=input action=accept protocol=icmp
-add chain=input action=accept in-interface=bridge
-add chain=input action=drop in-interface=pppoe-out1
-# Firewall: forward
-add chain=forward action=fasttrack-connection connection-state=established,related
-add chain=forward action=accept connection-state=established,related
-add chain=forward action=drop connection-state=invalid
-add chain=forward action=drop connection-state=new connection-nat-state=!dstnat in-interface=pppoe-out1
+add chain=input action=accept comment="quickset: accept established,related,untracked" connection-state=established,related,untracked
+add chain=input action=drop comment="quickset: drop invalid" connection-state=invalid
+add chain=input action=accept comment="quickset: accept ICMP" protocol=icmp
+add chain=input action=accept comment="quickset: accept to local loopback" dst-address=127.0.0.1
+add chain=input action=accept comment="quickset: accept from LAN" in-interface=bridge
+add chain=input action=drop comment="quickset: drop all not coming from LAN" in-interface=!bridge
+# Firewall: forward (traffic through the router)
+add chain=forward action=fasttrack-connection comment="quickset: fasttrack" connection-state=established,related
+add chain=forward action=accept comment="quickset: accept established,related,untracked" connection-state=established,related,untracked
+add chain=forward action=drop comment="quickset: drop invalid" connection-state=invalid
+add chain=forward action=drop comment="quickset: drop all from WAN not DSTNATed" connection-state=new connection-nat-state=!dstnat in-interface=pppoe-out1
 # NAT
 /ip firewall nat
-add chain=srcnat action=masquerade out-interface=pppoe-out1
+add chain=srcnat action=masquerade comment="quickset: masquerade to WAN" out-interface=pppoe-out1
 # MSS clamping (SYN packets are never fasttracked)
 /ip firewall mangle
-add chain=forward action=change-mss new-mss=clamp-to-pmtu passthrough=yes protocol=tcp tcp-flags=syn out-interface=pppoe-out1
+add chain=forward action=change-mss comment="quickset: clamp MSS to path MTU" new-mss=clamp-to-pmtu passthrough=yes protocol=tcp tcp-flags=syn out-interface=pppoe-out1
 # ---- DNS / NTP / CLOCK / SNMP / DISCOVERY / IPV6 / LOGGING ----
 # LAN clients use the router as DNS server
 /ip dns

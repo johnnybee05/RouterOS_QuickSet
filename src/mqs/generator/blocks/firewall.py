@@ -1,14 +1,32 @@
-"""Section 4: firewall filter, FastTrack, NAT and MSS clamping."""
+"""Section 4: firewall filter, FastTrack, NAT and MSS clamping.
+
+Rules are evaluated top to bottom, so each chain is ordered like defconf: the most frequent
+traffic (established connections) is accepted first, invalid packets are dropped, specific
+accepts follow and the chain ends with a catch-all drop. Every rule carries a comment.
+"""
 
 from __future__ import annotations
 
 from mqs.generator.blocks.common import lan_match, wan_l3_interface, wan_match
 from mqs.generator.context import TargetContext
-from mqs.generator.ir import ArgValue, Comment, Script, SectionKey, cmd
+from mqs.generator.ir import ArgValue, Command, Comment, Script, SectionKey, cmd
 from mqs.issues import Issue, Severity
 from mqs.model.profile import DeviceProfile
 
 FILTER = "/ip firewall filter"
+NAT = "/ip firewall nat"
+MANGLE = "/ip firewall mangle"
+COMMENT_PREFIX = "quickset: "
+
+
+def rule(path: str, chain: str, action: str, comment: str, **matchers: ArgValue) -> Command:
+    """`add chain=… action=… comment="quickset: …" <matchers>`; matcher keys as in RouterOS."""
+    return cmd(path, "add", args={"chain": chain, "action": action,
+                                  "comment": COMMENT_PREFIX + comment, **matchers})
+
+
+def negate(match: dict[str, str]) -> dict[str, str]:
+    return {key: f"!{value}" for key, value in match.items()}
 
 
 def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Issue]:
@@ -16,32 +34,33 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Is
     issues: list[Issue] = []
     firewall = profile.firewall
     has_wan = wan_l3_interface(profile) is not None
+    lan_in = lan_match(profile, ctx, "in")
+    wan_in = wan_match(profile, ctx, "in")
+    wan_out = wan_match(profile, ctx, "out")
 
     if firewall.basic_filter:
         section.add(
-            Comment("Firewall: input"),
-            cmd(FILTER, "add", chain="input", action="accept",
-                connection_state=["established", "related", "untracked"]),
-            cmd(FILTER, "add", chain="input", action="drop", connection_state="invalid"),
-            cmd(FILTER, "add", chain="input", action="accept", protocol="icmp"),
+            Comment("Firewall: input (traffic to the router itself)"),
+            rule(FILTER, "input", "accept", "accept established,related,untracked",
+                 **{"connection-state": ["established", "related", "untracked"]}),
+            rule(FILTER, "input", "drop", "drop invalid", **{"connection-state": "invalid"}),
+            rule(FILTER, "input", "accept", "accept ICMP", protocol="icmp"),
+            rule(FILTER, "input", "accept", "accept to local loopback",
+                 **{"dst-address": "127.0.0.1"}),
         )
-        lan = lan_match(profile, ctx, "in")
-        if lan:
-            section.add(cmd(FILTER, "add", args={"chain": "input", "action": "accept", **lan}))
-        if has_wan:
+        if lan_in:
+            # Whitelist: an interface in neither list (a spare port, a new tunnel) is closed too.
             section.add(
-                cmd(FILTER, "add",
-                    args={"chain": "input", "action": "drop", **wan_match(profile, ctx, "in")})
+                rule(FILTER, "input", "accept", "accept from LAN", **lan_in),
+                rule(FILTER, "input", "drop", "drop all not coming from LAN", **negate(lan_in)),
             )
+        elif has_wan:
+            section.add(rule(FILTER, "input", "drop", "drop all from WAN", **wan_in))
 
     if firewall.basic_filter or firewall.fasttrack.enabled:
-        section.add(Comment("Firewall: forward"))
+        section.add(Comment("Firewall: forward (traffic through the router)"))
     if firewall.fasttrack.enabled:
-        fasttrack_args: dict[str, ArgValue] = {
-            "chain": "forward",
-            "action": "fasttrack-connection",
-            "connection-state": ["established", "related"],
-        }
+        fasttrack_args: dict[str, ArgValue] = {"connection-state": ["established", "related"]}
         if firewall.fasttrack.hw_offload:
             if ctx.has("fasttrack_hw_offload"):
                 fasttrack_args["hw-offload"] = True
@@ -50,47 +69,38 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Is
                     Issue("fasttrack.hw_offload_skipped", Severity.INFO,
                           "firewall.fasttrack.hw_offload")
                 )
-        # The accept rule must directly follow the fasttrack rule.
+        # The fasttrack rule must be directly followed by the accept rule.
+        section.add(rule(FILTER, "forward", "fasttrack-connection", "fasttrack",
+                         **fasttrack_args))
+    if firewall.basic_filter or firewall.fasttrack.enabled:
         section.add(
-            cmd(FILTER, "add", args=fasttrack_args),
-            cmd(FILTER, "add", chain="forward", action="accept",
-                connection_state=["established", "related"]),
+            rule(FILTER, "forward", "accept", "accept established,related,untracked",
+                 **{"connection-state": ["established", "related", "untracked"]})
         )
     if firewall.basic_filter:
-        if not firewall.fasttrack.enabled:
-            section.add(
-                cmd(FILTER, "add", chain="forward", action="accept",
-                    connection_state=["established", "related"])
-            )
-        section.add(cmd(FILTER, "add", chain="forward", action="drop", connection_state="invalid"))
+        section.add(
+            rule(FILTER, "forward", "drop", "drop invalid", **{"connection-state": "invalid"})
+        )
         if has_wan:
             section.add(
-                cmd(FILTER, "add", args={
-                    "chain": "forward",
-                    "action": "drop",
-                    "connection-state": "new",
-                    "connection-nat-state": "!dstnat",
-                    **wan_match(profile, ctx, "in"),
-                })
+                rule(FILTER, "forward", "drop", "drop all from WAN not DSTNATed",
+                     **{"connection-state": "new", "connection-nat-state": "!dstnat", **wan_in})
             )
 
     if has_wan and profile.wan.nat_masquerade:
         section.add(
             Comment("NAT"),
-            cmd("/ip firewall nat", "add",
-                args={"chain": "srcnat", "action": "masquerade", **wan_match(profile, ctx, "out")}),
+            rule(NAT, "srcnat", "masquerade", "masquerade to WAN", **wan_out),
         )
     if has_wan and profile.wan.mss_clamping:
         section.add(
             Comment("MSS clamping (SYN packets are never fasttracked)"),
-            cmd("/ip firewall mangle", "add", args={
-                "chain": "forward",
-                "action": "change-mss",
+            rule(MANGLE, "forward", "change-mss", "clamp MSS to path MTU", **{
                 "new-mss": "clamp-to-pmtu",
                 "passthrough": True,
                 "protocol": "tcp",
                 "tcp-flags": "syn",
-                **wan_match(profile, ctx, "out"),
+                **wan_out,
             }),
         )
     return issues
