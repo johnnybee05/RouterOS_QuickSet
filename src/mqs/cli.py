@@ -162,7 +162,7 @@ def cmd_discover(args: argparse.Namespace, out: Any, **_: Any) -> int:
         deadline -= 1
     devices = scanner.devices()
     for device in devices:
-        print(f"{device.mac}  {device.ipv4 or '-':15}  {device.identity:20}  "
+        print(f"{device.mac}  {device.ipv4 or '-'!s:15}  {device.identity:20}  "
               f"{device.version:10}  {device.board}  via {device.local_interface}", file=out)
     for error in scanner.errors:
         print(f"  ! {error}", file=sys.stderr)
