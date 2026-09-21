@@ -14,7 +14,16 @@ from __future__ import annotations
 from mqs.generator.blocks.common import lan_match, wan_l3_interface, wan_match
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening.access import AccessReport
-from mqs.generator.ir import ArgValue, Command, Comment, Find, RawLine, Script, SectionKey, cmd
+from mqs.generator.ir import (
+    ArgValue,
+    Command,
+    Comment,
+    Find,
+    KeepOwnFirst,
+    Script,
+    SectionKey,
+    cmd,
+)
 from mqs.issues import Issue, Severity
 from mqs.model.profile import DeviceProfile
 
@@ -22,7 +31,8 @@ FILTER = "/ip firewall filter"
 NAT = "/ip firewall nat"
 MANGLE = "/ip firewall mangle"
 COMMENT_PREFIX = "quickset: "
-OWN = f'comment~"^{COMMENT_PREFIX}"'  # find condition matching the rules this block adds
+OWN_REGEX = f"^{COMMENT_PREFIX}"  # the comments of the rules this block adds
+OWN = f'comment~"{OWN_REGEX}"'
 SNMP_PORT = 161
 MNDP_PORT = 5678  # neighbor discovery, which Winbox also uses to list devices
 
@@ -35,7 +45,7 @@ def rule(path: str, chain: str, action: str, comment: str, **matchers: ArgValue)
 
 def remove_own(path: str) -> Command:
     """Remove the rules of an earlier run, so applying twice does not duplicate them."""
-    return cmd(path, "remove", selector=Find(raw=f"where {OWN}"))
+    return cmd(path, "remove", selector=Find.matching("comment", OWN_REGEX))
 
 
 def negate(match: dict[str, str]) -> dict[str, str]:
@@ -139,8 +149,9 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
             # `move` without a destination moves an item to the end, so moving the other
             # rules one by one keeps their order below ours. A no-op on an empty table.
             # Dynamic rules (the fasttrack counter dummy) cannot be moved and are skipped.
-            RawLine(f":foreach i in=[ {FILTER} find where dynamic=no and !({OWN}) ] "
-                    f"do={{ {FILTER} move $i }}"),
+            KeepOwnFirst(f":foreach i in=[ {FILTER} find where dynamic=no and !({OWN}) ] "
+                         f"do={{ {FILTER} move $i }}",
+                         menu=FILTER, key="comment", regex=OWN_REGEX),
         )
 
     if has_wan and profile.wan.nat_masquerade:

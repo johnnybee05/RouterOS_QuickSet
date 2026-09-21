@@ -77,7 +77,7 @@ def _targets(command: Command, states: dict[str, ServiceState]) -> list[str] | N
     if isinstance(selector, str):
         return [selector]
     if isinstance(selector, Find):
-        if selector.raw is not None:
+        if selector.raw is not None or selector.patterns:
             return None
         # `dynamic=no` only leaves out connection rows, which are not services.
         conditions = [c for c in selector.conditions if c != NOT_DYNAMIC]

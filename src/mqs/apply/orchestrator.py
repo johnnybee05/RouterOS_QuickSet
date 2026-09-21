@@ -4,6 +4,7 @@ an in-memory router in tests."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -29,7 +30,7 @@ from mqs.apply.reconnect import (
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.verify import CheckResult, verify_configuration
 from mqs.generator.base import GenerationResult
-from mqs.generator.ir import Command, Find, RawLine, cmd
+from mqs.generator.ir import Command, Find, KeepOwnFirst, RawLine, cmd
 from mqs.generator.render import render_inline
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
@@ -42,6 +43,7 @@ from mqs.transport.base import (
     Transport,
     TransportError,
 )
+from mqs.transport.discovery import to_bool
 from mqs.transport.mac_connect import MacConnectResult, MacRoute
 from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, UploadStrategy
 
@@ -102,6 +104,20 @@ class ApplyAborted(Exception):
 
 
 Reconnector = Callable[[ReconnectTarget], Transport | MacConnectResult]
+
+
+def keep_own_first(transport: Transport, item: KeepOwnFirst) -> None:
+    """What the console line of ``item`` does, for a transport without console scripting.
+
+    Every static item whose ``item.key`` does not match ``item.regex`` is moved to the end
+    in its order (`move` without a destination), so the matching ones end up first. Moving
+    by `.id` does not depend on the order the items are listed in while they move.
+    """
+    api_path = item.menu.replace(" ", "/")
+    for row in transport.execute(f"{api_path}/print"):
+        if to_bool(row, "dynamic", "D") or re.search(item.regex, row.get(item.key, "")):
+            continue
+        transport.execute(f"{api_path}/move", numbers=row[".id"])
 
 
 @dataclass
@@ -259,15 +275,19 @@ class ApplyOrchestrator:
                          or isinstance(i, RawLine)]
                 runnable = [i for i in items if isinstance(i, Command | RawLine)]
                 execute_raw = getattr(self.transport, "execute_raw", None)
-                console_only = next((i for i in runnable if isinstance(i, RawLine) or (
-                    isinstance(i.selector, Find) and i.selector.raw is not None)), None)
+                console_only = next((i for i in runnable if (
+                    isinstance(i, RawLine) and not isinstance(i, KeepOwnFirst)) or (
+                    isinstance(i, Command) and isinstance(i.selector, Find)
+                    and i.selector.raw is not None)), None)
                 if console_only is not None and execute_raw is None:
                     # Refused before the first line, not halfway through the configuration.
                     raise CommandError(render_inline(console_only),
                                        "raw lines need the SSH transport")
                 self._event("apply.step.execute_lines", StepStatus.RUNNING, count=len(runnable))
                 for item in runnable:
-                    if isinstance(item, RawLine):
+                    if isinstance(item, KeepOwnFirst) and execute_raw is None:
+                        keep_own_first(self.transport, item)
+                    elif isinstance(item, RawLine):
                         execute_raw(item)
                     else:
                         self.transport.execute_command(item)

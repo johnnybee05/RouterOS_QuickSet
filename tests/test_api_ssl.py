@@ -9,6 +9,7 @@ from librouteros import exceptions as ros_exc
 from librouteros import login as ros_login
 
 from mqs.generator.ir import Find, cmd
+from mqs.generator.render import render_inline
 from mqs.transport.api_ssl import ApiSslTransport
 from mqs.transport.base import (
     AuthError,
@@ -169,6 +170,22 @@ def test_execute_command_resolves_selectors():
         transport.execute_command(cmd("/system logging", "set", selector=5, action="disk"))
     with pytest.raises(CommandError):
         transport.execute_command(cmd("/ip service", "set", selector=Find(raw="where port=22")))
+
+
+def test_find_where_pattern_over_the_api():
+    api = FakeApi(data={"/ip/firewall/filter/print": [
+        {".id": "*1", "comment": "quickset: drop invalid"},
+        {".id": "*2", "comment": "defconf: drop invalid"},
+        {".id": "*3"},
+        {".id": "*4", "comment": "quickset: accept ICMP"},
+    ]})
+    transport = connected(api)
+    command = cmd("/ip firewall filter", "remove",
+                  selector=Find.matching("comment", "^quickset: "))
+    assert render_inline(command) == \
+        '/ip firewall filter remove [ find where comment~"^quickset: " ]'
+    transport.execute_command(command)
+    assert api.calls[-1] == ("/ip/firewall/filter/remove", {"numbers": "*1,*4"})
 
 
 def test_a_name_means_the_configured_item_not_its_connections():

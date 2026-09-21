@@ -64,14 +64,23 @@ def _arg_items(args: Mapping[str, ArgValue] | None, kwargs: Mapping[str, ArgValu
 
 @dataclass(frozen=True)
 class Find:
-    """`[ find key=value ... ]` selector, or `[ find <raw> ]` for complex expressions."""
+    """`[ find key=value ... ]` selector, or `[ find <raw> ]` for complex expressions.
+
+    `patterns` are regular expressions (`[ find where key~"regex" ]`). Unlike a raw find,
+    the API transport can evaluate them itself.
+    """
 
     conditions: tuple[tuple[str, str], ...] = ()
     raw: str | None = None
+    patterns: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def by(cls, args: Mapping[str, ArgValue] | None = None, **kwargs: ArgValue) -> Find:
         return cls(conditions=_arg_items(args, kwargs))
+
+    @classmethod
+    def matching(cls, key: str, regex: str) -> Find:
+        return cls(patterns=((key, regex),))
 
     def get(self, key: str) -> str | None:
         return next((v for k, v in self.conditions if k == key), None)
@@ -138,6 +147,20 @@ class RawLine:
     def __post_init__(self) -> None:
         if self.path is not None:
             object.__setattr__(self, "path", normalize_path(self.path))
+
+
+@dataclass(frozen=True)
+class KeepOwnFirst(RawLine):
+    """Console line that moves every static item of `menu` whose `key` does not match
+    `regex` to the end, one by one, so the matching ones end up first in their order.
+
+    `/import` and SSH run the line as it is; over the API, which has no console
+    scripting, the application does the same with print and `move` (`apply.orchestrator`).
+    """
+
+    menu: str = ""
+    key: str = ""
+    regex: str = ""
 
 
 Item = Command | Comment | RawLine

@@ -11,13 +11,14 @@ from mqs.generator.ir import Command, Comment, Find, RawLine, Script
 _BARE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:/,!-]+$")
 
 
+def _escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("?", "\\?")
+
+
 def quote(value: str) -> str:
     if _BARE_VALUE_RE.match(value):
         return value
-    escaped = (
-        value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("?", "\\?")
-    )
-    return f'"{escaped}"'
+    return f'"{_escape(value)}"'
 
 
 def render_selector(selector: Find | int | str | None) -> str | None:
@@ -26,6 +27,10 @@ def render_selector(selector: Find | int | str | None) -> str | None:
     if isinstance(selector, Find):
         if selector.raw is not None:
             return f"[ find {selector.raw} ]"
+        if selector.patterns:
+            parts = [*(f"{k}={quote(v)}" for k, v in selector.conditions),
+                     *(f'{k}~"{_escape(regex)}"' for k, regex in selector.patterns)]
+            return f"[ find where {' and '.join(parts)} ]"
         conditions = " ".join(f"{k}={quote(v)}" for k, v in selector.conditions)
         return f"[ find {conditions} ]" if conditions else "[ find ]"
     if isinstance(selector, int):

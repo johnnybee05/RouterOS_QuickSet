@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import socket
 import ssl
 from collections.abc import Callable, Iterator
@@ -203,8 +204,11 @@ class ApiSslTransport:
         elif isinstance(selector, Find):
             if selector.raw is not None:
                 raise CommandError(command.api_path, "complex find expressions need SSH")
+            # A pattern is a regular expression like the console's `~`; the simple ones
+            # the generator writes mean the same to Python's re.
             ids = [i[".id"] for i in items
-                   if all(i.get(k) == v for k, v in selector.conditions)]
+                   if all(i.get(k) == v for k, v in selector.conditions)
+                   and all(re.search(p, i.get(k, "")) for k, p in selector.patterns)]
         else:
             return []
         if not ids and not isinstance(selector, Find):

@@ -10,6 +10,7 @@ import pytest
 
 from factories import make_inventory
 from fake_router import FakeRouter, RouterUploader
+from fake_transport import FakeTransport
 from mqs.apply.orchestrator import (
     RESET_ARM_ATTEMPTS,
     RESET_SETTLE_S,
@@ -17,6 +18,7 @@ from mqs.apply.orchestrator import (
     ApplyContext,
     ApplyOrchestrator,
     StepStatus,
+    keep_own_first,
 )
 from mqs.apply.plan import ROLLBACK_JOB, ApplyMode, ApplyOptions
 from mqs.apply.reconnect import (
@@ -29,6 +31,7 @@ from mqs.apply.reconnect import (
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
+from mqs.generator.ir import KeepOwnFirst, RawLine, SectionKey
 from mqs.issues import codes
 from mqs.model.inventory import ServiceInfo
 from mqs.model.presets import apply_preset
@@ -144,32 +147,46 @@ def test_upload_failure_and_line_by_line_fallback():
         orchestrator.run()
     assert err.value.issue.code == "apply.failed.upload"
 
+    # The router preset has the firewall, whose find and reordering the API does itself.
     router, orchestrator, events, _ = build()
     orchestrator.ctx.uploader_factory = lambda t: RouterUploader(router, fail=True,
                                                                  line_by_line=True)
     router.pending_import_effects = {}  # line-by-line does not use /import
-    with pytest.raises(ApplyAborted) as err:
-        orchestrator.run()
-    # The firewall reorders its rules with a console-only line, which the API cannot run:
-    # refused before the first line rather than halfway through the configuration.
-    assert err.value.issue.code == "apply.failed.execute"
-    assert "raw lines need the SSH transport" in err.value.issue.params["error"]
-    assert ("apply.step.execute_lines", StepStatus.RUNNING) not in [
-        (e.step, e.status) for e in events]
-    assert "/import" not in router.log and router.state.identity == "MikroTik"
-
-    router, orchestrator, events, _ = build()
-    profile = apply_preset(DeviceProfile(identity="PV-AP1"), Mode.BRIDGE_AP, PORTS)
-    assert not profile.firewall.basic_filter and not profile.wan.enabled
-    orchestrator.ctx.result = generate(profile, TargetContext.from_inventory(
-        orchestrator.ctx.inventory))
-    orchestrator.ctx.uploader_factory = lambda t: RouterUploader(router, fail=True,
-                                                                 line_by_line=True)
-    router.pending_import_effects = {}
     with pytest.raises(ApplyAborted):
         orchestrator.run()  # FakeRouter does not implement the individual commands
     assert ("apply.step.execute_lines", StepStatus.RUNNING) in [(e.step, e.status) for e in events]
     assert "/import" not in router.log
+
+    # A line only the console understands is refused before the first line, rather than
+    # halfway through the configuration.
+    router, orchestrator, events, _ = build()
+    section = orchestrator.ctx.result.script.section(SectionKey.SYSTEM)
+    section.items.append(RawLine(':if ([:len [/ip pool find]] = 0) do={ :put x }'))
+    orchestrator.ctx.uploader_factory = lambda t: RouterUploader(router, fail=True,
+                                                                 line_by_line=True)
+    router.pending_import_effects = {}
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    assert err.value.issue.code == "apply.failed.execute"
+    assert "raw lines need the SSH transport" in err.value.issue.params["error"]
+    assert ("apply.step.execute_lines", StepStatus.RUNNING) not in [
+        (e.step, e.status) for e in events]
+    assert router.state.identity == "MikroTik"
+
+
+def test_keep_own_first_over_the_api():
+    fake = FakeTransport({"/ip/firewall/filter/print": [
+        {".id": "*1", "dynamic": "true", "comment": "special dummy rule"},
+        {".id": "*2", "comment": "defconf: accept ICMP"},
+        {".id": "*3"},
+        {".id": "*4", "comment": "quickset: drop invalid"},
+        {".id": "*5", "comment": "quickset: accept from LAN"},
+    ], "/ip/firewall/filter/move": []})
+    keep_own_first(fake, KeepOwnFirst("(console line)", menu="/ip firewall filter",
+                                      key="comment", regex="^quickset: "))
+    moves = [args for path, args in fake.calls if path == "/ip/firewall/filter/move"]
+    # The others go to the end in their order; the dynamic rule cannot be moved.
+    assert moves == [{"numbers": "*2"}, {"numbers": "*3"}]
 
 
 def test_reset_requires_file_not_line_by_line():
