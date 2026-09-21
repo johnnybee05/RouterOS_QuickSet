@@ -5,8 +5,10 @@ uploads try several strategies in order and fall back automatically:
 
 1. SFTP over the SSH connection,
 2. SCP over the same paramiko transport,
-3. a temporary local HTTP server + `/tool fetch` on the device,
-4. no file at all: the caller executes the script line by line (IMPORT mode only).
+3. the MAC-Telnet console, when the device was reached by MAC (mactelnet/files.py);
+   it goes first when that was over MAC-Telnet, because then no IP path is proven,
+4. a temporary local HTTP server + `/tool fetch` on the device,
+5. no file at all: the caller executes the script line by line (IMPORT mode only).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from mqs.transport.base import Transport, TransportError
 class UploadStrategy(StrEnum):
     SFTP = "sftp"
     SCP = "scp"
+    MAC_TELNET = "mac-telnet"
     HTTP_FETCH = "http-fetch"
     LINE_BY_LINE = "line-by-line"
 

@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from ipaddress import IPv4Address
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyContext, ApplyEvent
@@ -23,7 +24,16 @@ from mqs.model.profile import DeviceProfile
 from mqs.transport.base import ConnectionParams, Transport, TransportError
 from mqs.transport.discovery import collect_inventory, probe_features, session_interface
 from mqs.transport.factory import TransportChoice, connect_transport
-from mqs.transport.netifs import route_source_address
+from mqs.transport.mac_connect import (
+    MacConnectMethod,
+    MacConnectResult,
+    connect_by_mac,
+    default_session_factory,
+)
+from mqs.transport.mactelnet.client import MacTelnetSession
+from mqs.transport.mactelnet.files import MacTelnetStrategy
+from mqs.transport.mndp import DiscoveredDevice
+from mqs.transport.netifs import LocalInterface, route_source_address
 from mqs.transport.ssh import SshTransport
 from mqs.transport.upload import FileUploader, HttpFetchStrategy, ScpStrategy, SftpStrategy
 
@@ -38,6 +48,9 @@ class DeviceSession:
     fell_back: bool = False
     temp_address: str | None = None  # bootstrap IP added by connect-by-MAC, to remove later
     mac_method: str | None = None
+    # How to open a MAC-Telnet console again, for moving files without an IP path.
+    mac_device: DiscoveredDevice | None = None
+    mac_local_address: str | None = None  # this PC's address on the device's network
 
 
 def find_session_port(transport: Transport, host: str) -> str | None:
@@ -55,6 +68,8 @@ def discover_session(
     fell_back: bool = False,
     temp_address: str | None = None,
     mac_method: str | None = None,
+    mac_device: DiscoveredDevice | None = None,
+    mac_local_address: str | None = None,
     discover: Callable[..., DeviceInventory] = collect_inventory,
     probe: Callable[..., dict[str, bool]] = probe_features,
     session_port: Callable[[Transport, str], str | None] = find_session_port,
@@ -65,6 +80,7 @@ def discover_session(
         params, transport, inventory, probe(transport, inventory.version),
         session_port(transport, params.host), fell_back,
         temp_address=temp_address, mac_method=mac_method,
+        mac_device=mac_device, mac_local_address=mac_local_address,
     )
 
 
@@ -84,17 +100,56 @@ def open_session(
                             fell_back=outcome.fell_back)
 
 
+def open_mac_session(
+    device: DiscoveredDevice,
+    params: ConnectionParams,
+    address: IPv4Address,
+    interface: LocalInterface,
+    choice: TransportChoice = TransportChoice.AUTO,
+    *,
+    on_step: Callable[[Any], None] = lambda step: None,
+    on_connected: Callable[[Transport], None] = lambda transport: None,
+    mac_connect: Callable[..., MacConnectResult] = connect_by_mac,
+    **discover_fns: Any,
+) -> DeviceSession:
+    """Connect by MAC and describe the device: "Připojit přes MAC" in the window.
+
+    ``address`` is the free address in this PC's subnet the user agreed to lend the
+    device; ``on_connected`` gets the transport before the slower inventory runs.
+    """
+    result = mac_connect(device, params, address, interface, choice=choice, on_step=on_step)
+    on_connected(result.transport)
+    reached = replace(params, host=result.host or str(address))
+    return discover_session(
+        result.transport, reached, on_step=on_step,
+        temp_address=result.temp_address, mac_method=result.method.value,
+        mac_device=device, mac_local_address=str(interface.address), **discover_fns,
+    )
+
+
 class LazySsh:
-    """SSH connection opened only when a file strategy needs it (main transport is API)."""
+    """SSH connection opened only when a file strategy needs it (main transport is API).
+
+    A connection that failed is not tried again: SFTP and SCP ask for it for every file,
+    and each retry cost a full connect timeout while nothing had changed (on 2026-09-21
+    a MAC session spent a minute timing out on an SSH port that never answered).
+    """
 
     def __init__(self, params: ConnectionParams) -> None:
         self.params = params
         self._transport: SshTransport | None = None
+        self._error: Exception | None = None
 
     def _connected(self) -> SshTransport:
+        if self._error is not None:
+            raise self._error
         if self._transport is None:
             transport = SshTransport(self.params)
-            transport.connect()
+            try:
+                transport.connect()
+            except (TransportError, OSError) as exc:
+                self._error = exc
+                raise
             self._transport = transport
         return self._transport
 
@@ -110,6 +165,40 @@ class LazySsh:
             self._transport = None
 
 
+class LazyConsole:
+    """MAC-Telnet console opened only when a file strategy needs it, tried only once."""
+
+    def __init__(self, device: DiscoveredDevice, params: ConnectionParams, local_address: str,
+                 factory: Callable[..., MacTelnetSession] = default_session_factory) -> None:
+        self.device = device
+        self.params = params
+        self.local_address = local_address
+        self.factory = factory
+        self._session: MacTelnetSession | None = None
+        self._error: Exception | None = None
+
+    def __call__(self) -> MacTelnetSession:
+        if self._error is not None:
+            raise self._error
+        if self._session is None:
+            session: MacTelnetSession | None = None
+            try:
+                session = self.factory(self.device, self.params, self.local_address)
+                session.authenticate()
+            except (TransportError, OSError) as exc:
+                if session is not None:
+                    session.close()
+                self._error = exc
+                raise
+            self._session = session
+        return self._session
+
+    def close(self) -> None:
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+
+
 def build_uploader_factory(session: DeviceSession,
                            options: ApplyOptions) -> Callable[[Transport], FileUploader]:
     ssh_service = next((s for s in session.inventory.services if s.name == "ssh"), None)
@@ -123,11 +212,29 @@ def build_uploader_factory(session: DeviceSession,
             owned = LazySsh(replace(session.params, port=ssh_port))
             ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
+        console: LazyConsole | None = None
+        if session.mac_device is not None and session.mac_local_address is not None:
+            console = LazyConsole(session.mac_device, session.params, session.mac_local_address)
+            # Reached over MAC-Telnet, the console is the one path known to work: the IP
+            # address is only lent to the device, and SSH may be firewalled, limited to
+            # other addresses or off. Reached over IPv6 link-local, IP works: SSH first.
+            if session.mac_method == MacConnectMethod.MAC_TELNET.value:
+                strategies.insert(0, MacTelnetStrategy(console))
+            else:
+                strategies.append(MacTelnetStrategy(console))
         with contextlib.suppress(OSError):  # no route to the device: skip HTTP + fetch
             strategies.append(HttpFetchStrategy(transport,
                                                 route_source_address(session.params.host)))
+
+        def release() -> None:
+            if owned is not None:
+                owned.close()
+            if console is not None:
+                console.close()
+
         return FileUploader(strategies, allow_line_by_line=options.mode == ApplyMode.IMPORT,
-                            release=owned.close if owned is not None else None)
+                            release=release if owned is not None or console is not None
+                            else None)
 
     return factory
 

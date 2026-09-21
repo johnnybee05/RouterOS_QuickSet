@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from ipaddress import IPv4Address
 from typing import Any
 
@@ -27,7 +26,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mqs.apply.session import DeviceSession, discover_session, find_session_port
+from mqs.apply.session import (
+    DeviceSession,
+    discover_session,
+    find_session_port,
+    open_mac_session,
+)
 from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
 from mqs.logging_setup import SecretRegistry
@@ -43,11 +47,10 @@ from mqs.transport.base import (
 )
 from mqs.transport.discovery import collect_inventory, probe_features
 from mqs.transport.factory import ConnectFailed, TransportChoice, connect_transport
-from mqs.transport.mac_connect import MacConnectResult, connect_by_mac
+from mqs.transport.mac_connect import MacConnectResult, connect_by_mac, local_interface_for
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
 from mqs.transport.netifs import (
     LocalInterface,
-    interface_for,
     list_ipv4_interfaces,
     propose_free_address,
 )
@@ -324,12 +327,9 @@ class DevicePage(Page):
         report: Callable[[object], None],
         *,
         fell_back: bool = False,
-        temp_address: str | None = None,
-        mac_method: str | None = None,
     ) -> DeviceSession:
         return discover_session(
             transport, params, on_step=report, fell_back=fell_back,
-            temp_address=temp_address, mac_method=mac_method,
             discover=self.discover_fn, probe=self.probe_fn, session_port=self.session_port_fn,
         )
 
@@ -388,13 +388,12 @@ class DevicePage(Page):
         self.connect_status.setText(S.CONNECT_PROGRESS)
 
         def task(token: CancelToken, report: Callable[[object], None]) -> DeviceSession:
-            result = self.mac_connect_fn(device, params, address, interface, choice=choice,
-                                         on_step=report)
-            token.on_cancel(result.transport.close)
-            reached = replace(params, host=str(address))
-            return self._discover_session(result.transport, reached, report,
-                                          temp_address=result.temp_address,
-                                          mac_method=result.method.value)
+            return open_mac_session(
+                device, params, address, interface, choice, on_step=report,
+                on_connected=lambda transport: token.on_cancel(transport.close),
+                mac_connect=self.mac_connect_fn, discover=self.discover_fn,
+                probe=self.probe_fn, session_port=self.session_port_fn,
+            )
 
         self._connect_token = self.runner.start(
             task, on_finished=self._connected, on_failed=self._connect_failed,
@@ -402,14 +401,7 @@ class DevicePage(Page):
         self._update_buttons()
 
     def _interface_for_device(self, device: DiscoveredDevice) -> LocalInterface | None:
-        interfaces = self.local_interfaces_fn()
-        if device.local_address is not None:
-            match = next((i for i in interfaces if i.address == device.local_address), None)
-            if match is not None:
-                return match
-        if device.ipv4 is not None:
-            return interface_for(device.ipv4, interfaces)
-        return next((i for i in interfaces if i.name == device.local_interface), None)
+        return local_interface_for(device, self.local_interfaces_fn())
 
     def cancel_connect(self) -> None:
         if self._connect_token is not None:

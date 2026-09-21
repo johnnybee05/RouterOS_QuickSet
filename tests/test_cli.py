@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import io
+from ipaddress import IPv4Address, IPv4Network
 
 import pytest
 
 from factories import make_inventory
 from fake_router import FakeRouter, RouterUploader
+from fake_transport import FakeTransport
 from mqs import cli
 from mqs.apply.orchestrator import ApplyOrchestrator
 from mqs.apply.session import DeviceSession
@@ -17,6 +19,8 @@ from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.profiles.store import profile_to_json
 from mqs.transport.base import ConnectionParams
+from mqs.transport.mndp import DiscoveredDevice
+from mqs.transport.netifs import LocalInterface
 
 PORTS = ["ether1", "ether2", "ether3", "ether4", "ether5"]
 
@@ -137,6 +141,71 @@ def test_host_is_required_for_a_real_mode(profile_file, capsys):
                     out=io.StringIO())
     assert code == cli.BLOCKED
     assert "--host is required" in capsys.readouterr().err
+
+
+MAC = "D0:EA:11:5D:65:E2"
+MAC_DEVICE = DiscoveredDevice(mac=MAC, identity="MikroTik", interface_name="ether1",
+                              local_address=IPv4Address("192.168.55.55"))
+LAN = LocalInterface("Ethernet", IPv4Address("192.168.55.55"), IPv4Network("192.168.55.0/24"))
+
+
+def mac_deps(calls, *, found=MAC_DEVICE):
+    transport = FakeTransport()
+
+    def connect_mac(device, params, address, interface, choice, **kwargs):
+        calls.append({"device": device, "address": address, "interface": interface,
+                      "params": params})
+        return DeviceSession(
+            ConnectionParams(host=str(address), username="admin"), transport,
+            make_inventory("7.20.7", PORTS), {}, "ether1",
+            temp_address=f"{address}/24", mac_method="mac-telnet",
+            mac_device=device, mac_local_address=str(interface.address),
+        )
+
+    return transport, {"find_device": lambda mac, seconds: found,
+                       "interfaces": lambda: [LAN], "connect_mac": connect_mac}
+
+
+def test_connect_by_mac_lends_an_address_and_gives_it_back(monkeypatch):
+    monkeypatch.setenv("MQS_PASSWORD", "pw")
+    calls = []
+    transport, deps = mac_deps(calls)
+    code, out = run(["connect", "--mac", "d0-ea-11-5d-65-e2",
+                     "--temp-address", "192.168.55.254"], **deps)
+    assert code == cli.OK, out
+    assert calls[0]["device"] is MAC_DEVICE and calls[0]["interface"] is LAN
+    assert str(calls[0]["address"]) == "192.168.55.254"
+    assert calls[0]["params"].password == "pw"
+    assert "by MAC      : mac-telnet" in out
+    removed = [c for c in transport.commands if c.verb == "remove"]
+    assert removed and removed[0].api_path == "/ip/address"
+
+
+@pytest.mark.parametrize(("argv", "message"), [
+    (["connect", "--mac", MAC], "--temp-address"),
+    (["connect"], "--host or --mac"),
+])
+def test_connect_by_mac_needs_what_it_cannot_guess(argv, message, capsys):
+    assert cli.main(argv, out=io.StringIO()) == cli.BLOCKED
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("temp", "found", "message"), [
+    ("192.168.99.254", MAC_DEVICE, "not a free address"),
+    ("192.168.55.55", MAC_DEVICE, "not a free address"),  # this PC's own address
+    ("not-an-ip", MAC_DEVICE, "--temp-address"),
+    ("192.168.55.254", None, "did not announce itself"),
+])
+def test_connect_by_mac_refuses_without_touching_the_device(temp, found, message, capsys,
+                                                           monkeypatch):
+    monkeypatch.setenv("MQS_PASSWORD", "pw")
+    calls = []
+    _transport, deps = mac_deps(calls, found=found)
+    code = cli.main(["connect", "--mac", MAC, "--temp-address", temp], out=io.StringIO(),
+                    **deps)
+    assert code == cli.FAILED
+    assert message in capsys.readouterr().err
+    assert calls == []
 
 
 def test_passwords_are_never_command_line_arguments():

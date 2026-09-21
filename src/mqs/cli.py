@@ -16,13 +16,20 @@ import os
 import sys
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
 from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
 from mqs.apply.preflight import collect_existing, preflight
-from mqs.apply.session import DeviceSession, build_apply_context, open_session, probe_summary
+from mqs.apply.session import (
+    DeviceSession,
+    build_apply_context,
+    open_mac_session,
+    open_session,
+    probe_summary,
+)
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
@@ -33,8 +40,9 @@ from mqs.paths import profiles_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import ConnectionParams, TransportError
 from mqs.transport.factory import TransportChoice
-from mqs.transport.mndp import MndpScanner
-from mqs.transport.netifs import list_ipv4_interfaces
+from mqs.transport.mac_connect import local_interface_for, remove_temp_address
+from mqs.transport.mndp import DiscoveredDevice, MndpScanner
+from mqs.transport.netifs import LocalInterface, list_ipv4_interfaces
 
 OK = 0
 FAILED = 1
@@ -54,13 +62,19 @@ def _password(env_name: str, prompt: str, *, ask: bool = True) -> str:
     return getpass.getpass(prompt) if ask and sys.stdin.isatty() else ""
 
 
+class CliError(Exception):
+    """A problem the user can fix on the command line; reported without a traceback."""
+
+
 def connection_params(args: argparse.Namespace) -> ConnectionParams:
     return ConnectionParams(
-        host=args.host,
+        host=args.host or "",
         username=args.user,
         # A key is credential enough: do not stop an unattended run to ask for nothing.
-        password=_password(args.password_env, f"Password for {args.user}@{args.host}: ",
-                           ask=not args.key),
+        # MAC-Telnet has no keys, so a MAC connection always needs the password.
+        password=_password(args.password_env,
+                           f"Password for {args.user}@{args.host or args.mac}: ",
+                           ask=not args.key or bool(args.mac)),
         key_filename=args.key,
         ca_file=args.ca_file,
     )
@@ -89,6 +103,9 @@ def describe_session(session: DeviceSession, out: Any) -> None:
     print(f"switches    : {', '.join(s.type for s in inventory.switches) or '-'}", file=out)
     print(f"services    : {', '.join(f'{s.name}:{s.port}' for s in inventory.services)}", file=out)
     print(f"session port: {session.session_port or '?'}", file=out)
+    if session.mac_method is not None:
+        print(f"by MAC      : {session.mac_method}, temporary address "
+              f"{session.temp_address or '-'}", file=out)
     print(f"probes      : {probe_summary(session.probes) or '-'}", file=out)
 
 
@@ -147,12 +164,64 @@ def cmd_discover(args: argparse.Namespace, out: Any, **_: Any) -> int:
     return OK if devices else FAILED
 
 
-def cmd_connect(args: argparse.Namespace, out: Any, *,
-                connect: Callable[..., DeviceSession] = open_session, **_: Any) -> int:
-    session = connect(connection_params(args), TransportChoice(args.transport),
-                      api_port=args.api_port, ssh_port=args.ssh_port,
-                      on_step=lambda step: print(f"  … {step}", file=out, flush=True))
+def find_by_mac(mac: str, seconds: int) -> DiscoveredDevice | None:
+    """The device announcing ``mac`` over MNDP, or None when it stays silent."""
+    wanted = mac.replace("-", ":").upper()
+    with MndpScanner(list_ipv4_interfaces()) as scanner:
+        scanner.solicit()
+        for _ in range(max(1, seconds)):
+            scanner.poll(1.0)
+            match = next((d for d in scanner.devices() if d.mac.upper() == wanted), None)
+            if match is not None:
+                return match
+    return None
+
+
+def open_device(
+    args: argparse.Namespace,
+    out: Any,
+    *,
+    connect: Callable[..., DeviceSession] = open_session,
+    connect_mac: Callable[..., DeviceSession] = open_mac_session,
+    find_device: Callable[[str, int], DiscoveredDevice | None] = find_by_mac,
+    interfaces: Callable[[], list[LocalInterface]] = list_ipv4_interfaces,
+) -> DeviceSession:
+    """Connect by address, or by MAC the way the window's "Připojit přes MAC" does."""
+
+    def on_step(step: object) -> None:
+        print(f"  … {step}", file=out, flush=True)
+
+    params = connection_params(args)
+    choice = TransportChoice(args.transport)
+    if not args.mac:
+        return connect(params, choice, api_port=args.api_port, ssh_port=args.ssh_port,
+                       on_step=on_step)
+    device = find_device(args.mac, args.scan_seconds)
+    if device is None:
+        raise CliError(f"{args.mac} did not announce itself over MNDP within "
+                       f"{args.scan_seconds} s")
+    interface = local_interface_for(device, interfaces())
+    if interface is None:
+        raise CliError(f"no network card of this PC is on the network {args.mac} was heard on")
+    try:
+        address = IPv4Address(args.temp_address)
+    except ValueError as exc:
+        raise CliError(f"--temp-address: {exc}") from exc
+    if address not in interface.network or address == interface.address:
+        raise CliError(f"--temp-address {address} is not a free address in "
+                       f"{interface.network} ({interface.name})")
+    on_step(f"lending {address}/{interface.network.prefixlen} to "
+            f"{device.identity or device.mac} on {device.interface_name or '?'}")
+    return connect_mac(device, params, address, interface, choice, on_step=on_step)
+
+
+def cmd_connect(args: argparse.Namespace, out: Any, **deps: Any) -> int:
+    session = open_device(args, out, **deps)
     describe_session(session, out)
+    if session.temp_address is not None:
+        # Only looking: give the address back rather than leave it on the device.
+        remove_temp_address(session.transport, session.temp_address)
+        print(f"  … temporary address {session.temp_address} removed", file=out)
     session.transport.close()
     return OK
 
@@ -174,21 +243,18 @@ def cmd_apply(
     args: argparse.Namespace,
     out: Any,
     *,
-    connect: Callable[..., DeviceSession] = open_session,
     collect_existing_fn: Callable[..., Any] = collect_existing,
     orchestrator_factory: Callable[..., Any] = ApplyOrchestrator,
     now: Callable[[], datetime] = datetime.now,
-    **_: Any,
+    **deps: Any,
 ) -> int:
     mode = ApplyMode(args.mode)
-    if mode == ApplyMode.GENERATE_ONLY and not args.host:
+    if mode == ApplyMode.GENERATE_ONLY and not args.host and not args.mac:
         return _generate_offline(args, out)
 
     profile = load_profile(args)
     options = build_options(args, mode)
-    session = connect(connection_params(args), TransportChoice(args.transport),
-                      api_port=args.api_port, ssh_port=args.ssh_port,
-                      on_step=lambda step: print(f"  … {step}", file=out, flush=True))
+    session = open_device(args, out, **deps)
     describe_session(session, out)
 
     result = generate(profile, TargetContext.from_inventory(session.inventory, session.probes))
@@ -250,6 +316,13 @@ def _add_connection_args(parser: argparse.ArgumentParser, *, host_required: bool
                         choices=[c.value for c in TransportChoice])
     parser.add_argument("--api-port", type=int)
     parser.add_argument("--ssh-port", type=int)
+    parser.add_argument("--mac", help="reach the device by MAC address instead, as the "
+                        "window's 'Připojit přes MAC' does; files then go over MAC-Telnet")
+    parser.add_argument("--temp-address", metavar="IP",
+                        help="with --mac: a free address in this PC's subnet to lend the "
+                        "device while connected (the window proposes one and asks)")
+    parser.add_argument("--scan-seconds", type=int, default=10,
+                        help="with --mac: how long to wait for the device's MNDP announcement")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -264,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--seconds", type=int, default=5)
 
     connect = sub.add_parser("connect", help="connect and describe the device", allow_abbrev=False)
-    _add_connection_args(connect, host_required=True)
+    _add_connection_args(connect, host_required=False)
 
     apply_cmd = sub.add_parser("apply", allow_abbrev=False,
                                help="generate, import, or reset + import")
@@ -305,10 +378,23 @@ COMMANDS: dict[str, Callable[..., int]] = {
 
 def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "apply" and args.mode != ApplyMode.GENERATE_ONLY.value and not args.host:
-        print(f"--host is required for --mode {args.mode}", file=sys.stderr)
+    mac = getattr(args, "mac", None)
+    if args.command == "connect" and not args.host and not mac:
+        print("--host or --mac is required", file=sys.stderr)
         return BLOCKED
-    return COMMANDS[args.command](args, out or sys.stdout, **deps)
+    if args.command == "apply" and args.mode != ApplyMode.GENERATE_ONLY.value \
+            and not args.host and not mac:
+        print(f"--host is required for --mode {args.mode} (or --mac)", file=sys.stderr)
+        return BLOCKED
+    if mac and not args.temp_address:
+        print("--mac needs --temp-address: a free address in this PC's subnet",
+              file=sys.stderr)
+        return BLOCKED
+    try:
+        return COMMANDS[args.command](args, out or sys.stdout, **deps)
+    except CliError as exc:
+        print(str(exc), file=sys.stderr)
+        return FAILED
 
 
 if __name__ == "__main__":  # pragma: no cover

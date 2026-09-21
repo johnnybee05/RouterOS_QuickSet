@@ -349,6 +349,52 @@ def test_wrapped_echo_is_still_recognised():
     assert session.run(long_command) == "ok"
 
 
+SCROLLED_COMMAND = ':put [:typeof [:parse "/file read file=x offset=0 chunk-size=10"]]'
+# What RouterOS 7.20.7 sent back for SCROLLED_COMMAND, captured over MAC-Telnet: an
+# 80-column console scrolls the line sideways and never shows it whole.
+SCROLLED_REPLY = (
+    ':put [:typeof [:parse "/file read file=x offset=0 chunk-size\r[admin@MikroTik] > '
+    ':put [:typeof [:parse "/file read file=x offset=0 chunk-siz>\r< "/file read file=x '
+    'offset=0 chunk-size=                                      \r< "/file read file=x '
+    'offset=0 chunk-size=10"]]\r< "/file read file=x offset=0 chunk-size=10"]]\r\n\rcode'
+    '\r\n\r\r\r\r[admin@MikroTik] > ' + " " * 61 + '\r[admin@MikroTik] > '
+)
+
+
+def test_scrolled_echo_is_still_recognised():
+    device = FakeDevice(password="pw", command_reply=lambda line: (
+        SCROLLED_REPLY if line == SCROLLED_COMMAND else "[admin@MikroTik] > "))
+    session = make_session(device, "pw")
+    session.authenticate()
+    assert session.run(SCROLLED_COMMAND) == "code"
+
+
+def test_repeated_echo_lines_are_not_output():
+    """Seen on 7.20.7: the finished line was redrawn twice, each on a line of its own."""
+    command = ":put [/file get mqs-probe.txt size]"
+    device = FakeDevice(password="pw", command_reply=lambda line: (
+        f"[admin@MikroTik] > {line}\r\n[admin@MikroTik] > {line}\r\n25\r\n[admin@MikroTik] > "
+        if line else "[admin@MikroTik] > "))
+    session = make_session(device, "pw")
+    session.authenticate()
+    assert session.run(command) == "25"
+
+
+def test_a_resent_packet_is_not_taken_as_new_output():
+    """A device resends data whose ACK it missed; the copy is not more output."""
+
+    def reply(line: str) -> str | list[str]:
+        if not line:
+            return "[admin@MikroTik] > "
+        return [line + "\r\nok\r\n", "[admin@MikroTik] > "]
+
+    device = FakeDevice(password="pw", command_reply=reply)
+    session = make_session(device, "pw", resend_data=True)
+    session.authenticate()
+    assert session.run("/system identity print") == "ok"
+    assert session.run("/system clock print") == "ok"
+
+
 def test_run_rejects_a_command_it_could_not_confirm():
     """Silence is not success.
 

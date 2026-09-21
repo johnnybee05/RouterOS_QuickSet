@@ -15,7 +15,7 @@ findings and the remaining unknowns are in docs/DIALECT_NOTES.md.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from ipaddress import IPv4Address
@@ -36,7 +36,12 @@ from mqs.transport.factory import (
 )
 from mqs.transport.mactelnet.client import MacTelnetError, MacTelnetSession, UdpBroadcastChannel
 from mqs.transport.mndp import DiscoveredDevice
-from mqs.transport.netifs import LocalInterface, interface_mac, list_ipv4_interfaces
+from mqs.transport.netifs import (
+    LocalInterface,
+    interface_for,
+    interface_mac,
+    list_ipv4_interfaces,
+)
 
 TEMP_COMMENT = "mqs-temp"
 
@@ -52,6 +57,7 @@ class MacConnectResult:
     method: MacConnectMethod
     temp_address: str | None = None  # "a.b.c.d/nn" added on the device, to remove afterwards
     device_interface: str | None = None
+    host: str | None = None  # where the transport is connected: the lent or link-local address
 
     @property
     def transport(self) -> Transport:
@@ -69,6 +75,18 @@ def bootstrap_interface(reported: str | None) -> str:
     if not reported:
         return "ether1"
     return reported.split("/", 1)[0]
+
+
+def local_interface_for(device: DiscoveredDevice,
+                        interfaces: Sequence[LocalInterface]) -> LocalInterface | None:
+    """The PC's network card the device was heard on, to reach it by MAC through."""
+    if device.local_address is not None:
+        match = next((i for i in interfaces if i.address == device.local_address), None)
+        if match is not None:
+            return match
+    if device.ipv4 is not None:
+        return interface_for(device.ipv4, interfaces)
+    return next((i for i in interfaces if i.name == device.local_interface), None)
 
 
 def link_local_host(device: DiscoveredDevice, interface: LocalInterface | None) -> str | None:
@@ -112,7 +130,7 @@ def connect_by_mac(
         on_step(MacConnectMethod.LINK_LOCAL.value)
         try:
             outcome = connect(replace(params, host=host_ll), choice)
-            return MacConnectResult(outcome, MacConnectMethod.LINK_LOCAL)
+            return MacConnectResult(outcome, MacConnectMethod.LINK_LOCAL, host=host_ll)
         except AuthError:
             raise
         except (ConnectFailed, ServiceUnavailable, TransportError):
@@ -170,7 +188,8 @@ def connect_by_mac(
         ) from exc
     session.close()
     return MacConnectResult(outcome, MacConnectMethod.MAC_TELNET,
-                            temp_address=address, device_interface=device_interface)
+                            temp_address=address, device_interface=device_interface,
+                            host=str(proposed_address))
 
 
 def remove_temp_address(transport: Transport, address: str) -> None:
@@ -197,5 +216,6 @@ __all__ = [
     "connect_by_mac",
     "default_session_factory",
     "link_local_host",
+    "local_interface_for",
     "remove_temp_address",
 ]

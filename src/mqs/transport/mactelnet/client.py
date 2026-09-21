@@ -1,9 +1,9 @@
 """Synchronous MAC-Telnet session: EC-SRP5 login then a small command runner.
 
-Only enough of the protocol for the connect-by-MAC bootstrap (spec 4.x / addendum §10): log
-in and run a couple of CLI lines to add a temporary management IP. The datagram channel is
+Only enough of the protocol for connect-by-MAC (spec 4.x / addendum §10): log in and run
+CLI lines - the bootstrap address, and file transfer (files.py). The datagram channel is
 injected, so the whole session is exercised in tests against an in-process fake device.
-Not verified against a real device (docs/DIALECT_NOTES.md, NUTNO OVĚŘIT).
+Verified against RouterOS 7.20.7; the findings are in docs/DIALECT_NOTES.md.
 """
 
 from __future__ import annotations
@@ -46,13 +46,29 @@ def _squash(text: str) -> str:
     return "".join(text.split())
 
 
+# How much of a command's end is looked for in its echo.
+ECHO_TAIL = 24
+
+
+def _echo_mark(command: str) -> str:
+    """The part of a command its echo is guaranteed to show.
+
+    Verified on 7.20.7: the console stays 80 columns wide whatever width the client asks
+    for, and a longer line is scrolled sideways rather than wrapped - the echo shows
+    "...chunk-siz>" and then redraws as "< ...=10"]]". The whole line never appears, but
+    its end always does, because that is where the cursor is.
+    """
+    return _squash(command)[-ECHO_TAIL:]
+
+
 def _strip_console(text: str, command: str) -> str:
     """Drop the echoed command line and the trailing prompt from console output."""
     lines = text.splitlines()
-    wanted = _squash(command)
+    wanted = _echo_mark(command)
     # Drop everything up to and including the echoed command. splitlines() also splits on
     # the bare CRs the console uses to redraw, and a command wider than the terminal comes
-    # back split across lines, so match on the whitespace-free form as it accumulates.
+    # back split across lines or scrolled, so match its end on the whitespace-free form as
+    # it accumulates.
     if wanted:
         seen = ""
         for index, line in enumerate(lines):
@@ -60,10 +76,26 @@ def _strip_console(text: str, command: str) -> str:
             if wanted in seen:
                 lines = lines[index + 1:]
                 break
+        # The console may redraw the finished line more than once, each on a line of its
+        # own (verified on 7.20.7: "[admin@MikroTik] > :put [...]" came back twice).
+        while lines and _squash(lines[0]).endswith(wanted):
+            lines.pop(0)
     # sanitize() trims the prompt's trailing space, so match on the bracket-arrow tail.
     while lines and (not lines[-1].strip() or lines[-1].rstrip().endswith(">")):
         lines.pop()
     return "\n".join(lines).strip()
+
+
+def _tail(chunks: list[bytes], size: int) -> bytes:
+    """The last ``size`` bytes of ``chunks``, without joining all of them."""
+    picked: list[bytes] = []
+    total = 0
+    for chunk in reversed(chunks):
+        picked.append(chunk)
+        total += len(chunk)
+        if total >= size:
+            break
+    return b"".join(reversed(picked))[-size:]
 
 
 class MacTelnetError(TransportError):
@@ -147,7 +179,8 @@ class MacTelnetSession:
         *,
         src_mac: bytes | None = None,
         term_type: bytes = b"vt100",
-        term_size: tuple[int, int] = (200, 24),  # wide enough that commands do not wrap
+        # Asked for; 7.20.7 keeps an 80-column console regardless (see _echo_mark).
+        term_size: tuple[int, int] = (200, 24),
         connect_timeout: float = 10.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -162,7 +195,7 @@ class MacTelnetSession:
         self._clock = clock
         self.session_id = secrets.randbits(16)
         self.send_counter = 0
-        self.receive_counter = 0
+        self.receive_counter: int | None = None  # counter the next new DATA packet carries
         self._srp = EcSrpClient(username, password)
         self._authenticated = False
         self._primed = False
@@ -198,8 +231,25 @@ class MacTelnetSession:
             # the first field is answered with 0x0015 there and 0xBEEF in the second.
             if self.session_id not in (packet.session_id, packet.client_type):
                 continue  # not our session
+            if packet.message_type == MessageType.DATA and not self._is_new(packet):
+                self._send_ack(packet)  # its first ACK went missing; confirm it again
+                continue
             return packet
         return None
+
+    def _is_new(self, packet: Packet) -> bool:
+        """False for DATA the device already sent once and is sending again.
+
+        The device resends a packet whose ACK it has not seen in time. Taking the copy
+        as new output put about 250 bytes into a download twice (seen on 7.20.7 while
+        reading a 5 KiB file), so, as the reference client does, a packet only counts as
+        new once its byte counter has reached the position the stream is at.
+        """
+        expected = self.receive_counter
+        if expected is not None and (packet.byte_counter - expected) % 2**32 >= 2**31:
+            return False
+        self.receive_counter = _counter(packet.byte_counter + packet.payload_len)
+        return True
 
     def _wait_for(self, deadline: float, *types: MessageType) -> Packet:
         while True:
@@ -312,6 +362,8 @@ class MacTelnetSession:
         """
         saw_prompt = False
         collected: list[bytes] = []
+        mark = _echo_mark(expect) if expect else ""
+        echoed = not mark
         overall = self._clock() + timeout
         last: float | None = None
         while self._clock() < overall:
@@ -329,19 +381,23 @@ class MacTelnetSession:
                 if not packet.control_packets:
                     collected.append(packet.data)
                     last = self._clock()
+                    # Wait until the console has echoed our command: a prompt left over
+                    # from the banner would otherwise end the read straight away and be
+                    # returned as the command's output. Looked for only until it is
+                    # found, and the prompt only in the tail: re-reading a long download
+                    # whole at every packet delays the ACKs the device is waiting for.
+                    if not echoed:
+                        acc = b"".join(collected).decode("utf-8", errors="replace")
+                        echoed = mark in _squash(acc)
                     # Stop at a prompt that ENDS the output. Testing for "contains"
                     # would stop on the echoed command, which the console prefixes
                     # with the previous prompt, cutting the real output off.
-                    acc = b"".join(collected).decode("utf-8", errors="replace")
-                    # Wait until the console has echoed our command: a prompt left over
-                    # from the banner would otherwise end the read straight away and be
-                    # returned as the command's output.
-                    echoed = not expect or _squash(expect) in _squash(acc)
-                    tail = acc.rstrip(" \t\r\n")
+                    recent = _tail(collected, 256).decode("utf-8", errors="replace")
+                    tail = recent.rstrip(" \t\r\n")
                     if echoed and tail.endswith(">"):
                         saw_prompt = True
                         break
-                    if tail.endswith(":") and LICENSE_QUESTION in acc.lower():
+                    if tail.endswith(":") and LICENSE_QUESTION in recent.lower():
                         break  # a question is waiting for an answer, not for more reading
             elif packet.message_type == MessageType.END_SESSION:
                 break

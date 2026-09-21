@@ -29,7 +29,7 @@ class FakeDevice:
         password: str = "",
         *,
         user: RegisteredUser | None = None,
-        command_reply: Callable[[str], str] = (
+        command_reply: Callable[[str], str | list[str]] = (
             lambda line: (line + "\nok\n" if line else "") + "[admin@MikroTik] > "
         ),
         server_private: bytes | None = None,
@@ -77,11 +77,14 @@ class FakeDevice:
         out: list[bytes] = []
         if not packet.control_packets:
             line = packet.data.decode("utf-8", errors="replace").rstrip("\r\n")
-            reply = self._packet(MessageType.DATA)
             if line:
                 self.commands.append(line)  # a bare CR is not a command
-            reply.data = self.command_reply(line).encode()
-            self._emit(reply, out)
+            answer = self.command_reply(line)
+            # A list is output the device sends as several packets.
+            for text in [answer] if isinstance(answer, str) else answer:
+                reply = self._packet(MessageType.DATA)
+                reply.data = text.encode()
+                self._emit(reply, out)
             return out
 
         types = {cp.type: cp for cp in packet.control_packets}
@@ -119,10 +122,13 @@ class FakeChannel:
     """Client-side channel wired to a FakeDevice, with an optional own-broadcast echo."""
 
     def __init__(self, device: FakeDevice, *, echo_self: bool = False,
-                 drop_first_ack: bool = False) -> None:
+                 drop_first_ack: bool = False, resend_data: bool = False) -> None:
         self.device = device
         self.echo_self = echo_self
         self.drop_first_ack = drop_first_ack
+        # Deliver every terminal-data packet twice, as a device does when it resends
+        # one whose ACK it did not get in time.
+        self.resend_data = resend_data
         self.inbox: list[bytes] = []
         self.sent: list[bytes] = []
         self.closed = False
@@ -136,6 +142,10 @@ class FakeChannel:
                 self.drop_first_ack = False
                 continue
             self.inbox.append(reply)
+            parsed = Packet.from_bytes(reply)
+            if self.resend_data and parsed.message_type == MessageType.DATA \
+                    and not parsed.control_packets:
+                self.inbox.append(reply)
 
     def receive(self, timeout: float) -> bytes | None:
         return self.inbox.pop(0) if self.inbox else None
