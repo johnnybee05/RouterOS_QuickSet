@@ -7,7 +7,7 @@ from ipaddress import IPv4Interface
 
 from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result_for_mode
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.common import wan_port
+from mqs.generator.blocks.common import wan_l3_interface, wan_port
 from mqs.generator.ir import Script
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.inventory import DeviceInventory
@@ -149,7 +149,7 @@ def preflight(
 
     if session_port is not None:
         if session_port == wan_port(profile):
-            issues.append(Issue("apply.lockout_wan", W, "wan.interface", {"port": session_port}))
+            issues.append(_wan_session(profile, result, session_port))
         elif (options.mode == ApplyMode.RESET_AND_IMPORT
               and session_port not in profile.bridge.ports):
             issues.append(Issue("apply.lockout_unconfigured_port", W, "bridge.ports",
@@ -160,6 +160,18 @@ def preflight(
 
     issues.extend(_notices(result))
     return issues
+
+
+def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str) -> Issue:
+    """What becomes of a session that arrives on the port the profile turns into WAN."""
+    if wan_l3_interface(profile) != port:  # PPPoE: the port itself keeps no IP address
+        return Issue("apply.lockout_wan_pppoe", W, "wan.interface", {"port": port})
+    firewall = profile.firewall
+    if firewall.basic_filter and not firewall.wan_management:
+        return Issue("apply.lockout_wan", W, "firewall.wan_management", {"port": port})
+    # The filter is off, or it lets the management services in from WAN.
+    paths = ", ".join(f"{n} {result.access.services[n].port}" for n in result.access.remaining)
+    return Issue("apply.session_on_wan", INFO, "wan.interface", {"port": port, "paths": paths})
 
 
 def _notices(result: GenerationResult) -> list[Issue]:

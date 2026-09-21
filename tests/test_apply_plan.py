@@ -25,10 +25,11 @@ from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
 from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.generator.render import render_inline
-from mqs.issues import codes, has_errors
+from mqs.issues import Severity, codes, has_errors
 from mqs.messages_cs import MESSAGES
 from mqs.model.inventory import ServiceInfo
 from mqs.model.validation import validate_profile
+from mqs.model.wan import PppoeWan
 
 NOW = datetime(2026, 9, 15, 14, 5, 9)
 
@@ -231,9 +232,31 @@ def test_rollback_minimum():
 
 def test_lockout_warnings():
     profile, inventory, result = _setup()  # WAN = ether1, bridge = ether2..5
-    issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+    on_wan = next(i for i in preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT),
+                                       inventory, session_port="ether1")
+                  if i.code.startswith(("apply.lockout_wan", "apply.session_on_wan")))
+    # Management from WAN is on by default: the session comes back, nothing to warn about.
+    assert on_wan.code == "apply.session_on_wan" and on_wan.severity == Severity.INFO
+    assert on_wan.params["paths"] == "api-ssl 8729, ssh 122, winbox 8291"
+
+    closed = profile.model_copy(update={"firewall": profile.firewall.model_copy(
+        update={"wan_management": False})})
+    closed_result = generate(closed, TargetContext.from_inventory(inventory))
+    issues = preflight(closed, closed_result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
                        session_port="ether1")
     assert "apply.lockout_wan" in codes(issues)
+
+    no_filter = closed.model_copy(update={"firewall": closed.firewall.model_copy(
+        update={"basic_filter": False})})
+    issues = preflight(no_filter, generate(no_filter, TargetContext.from_inventory(inventory)),
+                       [], ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
+    assert "apply.session_on_wan" in codes(issues)
+
+    pppoe = profile.model_copy(update={"wan": profile.wan.model_copy(update={
+        "settings": PppoeWan(username="u")})})
+    issues = preflight(pppoe, generate(pppoe, TargetContext.from_inventory(inventory)), [],
+                       ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
+    assert "apply.lockout_wan_pppoe" in codes(issues)
     reset = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity="MikroTik",
                          admin_password="x")
     other = profile.model_copy(update={"bridge": profile.bridge.model_copy(

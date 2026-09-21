@@ -152,7 +152,13 @@ MESSAGES: dict[str, str] = {
     "i naplánovanou úlohu).",
     "apply.rollback_too_short": "Rollback pojistka musí mít alespoň {minimum} minuty.",
     "apply.lockout_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane WAN. "
-    "Po aplikaci se na něj nemusí jít znovu připojit.",
+    "Základní filtr bez správy z WAN tam zahodí nová spojení, takže se po aplikaci přes "
+    "tento port znovu nepřipojí. Zapněte „Povolit správu z WAN“ nebo se připojte z LAN.",
+    "apply.lockout_wan_pppoe": "Aplikace je k zařízení připojená přes port {port}, na kterém "
+    "poběží PPPoE. Port sám nebude mít IP adresu, takže se po aplikaci přes něj znovu "
+    "nepřipojí. Připojte se z LAN.",
+    "apply.session_on_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane "
+    "WAN. Správa z WAN zůstane dostupná ({paths}).",
     "apply.lockout_unconfigured_port": "Aplikace je připojená přes port {port}, který po resetu "
     "nebude mít IP adresu ani nebude v bridge.",
     "apply.collision": "Na zařízení už existuje {kind} {name}{other} – /import se na tomto řádku "
