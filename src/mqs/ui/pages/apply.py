@@ -290,7 +290,10 @@ class ApplyPage(Page):
 
     def _event(self, event: ApplyEvent) -> None:
         self.log_view.append_line(f"[{STEP_PREFIX[event.status]}] {event.message}")
-        log.info("%s %s %s", event.status.value, event.step, event.detail)
+        # The parameters say where the reconnect went, which file failed and why; the log
+        # had only the step code, so a reconnect could not be told from the log to have
+        # come back by MAC or by address. Secrets are masked by the log handler.
+        log.info("%s %s %s %s", event.status.value, event.step, event.params or "", event.detail)
 
     def _show_report(self, report: ApplyReport) -> None:
         self.last_report = report

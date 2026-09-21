@@ -35,6 +35,23 @@ PROMPT = "] > "
 # RouterOS 7.13+ asks this on the first console login after a reset and waits for an
 # answer instead of showing a prompt, which stalls everything sent afterwards.
 LICENSE_QUESTION = "software license"
+# A user without a password is asked for a new one on every console login: "Change your
+# password", then "new password> ". It ends in ">" like the prompt, and whatever is typed
+# next becomes the new password. Verified on 7.20.7 (2026-09-21): Ctrl-C skips it, keeps
+# the password as it was, and the console carries on to its prompt.
+PASSWORD_QUESTION = "password>"
+CTRL_C = b"\x03"
+
+
+def _password_question(text: str) -> bool:
+    """The last line of ``text`` asks for a password; it is not the console prompt.
+
+    A prompt always carries "[user@identity]", a question never does. Callers decide what
+    "last line" means: with trailing newlines kept, a question the console has already
+    moved on from (it repeats it after Ctrl-C) no longer counts as asking.
+    """
+    line = text.replace("\r", "\n").rsplit("\n", 1)[-1].strip()
+    return line.lower().endswith(PASSWORD_QUESTION) and "]" not in line
 
 
 def _squash(text: str) -> str:
@@ -331,6 +348,9 @@ class MacTelnetSession:
             if LOGIN_FAILED in text.lower():
                 self._authenticated = False
                 raise MacTelnetAuthError(text.strip().splitlines()[-1].strip())
+            if _password_question(text.rstrip(" ")):
+                self._skip_password_change()  # not primed: the prompt is still to come
+                return
             if text.rstrip(" \t\r\n").endswith(">"):
                 # The console already got as far as its prompt here, so run() must not
                 # wait for a banner that has been and gone.
@@ -393,8 +413,10 @@ class MacTelnetSession:
                     # would stop on the echoed command, which the console prefixes
                     # with the previous prompt, cutting the real output off.
                     recent = _tail(collected, 256).decode("utf-8", errors="replace")
+                    if _password_question(recent.rstrip(" ")):
+                        break  # never let a command be typed in as the new password
                     tail = recent.rstrip(" \t\r\n")
-                    if echoed and tail.endswith(">"):
+                    if echoed and tail.endswith(">") and not _password_question(tail):
                         saw_prompt = True
                         break
                     if tail.endswith(":") and LICENSE_QUESTION in recent.lower():
@@ -413,7 +435,7 @@ class MacTelnetSession:
         """
         deadline = max(timeout, 20.0)
         self._send_line("")
-        for _ in range(3):
+        for _ in range(4):
             # Wait for a prompt, not for a gap. The banner and the unread log backlog
             # arrive in bursts with pauses between them, so stopping at the first pause
             # leaves the console still talking - and it swallows the next command.
@@ -421,11 +443,25 @@ class MacTelnetSession:
             if saw_prompt:
                 self._collect(1.0, 0.5)  # the console repeats its prompt; drop that
                 break
+            if _password_question(text.rstrip(" ")):
+                self._skip_password_change()
+                continue
             if LICENSE_QUESTION in text.lower():
                 self._send_line("n")  # decline to have the licence printed, then carry on
                 continue
             break
         self._primed = True
+
+    def _skip_password_change(self) -> None:
+        """Answer "new password>" with Ctrl-C: the password stays exactly as it is.
+
+        Typing anything else there sets it. On 2026-09-21 two file-transfer commands went
+        in as "new password" and "repeat", and only their being different kept the admin
+        password from changing.
+        """
+        data = self._packet(MessageType.DATA)
+        data.data = CTRL_C
+        self._send(data)
 
     def run(self, line: str, *, quiet: float = 0.4, timeout: float = 10.0,
             confirm: bool = True) -> str:

@@ -377,6 +377,65 @@ def test_prime_answers_the_licence_question():
     assert session.run("/system identity print") == "ok"
 
 
+# What 7.20.7 sends to a user without a password, captured 2026-09-21.
+PASSWORD_CHANGE = ("  MikroTik RouterOS 7.20.7 (c) 1999-2026       https://www.mikrotik.com/\r\n"
+                   "\r\n\r\nPress F1 for help\r\n\r\n\r\n\r\nChange your password\r\n"
+                   "\r\r\r\r**************" + " " * 65 + "\rnew password> ")
+AFTER_CTRL_C = ["\rnew password> \r\n",
+                "\r\r\r\r\r[admin@MikroTik] >" + " " * 61 + "\r[admin@MikroTik] > "]
+
+
+def empty_password_console(*, licence: bool = False):
+    """A console that asks for a new password until Ctrl-C, and records what it was told."""
+    state = {"asked": "licence" if licence else "password", "typed_as_password": []}
+
+    def reply(line: str) -> str | list[str]:
+        if state["asked"] == "licence":
+            if line == "":
+                return "\r\n\r\nDo you want to see the software license? [Y/n]: "
+            state["asked"] = "password"
+            return line + "\r\n" + PASSWORD_CHANGE
+        if state["asked"] == "password":
+            if line == "\x03":
+                state["asked"] = None
+                return AFTER_CTRL_C
+            if line:
+                state["typed_as_password"].append(line)
+                return "*" * len(line) + "\r\nrepeat new password> "
+            return PASSWORD_CHANGE
+        return (line + "\nok\n" if line else "") + "[admin@MikroTik] > "
+
+    return FakeDevice(password="", command_reply=reply), state
+
+
+@pytest.mark.parametrize("licence", [False, True])
+def test_the_password_change_is_skipped_and_nothing_is_typed_into_it(licence):
+    """7.20.7 asks a user without a password for a new one at every console login.
+
+    The question ends in ">" like the prompt. On 2026-09-21 the console took it for
+    the prompt and typed two file-transfer commands in as "new password" and "repeat";
+    only their being different kept the admin password from changing.
+    """
+    device, state = empty_password_console(licence=licence)
+    session = make_session(device, "")
+    session.authenticate()
+    assert session.run(':put [/file get [find name="x.rsc"] size]') == "ok"
+    assert state["typed_as_password"] == [], "a command went in as the new password"
+    assert "\x03" in device.commands, "skipped with Ctrl-C, the password left as it was"
+
+
+@pytest.mark.parametrize(("text", "asking"), [
+    ("Change your password\r\n\rnew password> ", True),
+    ("\r\nrepeat new password> ", True),
+    ("\rnew password> \r\n", False),  # repeated after Ctrl-C, the console moved on
+    ("[admin@MikroTik] > ", False),
+    ("[admin@MikroTik] /password> ", False),  # a prompt, even inside /password
+])
+def test_a_password_question_is_told_from_the_prompt(text, asking):
+    from mqs.transport.mactelnet.client import _password_question
+    assert _password_question(text.rstrip(" ")) is asking
+
+
 def test_wrapped_echo_is_still_recognised():
     """A command wider than the terminal comes back split across lines."""
 

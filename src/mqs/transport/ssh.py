@@ -90,12 +90,18 @@ class SshTransport:
         # is exposed so the UI can show it.
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         timeout = self.params.connect_timeout
+        # An empty password is still a password: admin has one after a no-defaults reset.
+        # paramiko tries password authentication only for a password that is not None, so
+        # passing None for it failed with "No authentication methods available" (seen
+        # 2026-09-21). With a key and no password there is nothing to try but the key.
+        password = self.params.password if self.params.password or \
+            not self.params.key_filename else None
         try:
             client.connect(
                 hostname=self.params.host,
                 port=self.port,
                 username=self.params.username + LOGIN_SUFFIX,
-                password=self.params.password or None,
+                password=password,
                 key_filename=self.params.key_filename,
                 timeout=timeout,
                 auth_timeout=timeout,

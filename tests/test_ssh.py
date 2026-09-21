@@ -110,7 +110,19 @@ def test_custom_port_after_apply():
     params = ConnectionParams(host="h", username="u", port=122)
     _, client = connected(params=params)
     assert client.connect_kwargs["port"] == 122
-    assert client.connect_kwargs["password"] is None
+
+
+@pytest.mark.parametrize(("password", "key", "passed"), [
+    # admin after a no-defaults reset: paramiko tries no password at all for None, and
+    # failed with "No authentication methods available" (2026-09-21). "" logs in on 7.20.7.
+    ("", None, ""),
+    ("", "id_rsa", None),  # a key and no password: only the key is tried
+    ("pw", "id_rsa", "pw"),
+])
+def test_an_empty_password_is_still_tried(password, key, passed):
+    params = ConnectionParams(host="h", username="admin", password=password, key_filename=key)
+    _, client = connected(params=params)
+    assert client.connect_kwargs["password"] == passed
 
 
 @pytest.mark.parametrize(
