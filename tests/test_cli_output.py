@@ -50,6 +50,20 @@ def test_parse_terse_lower_case_flags():
     assert items[1]["remote"] == "192.168.55.55:61425"
 
 
+def test_parse_terse_adjacent_flags():
+    """Captured from `/interface bridge port print terse` on a hEX S, 7.20.7: an inactive
+    port with hw offload is "IH", which used to lose index and flags, so the checklist
+    saw no offload on every port without a cable."""
+    text = (
+        "0 IH interface=ether2 bridge=bridge priority=0x80 hw=yes pvid=1\n"
+        "1  H interface=ether3 bridge=bridge priority=0x80 hw=yes pvid=1\n"
+        "4 I  interface=sfp1 bridge=bridge priority=0x80 hw=no pvid=1\n"
+    )
+    items = parse_terse(text)
+    assert [(i["_index"], i["_flags"], i["interface"]) for i in items] == [
+        ("0", "IH", "ether2"), ("1", "H", "ether3"), ("4", "I", "sfp1")]
+
+
 def test_parse_terse_without_index():
     assert parse_terse("name=switch1 type=RTL8367\n") == [{"name": "switch1", "type": "RTL8367"}]
     assert parse_terse("garbage line\n") == []
