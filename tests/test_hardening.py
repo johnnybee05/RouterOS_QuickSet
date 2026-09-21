@@ -254,6 +254,40 @@ def test_port_collision_and_invalid():
         assert report.ssh_port == 22
 
 
+@pytest.mark.parametrize(("text", "service"), [
+    ("set [ find name=api-ssl ] port=8729", "api-ssl"),
+    ('set [ find name="ssh" ] port=122', "ssh"),
+    ("set [ find ] disabled=yes", "ssh"),  # no name: the message's example
+    ("set [ find where port=22 ] disabled=yes", "ssh"),
+])
+def test_a_find_that_takes_connections_along_is_a_warning(text, service):
+    """Verified on 7.20.7: `set [find name=ssh] port=122` was refused with "this is
+    configured elsewhere" while an SSH session was open, because the find matches the
+    session's dynamic row too."""
+    report = analyze_access_text(f"/ip service\n{text}\n")
+    warning = next(i for i in report.issues if i.code == "service.find_takes_connections")
+    assert warning.severity == Severity.WARNING
+    assert warning.params == {"service": service}
+    assert "configured elsewhere" in warning.message
+
+
+@pytest.mark.parametrize("text", [
+    "set ssh port=122",
+    "set [ find name=ssh dynamic=no ] port=122",
+    "set [ find where name=ssh dynamic=no ] port=122",
+])
+def test_the_forms_that_leave_connections_alone_are_fine(text):
+    report = analyze_access_text(f"/ip service\n{text}\n")
+    assert "service.find_takes_connections" not in codes(report.issues)
+
+
+def test_dynamic_no_does_not_make_a_find_uncertain():
+    report = analyze_access_text("/ip service\nset [ find name=ssh dynamic=no ] port=122\n")
+    assert not report.uncertain and report.ssh_port == 122
+    report = analyze_access_text("/ip service\nset [ find dynamic=no ] disabled=yes\n")
+    assert not report.uncertain and report.blocked
+
+
 def test_uncertain_unknown_and_address():
     report = analyze_access_text('/ip service\nset [ find where port=22 ] disabled=yes\n')
     assert report.uncertain and "access.uncertain" in codes(report.issues)

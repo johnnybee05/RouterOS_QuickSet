@@ -70,6 +70,11 @@ MESSAGES: dict[str, str] = {
     "service.port_invalid": "Neplatný port {port} u služby {service} (povoleno 1–65535).",
     "service.port_collision": "Služby {services} používají stejný port {port}.",
     "service.unknown": "Neznámá služba {service} v /ip service.",
+    "service.find_takes_connections": "Výběr přes [find …] v /ip service zahrne i otevřená "
+    "spojení ke službě a RouterOS takovou změnu odmítne („this is configured elsewhere“). Při "
+    "importu to u api-ssl nastane vždy, u ostatních služeb, když k nim je někdo připojený. "
+    "Použijte zápis podle jména, např. „set {service} …“, nebo "
+    "„[find name={service} dynamic=no]“.",
     # bridge HW offload
     "offload.version_too_old": "HW offload bridge vyžaduje RouterOS 6.41 nebo novější "
     "(zařízení má {version}), volba se nenabízí.",

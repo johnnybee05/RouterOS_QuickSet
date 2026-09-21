@@ -28,6 +28,7 @@ DEFAULT_SERVICE_PORTS = {
 # on; the other four and v6 NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 OFFLINE_DEFAULT_DISABLED = frozenset({"www-ssl"})
 _FIELD = "services.hardening_text"
+NOT_DYNAMIC = ("dynamic", "no")
 
 
 @dataclass(frozen=True)
@@ -78,13 +79,29 @@ def _targets(command: Command, states: dict[str, ServiceState]) -> list[str] | N
     if isinstance(selector, Find):
         if selector.raw is not None:
             return None
-        if not selector.conditions:
+        # `dynamic=no` only leaves out connection rows, which are not services.
+        conditions = [c for c in selector.conditions if c != NOT_DYNAMIC]
+        if not conditions:
             return list(states)
-        name = selector.get("name")
-        if name is not None and len(selector.conditions) == 1:
-            return [name]
+        if len(conditions) == 1 and conditions[0][0] == "name":
+            return [conditions[0][1]]
         return None
     return None
+
+
+def _takes_connections_along(selector: object) -> bool:
+    """A find in /ip service that also matches the services' open connections.
+
+    7.20.7 lists every open connection as a dynamic row under its service's name, the
+    console's find matches those rows too, and a change that includes one is refused:
+    `set [find name=ssh] port=122` fails with "this is configured elsewhere" while an SSH
+    session is open. `set ssh ...` and `[find name=ssh dynamic=no]` do not.
+    """
+    if not isinstance(selector, Find):
+        return False
+    if selector.raw is not None:
+        return "dynamic=no" not in selector.raw.split()
+    return NOT_DYNAMIC not in selector.conditions
 
 
 def analyze_access(
@@ -99,6 +116,10 @@ def analyze_access(
     for command in commands:
         if command.path != SERVICE_MENU:
             continue
+        if _takes_connections_along(command.selector):
+            name = command.selector.get("name") if isinstance(command.selector, Find) else None
+            issues.append(Issue("service.find_takes_connections", Severity.WARNING, _FIELD,
+                                {"service": name or "ssh"}))  # the message's example
         targets = _targets(command, states)
         if targets is None:
             uncertain = True
