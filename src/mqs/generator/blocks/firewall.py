@@ -3,13 +3,18 @@
 Rules are evaluated top to bottom, so each chain is ordered like defconf: the most frequent
 traffic (established connections) is accepted first, invalid packets are dropped, specific
 accepts follow and the chain ends with a catch-all drop. Every rule carries a comment.
+
+Applied on top of a running configuration, `add` would append after the rules already
+there, behind their drops. So the rules of an earlier run are removed by their comment
+first, and the filter rules end up above the device's own ones.
 """
 
 from __future__ import annotations
 
 from mqs.generator.blocks.common import lan_match, wan_l3_interface, wan_match
 from mqs.generator.context import TargetContext
-from mqs.generator.ir import ArgValue, Command, Comment, Script, SectionKey, cmd
+from mqs.generator.hardening.access import AccessReport
+from mqs.generator.ir import ArgValue, Command, Comment, Find, RawLine, Script, SectionKey, cmd
 from mqs.issues import Issue, Severity
 from mqs.model.profile import DeviceProfile
 
@@ -17,6 +22,9 @@ FILTER = "/ip firewall filter"
 NAT = "/ip firewall nat"
 MANGLE = "/ip firewall mangle"
 COMMENT_PREFIX = "quickset: "
+OWN = f'comment~"^{COMMENT_PREFIX}"'  # find condition matching the rules this block adds
+SNMP_PORT = 161
+MNDP_PORT = 5678  # neighbor discovery, which Winbox also uses to list devices
 
 
 def rule(path: str, chain: str, action: str, comment: str, **matchers: ArgValue) -> Command:
@@ -25,11 +33,42 @@ def rule(path: str, chain: str, action: str, comment: str, **matchers: ArgValue)
                                   "comment": COMMENT_PREFIX + comment, **matchers})
 
 
+def remove_own(path: str) -> Command:
+    """Remove the rules of an earlier run, so applying twice does not duplicate them."""
+    return cmd(path, "remove", selector=Find(raw=f"where {OWN}"))
+
+
 def negate(match: dict[str, str]) -> dict[str, str]:
     return {key: f"!{value}" for key, value in match.items()}
 
 
-def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Issue]:
+def wan_management(profile: DeviceProfile, script: Script, access: AccessReport,
+                   wan_in: dict[str, str]) -> list[Command]:
+    """Accept the management services from WAN, on the ports the script leaves them on.
+
+    A service the script leaves disabled stays closed, and SNMP is opened only when the
+    script enables it. With a management subnet only that subnet is accepted.
+    """
+    source: dict[str, str] = {}
+    if profile.services.management_subnet is not None:
+        source["src-address"] = str(profile.services.management_subnet)
+    ports: list[tuple[str, str, int]] = []
+    for name, label in (("api-ssl", "api-ssl"), ("ssh", "SSH"), ("winbox", "Winbox")):
+        state = access.services.get(name)
+        if state is not None and not state.disabled:
+            ports.append((label, "tcp", state.port))
+    if script.find("/snmp", "set", enabled="yes"):
+        ports.append(("SNMP", "udp", SNMP_PORT))
+    ports.append(("discovery", "udp", MNDP_PORT))
+    return [
+        rule(FILTER, "input", "accept", f"accept {label} from WAN",
+             protocol=protocol, **{"dst-port": str(port)}, **wan_in, **source)
+        for label, protocol, port in ports
+    ]
+
+
+def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
+          access: AccessReport) -> list[Issue]:
     section = script.section(SectionKey.FIREWALL)
     issues: list[Issue] = []
     firewall = profile.firewall
@@ -37,6 +76,7 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Is
     lan_in = lan_match(profile, ctx, "in")
     wan_in = wan_match(profile, ctx, "in")
     wan_out = wan_match(profile, ctx, "out")
+    filter_start = len(section.items)
 
     if firewall.basic_filter:
         section.add(
@@ -49,10 +89,13 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Is
                  **{"dst-address": "127.0.0.1"}),
         )
         if lan_in:
+            section.add(rule(FILTER, "input", "accept", "accept from LAN", **lan_in))
+        if has_wan and firewall.wan_management:
+            section.add(*wan_management(profile, script, access, wan_in))
+        if lan_in:
             # Whitelist: an interface in neither list (a spare port, a new tunnel) is closed too.
             section.add(
-                rule(FILTER, "input", "accept", "accept from LAN", **lan_in),
-                rule(FILTER, "input", "drop", "drop all not coming from LAN", **negate(lan_in)),
+                rule(FILTER, "input", "drop", "drop all not coming from LAN", **negate(lan_in))
             )
         elif has_wan:
             section.add(rule(FILTER, "input", "drop", "drop all from WAN", **wan_in))
@@ -86,15 +129,31 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script) -> list[Is
                 rule(FILTER, "forward", "drop", "drop all from WAN not DSTNATed",
                      **{"connection-state": "new", "connection-nat-state": "!dstnat", **wan_in})
             )
+    if len(section.items) > filter_start:
+        section.items[filter_start:filter_start] = [
+            Comment("Firewall: replace the rules of an earlier QuickSet run"),
+            remove_own(FILTER),
+        ]
+        section.add(
+            Comment("Firewall: keep the rules above those already on the device"),
+            # `move` without a destination moves an item to the end, so moving the other
+            # rules one by one keeps their order below ours. A no-op on an empty table.
+            # Dynamic rules (the fasttrack counter dummy) cannot be moved and are skipped.
+            RawLine(f":foreach i in=[ {FILTER} find where dynamic=no and !({OWN}) ] "
+                    f"do={{ {FILTER} move $i }}"),
+        )
 
     if has_wan and profile.wan.nat_masquerade:
+        # Appended after the rules already there: a more specific src-nat stays first.
         section.add(
             Comment("NAT"),
+            remove_own(NAT),
             rule(NAT, "srcnat", "masquerade", "masquerade to WAN", **wan_out),
         )
     if has_wan and profile.wan.mss_clamping:
         section.add(
             Comment("MSS clamping (SYN packets are never fasttracked)"),
+            remove_own(MANGLE),
             rule(MANGLE, "forward", "change-mss", "clamp MSS to path MTU", **{
                 "new-mss": "clamp-to-pmtu",
                 "passthrough": True,

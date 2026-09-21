@@ -92,7 +92,6 @@ def generate(
     issues += identity.build(profile, ctx, script)
     issues += bridge.build(profile, ctx, script, offload)
     issues += addressing.build(profile, ctx, script, mask_secrets=mask_secrets)
-    issues += firewall.build(profile, ctx, script)
     block = parse(profile.services.hardening_text)
     issues += system.build(profile, script, block, router_is_dns=router_is_dns(profile))
 
@@ -102,6 +101,8 @@ def generate(
     device_services = ctx.inventory.services if ctx.inventory is not None else None
     access = analyze_access(script.section(SectionKey.SERVICES).commands(), device_services)
     issues.extend(access.issues)
+    # Built last because it opens the final service ports; its section still renders 4th.
+    issues += firewall.build(profile, ctx, script, access)
 
     wan_settings = profile.wan.settings
     if (profile.wan.enabled and isinstance(wan_settings, StaticWan) and wan_settings.dns_servers

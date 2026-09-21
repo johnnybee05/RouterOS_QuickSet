@@ -150,8 +150,16 @@ DHCP_COMMENT = "Název sítě (komentář)"
 FIREWALL_BASIC = "Nasadit základní filtr"
 FIREWALL_BASIC_HELP = (
     "input: accept established/related/untracked, drop invalid, accept ICMP, accept z LAN, "
-    "drop z WAN. forward: established/related, drop invalid, drop nových spojení z WAN, "
-    "která nejsou dst-nat."
+    "(správa z WAN), drop všeho, co nepřišlo z LAN. forward: established/related/untracked, "
+    "drop invalid, drop nových spojení z WAN, která nejsou dst-nat. Pravidla mají komentář "
+    "„quickset: …“; při aplikaci na běžící konfiguraci se ta z dřívějšího běhu nahradí a "
+    "filtr se zařadí nad pravidla, která už na zařízení jsou."
+)
+FIREWALL_WAN_MANAGEMENT = "Povolit správu z WAN (api-ssl, SSH, Winbox, SNMP, discovery)"
+FIREWALL_WAN_MANAGEMENT_HELP = (
+    "Otevře z WAN porty služeb tak, jak je nastaví hardening blok (např. SSH 122). "
+    "Vypnuté služby se neotevírají. Je-li zadaná management podsíť, pravidla přijímají "
+    "jen z ní."
 )
 FASTTRACK_GROUP = "FastTrack"
 FASTTRACK_ENABLED = "Zapnout FastTrack"

@@ -30,6 +30,13 @@ class FirewallPage(Page):
         basic_help = QLabel(S.FIREWALL_BASIC_HELP)
         basic_help.setWordWrap(True)
         layout.addWidget(basic_help)
+        self.wan_management = QCheckBox(S.FIREWALL_WAN_MANAGEMENT)
+        self.wan_management.toggled.connect(
+            lambda on: self.push_value("firewall.wan_management", on))
+        layout.addWidget(self.wan_management)
+        wan_help = QLabel(S.FIREWALL_WAN_MANAGEMENT_HELP)
+        wan_help.setWordWrap(True)
+        layout.addWidget(wan_help)
 
         box = QGroupBox(S.FASTTRACK_GROUP)
         inner = QVBoxLayout(box)
@@ -47,7 +54,8 @@ class FirewallPage(Page):
         layout.addStretch(1)
 
         self.fields = {"firewall.fasttrack.enabled": self.fasttrack,
-                       "firewall.basic_filter": self.basic_filter}
+                       "firewall.basic_filter": self.basic_filter,
+                       "firewall.wan_management": self.wan_management}
         self.reload()
 
     def _fasttrack_toggled(self, on: bool) -> None:
@@ -72,8 +80,10 @@ class FirewallPage(Page):
 
     def load(self, profile: DeviceProfile) -> None:
         self.basic_filter.setChecked(profile.firewall.basic_filter)
+        self.wan_management.setChecked(profile.firewall.wan_management)
         self.fasttrack.setChecked(profile.firewall.fasttrack.enabled)
         self.fasttrack_hw.setChecked(profile.firewall.fasttrack.hw_offload)
 
     def refresh_state(self, profile: DeviceProfile) -> None:
         self.fasttrack_hw.setEnabled(profile.firewall.fasttrack.enabled)
+        self.wan_management.setEnabled(profile.firewall.basic_filter and profile.wan.enabled)

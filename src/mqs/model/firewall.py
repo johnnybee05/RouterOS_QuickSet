@@ -19,4 +19,6 @@ class FirewallConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     basic_filter: bool = True
+    # Accept api-ssl, SSH, Winbox, SNMP and MNDP discovery from WAN in the input chain.
+    wan_management: bool = True
     fasttrack: FastTrackConfig = Field(default_factory=FastTrackConfig)

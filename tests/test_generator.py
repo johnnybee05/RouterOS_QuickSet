@@ -296,6 +296,49 @@ def test_acceptance_router_v7_contents():
     assert not result.has_errors, [str(i) for i in result.issues]
 
 
+def test_firewall_order_and_wan_management():
+    result = generate(router_dhcp(), target("7.15.3"))
+    rules = result.script.find("/ip firewall filter", "add", chain="input")
+    comments = [r.arg("comment") for r in rules]
+    assert comments == [
+        "quickset: accept established,related,untracked",
+        "quickset: drop invalid",
+        "quickset: accept ICMP",
+        "quickset: accept to local loopback",
+        "quickset: accept from LAN",
+        "quickset: accept api-ssl from WAN",
+        "quickset: accept SSH from WAN",
+        "quickset: accept Winbox from WAN",
+        "quickset: accept SNMP from WAN",
+        "quickset: accept discovery from WAN",
+        "quickset: drop all not coming from LAN",
+    ]
+    ports = {r.arg("comment"): (r.arg("protocol"), r.arg("dst-port"), r.arg("in-interface-list"))
+             for r in rules if r.has_arg("dst-port")}
+    assert ports["quickset: accept SSH from WAN"] == ("tcp", "122", "WAN")  # hardening port
+    assert ports["quickset: accept api-ssl from WAN"] == ("tcp", "8729", "WAN")
+    assert ports["quickset: accept Winbox from WAN"] == ("tcp", "8291", "WAN")
+    assert ports["quickset: accept SNMP from WAN"] == ("udp", "161", "WAN")
+    assert ports["quickset: accept discovery from WAN"] == ("udp", "5678", "WAN")
+    # Earlier rules are replaced, and the device's own rules are moved below ours.
+    text = result.text
+    assert text.index('remove [ find where comment~"^quickset: " ]') < text.index("add chain=input")
+    assert (":foreach i in=[ /ip firewall filter find where dynamic=no and "
+            '!(comment~"^quickset: ") ] '
+            "do={ /ip firewall filter move $i }") in text
+
+    profile = router_dhcp()
+    services = _u(profile.services, management_subnet=IPv4Network("10.0.0.0/24"))
+    restricted = generate(_u(profile, services=services), target("7.15.3"))
+    assert all(r.arg("src-address") == "10.0.0.0/24"
+               for r in restricted.script.find("/ip firewall filter", "add", chain="input")
+               if r.has_arg("dst-port"))
+
+    closed = _u(profile, firewall=_u(profile.firewall, wan_management=False))
+    closed_rules = generate(closed, target("7.15.3")).script.find("/ip firewall filter", "add")
+    assert not any(r.has_arg("dst-port") for r in closed_rules)
+
+
 def test_pppoe_block():
     result = generate(router_pppoe_fasttrack(), target("7.15.3"))
     assert "password=s3cr3t" in result.text

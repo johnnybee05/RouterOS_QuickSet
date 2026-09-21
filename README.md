@@ -54,8 +54,13 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
      Bridge / AP, které nemá vlastní WAN, dostane na DNS, NTP a SNMP mimo svoji síť.
      Pokud je zapnutá WAN, výchozí trasu přidává už ona a aplikace na druhou upozorní.
    - Tabulka HW offloadu ukazuje u každého portu, zda poběží v hardwaru, a proč.
-4. **Firewall**: základní filtr a FastTrack. Při zapnutí FastTracku se aplikace zeptá na
-   tvarování provozu.
+4. **Firewall**: základní filtr, správa z WAN a FastTrack. Pravidla jsou seřazená jako
+   defconf (established → invalid → ICMP → LAN → správa z WAN → drop všeho, co nepřišlo
+   z LAN) a každé má komentář `quickset: …`. Správa z WAN otevře api-ssl, SSH, Winbox,
+   SNMP a discovery (MNDP) na portech, které nastaví hardening blok; je-li zadaná
+   management podsíť, jen z ní. Při aplikaci na běžící konfiguraci se pravidla
+   z dřívějšího běhu nahradí a filtr se zařadí nad pravidla, která už na zařízení jsou.
+   Při zapnutí FastTracku se aplikace zeptá na tvarování provozu.
 5. **Služby a hardening**: DNS, SSH port, SNMP, NTP a časové pásmo ve formuláři, pod nimi
    celý blok jako text.
 6. **Náhled**: skript pro v6, v7 nebo obě vedle sebe. Tlačítko *Kopírovat* vloží skript do
