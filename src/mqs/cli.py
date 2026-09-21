@@ -21,7 +21,13 @@ from pathlib import Path
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
-from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
+from mqs.apply.plan import (
+    DEFAULT_KEEP_BACKUPS,
+    ApplyMode,
+    ApplyOptions,
+    build_upload_script,
+    make_names,
+)
 from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.session import (
     DeviceSession,
@@ -129,6 +135,7 @@ def build_options(args: argparse.Namespace, mode: ApplyMode) -> ApplyOptions:
         download_dir=Path(args.download_dir) if args.download_dir else None,
         confirm_dialect_mismatch=args.allow_dialect_mismatch,
         confirmed_identity=args.confirm_identity or "",
+        keep_backups=args.keep_backups,
     )
 
 
@@ -393,6 +400,9 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--rollback-minutes", type=int,
                            help="restore the backup unless confirmed (import only)")
     apply_cmd.add_argument("--download-dir", help="where to put the pre-apply backup and export")
+    apply_cmd.add_argument("--keep-backups", type=int, default=DEFAULT_KEEP_BACKUPS, metavar="N",
+                           help="pre-apply backups to keep on the device, the new one "
+                                f"included (default {DEFAULT_KEEP_BACKUPS}; 0 keeps all)")
     apply_cmd.add_argument("--admin-password-env", default="MQS_ADMIN_PASSWORD", metavar="VAR",
                            help="environment variable with the new admin password (reset)")
     apply_cmd.add_argument("--confirm-identity", metavar="IDENTITY",

@@ -10,6 +10,7 @@ from mqs.apply.plan import (
     ApplyOptions,
     build_upload_script,
     make_names,
+    old_backups,
     result_for_mode,
 )
 from mqs.apply.preflight import ExistingObjects, collect_existing, preflight, prepare_import
@@ -68,6 +69,27 @@ def test_reset_script_wrapping():
     assert "pa ss" not in masked and 'password="********"' in masked
     no_password = build_upload_script("x\n", ApplyOptions(ApplyMode.RESET_AND_IMPORT), names)
     assert "/user set" not in no_password
+
+
+def test_old_backups_by_the_stamp_in_their_name():
+    files = [
+        "pre-quickset-20260921-234537.rsc", "pre-quickset-20260921-234537.backup",
+        # Written right after a reset, before NTP: the file date says January, the name not.
+        "pre-quickset-20260921-212313.rsc", "pre-quickset-20260921-212313.backup",
+        "flash/pre-quickset-20260915-205605.backup",
+        "pre-quickset-20260920-143657.rsc",
+        "quickset-20260915-205605.rsc",  # an uploaded script, not a backup
+        "pre-quickset-x.backup", "skins", "my.backup",
+    ]
+    assert old_backups(files, 2, "20260921-234537") == [
+        "flash/pre-quickset-20260915-205605.backup", "pre-quickset-20260920-143657.rsc"]
+    # The current backup stays even when it is not among the newest (clock set back).
+    assert "pre-quickset-20260921-234537.rsc" not in old_backups(files, 1, "20260921-234537")
+    assert old_backups(files, 1, "20200101-000000") == [
+        "flash/pre-quickset-20260915-205605.backup",
+        "pre-quickset-20260920-143657.rsc",
+        "pre-quickset-20260921-212313.backup", "pre-quickset-20260921-212313.rsc"]
+    assert old_backups(files, 0, "20260921-234537") == []
 
 
 # ---------------------------------------------------------------- rollback

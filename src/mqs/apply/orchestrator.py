@@ -19,6 +19,7 @@ from mqs.apply.plan import (
     ApplyOptions,
     build_upload_script,
     make_names,
+    old_backups,
     result_for_mode,
 )
 from mqs.apply.reconnect import (
@@ -204,6 +205,7 @@ class ApplyOrchestrator:
             if self.ctx.options.mode == ApplyMode.IMPORT and self.report.upload \
                     and self.report.upload.remote_path:
                 self._cleanup()
+            self._prune_backups()
             if self.report.rollback_pending:
                 self._event("apply.rollback_pending", StepStatus.WARNING,
                             at=self.report.rollback_at.strftime("%H:%M:%S"))
@@ -417,6 +419,23 @@ class ApplyOrchestrator:
             self._warn("apply.warning.cleanup", error=str(exc))
             return
         self._event("apply.step.cleanup", StepStatus.OK)
+
+    def _prune_backups(self) -> None:
+        """Delete all but the newest pre-apply backups; every apply leaves one behind."""
+        keep = self.ctx.options.keep_backups
+        if keep <= 0:
+            return
+        try:
+            files = [f.get("name", "") for f in self.transport.execute("/file/print")]
+            doomed = old_backups(files, keep, self.names.stamp)
+            for name in doomed:
+                self.transport.execute_command(cmd("/file", "remove",
+                                                   selector=Find.by(name=name)))
+        except TransportError as exc:
+            self._warn("apply.warning.prune", error=str(exc))
+            return
+        if doomed:
+            self._event("apply.step.prune", StepStatus.OK, count=len(doomed), keep=keep)
 
     # ---------------------------------------------------------------- after apply
 

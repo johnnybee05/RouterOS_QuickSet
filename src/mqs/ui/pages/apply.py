@@ -36,7 +36,13 @@ from mqs.apply.orchestrator import (
     ApplyOrchestrator,
     ApplyReport,
 )
-from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
+from mqs.apply.plan import (
+    DEFAULT_KEEP_BACKUPS,
+    ApplyMode,
+    ApplyOptions,
+    build_upload_script,
+    make_names,
+)
 from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.reconnect import reconnect_with_retry
 from mqs.apply.session import DeviceSession, build_apply_context, build_uploader_factory
@@ -161,6 +167,11 @@ class ApplyPage(Page):
         self.download_dir = QLineEdit(str(backups_dir()))
         form.addRow(self.download)
         form.addRow("", self.download_dir)
+        self.keep_backups = QSpinBox()
+        self.keep_backups.setRange(0, 99)
+        self.keep_backups.setValue(DEFAULT_KEEP_BACKUPS)
+        self.keep_backups.setSpecialValueText(S.APPLY_KEEP_BACKUPS_ALL)  # shown for 0
+        form.addRow(S.APPLY_KEEP_BACKUPS, self.keep_backups)
         self.reset_delay = QSpinBox()
         self.reset_delay.setRange(0, 300)
         self.reset_delay.setValue(15)
@@ -188,6 +199,7 @@ class ApplyPage(Page):
             download_dir=Path(self.download_dir.text()) if self.download.isChecked() else None,
             confirm_dialect_mismatch=self.dialect_confirm.isChecked(),
             confirmed_identity=confirmed_identity,
+            keep_backups=self.keep_backups.value(),
         )
 
     def on_analysis(self, analysis: Analysis) -> None:

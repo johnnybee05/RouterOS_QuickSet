@@ -214,6 +214,8 @@ APPLY_MODES = {
 }
 APPLY_ROLLBACK = "Rollback pojistka: obnovit zálohu po [min], pokud konfiguraci nepotvrdím"
 APPLY_DOWNLOAD = "Stáhnout zálohu a export do složky"
+APPLY_KEEP_BACKUPS = "Ponechat na zařízení posledních záloh"
+APPLY_KEEP_BACKUPS_ALL = "všechny"
 APPLY_RESET_DELAY = "Prodleva po startu [s]"
 APPLY_ADMIN_PASSWORD = "Nové heslo uživatele admin (po resetu)"
 APPLY_PREFLIGHT = "Kontroly před aplikací"

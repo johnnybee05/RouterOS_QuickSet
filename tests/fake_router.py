@@ -107,6 +107,8 @@ class FakeRouter:
             for name in args.get("names", []):
                 s.scheduler.pop(name, None)
             return []
+        if word == "/file/print":
+            return [{".id": f"*{i}", "name": name} for i, name in enumerate(self.files)]
         if word == "/file/remove":
             for name in args.get("names", []):
                 self.files.pop(name, None)

@@ -90,6 +90,12 @@ Než aplikace cokoliv změní, vždy:
 Po aplikaci se aplikace sama přepojí (SSH je nově na portu 122) a ukáže checklist
 OK/CHYBA: identity, služby, bridge, adresa a skutečný stav HW offloadu.
 
+Každá aplikace nechá na zařízení jednu zálohu, takže aplikace po ověření smaže starší
+zálohy `pre-quickset-*` a ponechá jen posledních N (výchozí 3, v CLI `--keep-backups`,
+0 = nemazat). Stáří se určuje podle data a času v názvu souboru, ne podle data souboru,
+protože hodiny zařízení jsou po resetu do synchronizace NTP posunuté. Právě vytvořená
+záloha se nesmaže nikdy, protože z ní obnovuje rollback pojistka.
+
 ### Připojení
 
 | Transport | Port | Poznámka |

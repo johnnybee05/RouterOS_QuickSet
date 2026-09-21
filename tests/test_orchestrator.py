@@ -108,6 +108,30 @@ def test_import_over_ssh_reconnects_to_new_port():
     assert ("apply.connection_lost", StepStatus.WARNING) in [(e.step, e.status) for e in events]
 
 
+def test_old_backups_are_pruned_after_the_apply():
+    router, orchestrator, events, _ = build(keep_backups=2)
+    old = ["pre-quickset-20260901-100000", "pre-quickset-20260910-100000",
+           "pre-quickset-20260914-100000"]
+    for name in old:
+        router.files[name + ".backup"] = "<binary>"
+        router.files[name + ".rsc"] = "# export"
+    router.files["my-own.backup"] = "<binary>"
+    report = orchestrator.run()
+    assert report.succeeded
+    # The new backup and the newest old one stay; foreign files are not touched.
+    assert sorted(router.files) == [
+        "my-own.backup",
+        "pre-quickset-20260914-100000.backup", "pre-quickset-20260914-100000.rsc",
+        "pre-quickset-20260915-100000.backup", "pre-quickset-20260915-100000.rsc"]
+    prune = next(e for e in events if e.step == "apply.step.prune")
+    assert prune.params == {"count": 4, "keep": 2}
+
+    router, orchestrator, _, _ = build(keep_backups=0)
+    router.files["pre-quickset-20260901-100000.backup"] = "<binary>"
+    orchestrator.run()
+    assert "pre-quickset-20260901-100000.backup" in router.files
+
+
 def test_lost_connection_that_cannot_be_restored_is_reported():
     def failing(target):
         raise ReconnectFailed(target, 7, "connection refused")

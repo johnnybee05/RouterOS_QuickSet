@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
@@ -19,6 +21,10 @@ ROLLBACK_JOB = "mqs-rollback"
 # Interfaces may not be up yet when run-after-reset starts; NUTNO OVĚŘIT the default.
 DEFAULT_RESET_DELAY_S = 15
 MIN_ROLLBACK_MINUTES = 2
+DEFAULT_KEEP_BACKUPS = 3
+# pre-quickset-20260921-234537.backup / .rsc, optionally under flash/
+BACKUP_FILE_RE = re.compile(
+    rf"^(?:flash/)?{BACKUP_PREFIX}-(?P<stamp>\d{{8}}-\d{{6}})\.(?:backup|rsc)$")
 
 
 class ApplyMode(StrEnum):
@@ -38,6 +44,8 @@ class ApplyOptions:
     reconnect_timeout_s: float = 300.0
     confirm_dialect_mismatch: bool = False
     confirmed_identity: str = ""  # RESET: identity typed by the user in the confirm dialog
+    # Pre-apply backups kept on the device, the new one included; 0 keeps them all.
+    keep_backups: int = DEFAULT_KEEP_BACKUPS
 
 
 @dataclass(frozen=True)
@@ -65,6 +73,26 @@ class ApplyNames:
     @property
     def export_file(self) -> str:
         return self.backup_name + ".rsc"
+
+
+def old_backups(file_names: Iterable[str], keep: int, current_stamp: str) -> list[str]:
+    """Pre-apply backup files to delete so that only the ``keep`` newest remain.
+
+    Age comes from the stamp in the name, not from the file date: the hEX S clock starts
+    at 2026-01-07 after every reset until NTP answers, so files written then carry that
+    date. A backup counts as its .backup and .rsc together. The current one is never
+    deleted, a rollback job may be waiting to load it; ``keep`` 0 deletes nothing.
+    """
+    if keep <= 0:
+        return []
+    by_stamp: dict[str, list[str]] = {}
+    for name in file_names:
+        match = BACKUP_FILE_RE.match(name)
+        if match:
+            by_stamp.setdefault(match.group("stamp"), []).append(name)
+    kept = set(sorted(by_stamp, reverse=True)[:keep]) | {current_stamp}
+    return sorted(name for stamp, names in by_stamp.items() if stamp not in kept
+                  for name in names)
 
 
 def result_for_mode(result: GenerationResult, mode: ApplyMode) -> GenerationResult:

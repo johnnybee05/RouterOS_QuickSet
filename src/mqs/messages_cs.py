@@ -196,6 +196,8 @@ MESSAGES: dict[str, str] = {
     "SSH {ssh_port})",
     "apply.step.verify": "Ověření konfigurace na zařízení",
     "apply.step.cleanup": "Odstranění nahraného skriptu ze zařízení",
+    "apply.step.prune": "Smazání starých záloh ze zařízení: {count} souborů (ponechány "
+    "poslední {keep})",
     "apply.step.confirm": "Konfigurace potvrzena, rollback pojistka zrušena",
     "apply.connection_lost": "Spojení se ztratilo během kroku {step}, zkouším se přepojit.",
     "apply.rollback_pending": "Rollback pojistka obnoví zálohu v {at}, pokud konfiguraci "
@@ -215,6 +217,7 @@ MESSAGES: dict[str, str] = {
     "apply.warning.download": "Soubor {file} se nepodařilo stáhnout (zůstává na zařízení): "
     "{error}",
     "apply.warning.cleanup": "Nahraný skript se nepodařilo smazat: {error}",
+    "apply.warning.prune": "Staré zálohy se ze zařízení nepodařilo smazat: {error}",
     # UI input syntax
     "ui.syntax": "{message}",
     # profiles
