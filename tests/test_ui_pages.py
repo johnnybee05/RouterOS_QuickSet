@@ -20,7 +20,7 @@ from mqs.apply.verify import CheckResult
 from mqs.model.bridge import FrameTypes, LanAddressing, ProtocolMode
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
-from mqs.transport.base import AuthError
+from mqs.transport.base import AuthError, ConnectionParams
 from mqs.transport.factory import ConnectOutcome
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
@@ -268,14 +268,17 @@ def test_connect_by_mac_confirms_then_connects(window, qtbot):
     assert str(call["address"]) == "192.168.88.253"
     assert call["interface"] is LAN_INTERFACE
     assert call["params"].password == "pw"
+    assert (call["api_port"], call["ssh_port"]) == (page.api_port.value(), page.ssh_port.value())
     session = page.session
     assert session.temp_address == "192.168.88.253/24"
     assert session.mac_method == "mac-telnet"
     assert session.params.host == "192.168.88.253"
-    assert "mac-telnet" in page.connect_status.text()
+    # Named by the MAC it was reached by; the lent address is only how the API gets there.
+    assert page.connect_status.text().startswith("Připojeno: 01:02:03:04:05:06 (přes mac-telnet")
     assert "mqs-temp" in page.connect_status.text()
     assert window.controller.inventory is not None
-    assert "192.168.88.253" in window.status_connection.text()
+    assert window.status_connection.text() == (
+        "Připojeno: 01:02:03:04:05:06 (přes mac-telnet; api-ssl:8729 na 192.168.88.253)")
 
 
 def test_connect_by_mac_without_local_interface_reports_error(window):
@@ -579,6 +582,33 @@ def test_after_a_reset_there_is_no_lent_address_to_give_back(window, qtbot):
     page.disconnect_device()
     assert page.connect_status.text() == "Odpojeno"
     assert removals(window) == [] and not new.connected
+
+
+def test_back_in_by_mac_after_an_apply_the_new_lent_address_is_given_back(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    new = FakeTransport({})
+    new.params = ConnectionParams(host="192.168.88.253", username="admin", password="N3w")
+    new.connect()
+    window.apply_page.applied.emit(ApplyReport(
+        names=make_names(datetime(2026, 9, 21), False), transport=new,
+        temp_address="192.168.88.253/24", mac_method="mac-telnet"))
+    assert page.connect_status.text().startswith("Připojeno: 01:02:03:04:05:06")
+    assert window.status_connection.text().startswith("Připojeno: 01:02:03:04:05:06")
+    page.disconnect_device()
+    qtbot.waitUntil(lambda: not window.runner.busy and page.connect_button.isEnabled(),
+                    timeout=5000)
+    removed = [c for c in new.commands if c.verb == "remove"]
+    assert removed[0].selector.get("address") == "192.168.88.253/24"
+
+
+def test_back_in_by_address_after_an_apply_the_address_is_shown(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    new = FakeTransport({})
+    new.params = ConnectionParams(host="192.168.88.1", username="admin")
+    window.apply_page.applied.emit(ApplyReport(names=make_names(datetime(2026, 9, 21), False),
+                                               transport=new, temp_address=None))
+    assert page.connect_status.text().startswith("Připojeno: 192.168.88.1 (api-ssl)")
+    assert page.session.mac_route is not None, "the way back by MAC is still known"
 
 
 def test_closing_the_window_gives_the_lent_address_back(window, qtbot):

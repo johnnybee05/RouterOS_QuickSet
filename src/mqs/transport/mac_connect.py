@@ -53,6 +53,25 @@ class MacConnectMethod(StrEnum):
     MAC_TELNET = "mac-telnet"
 
 
+@dataclass(frozen=True)
+class MacRoute:
+    """How a device was reached by MAC, kept so it can be reached the same way again.
+
+    An apply can leave the device with none of the addresses this PC reached it on: a
+    reset wipes every one, the lent address included, and the new configuration may put
+    the rest in another network. Its MAC address, the network card it was heard on and
+    the address the user agreed to lend it are still good.
+    """
+
+    device: DiscoveredDevice
+    interface: LocalInterface  # this PC's network card the device was heard on
+    address: IPv4Address  # the address the user agreed to lend the device
+
+    @property
+    def mac(self) -> str:
+        return self.device.mac
+
+
 @dataclass
 class MacConnectResult:
     outcome: ConnectOutcome
@@ -123,15 +142,23 @@ def connect_by_mac(
     connect: Callable[..., ConnectOutcome] = connect_transport,
     session_factory: Callable[..., MacTelnetSession] = default_session_factory,
     choice: TransportChoice = TransportChoice.AUTO,
+    api_port: int | None = None,
+    ssh_port: int | None = None,
+    device_interface: str | None = None,
     on_step: Callable[[str], None] = lambda step: None,
 ) -> MacConnectResult:
     """Connect to ``device`` by MAC. ``proposed_address`` is a free IP in the PC's subnet,
-    already confirmed by the user; ``interface`` is the local NIC to reach the device on."""
+    already confirmed by the user; ``interface`` is the local NIC to reach the device on.
+
+    ``device_interface`` is where the address goes on the device, when what MNDP reported
+    no longer holds: after an apply the announcing port may have left its bridge.
+    """
+    ports = {"api_port": api_port, "ssh_port": ssh_port}
     host_ll = link_local_host(device, interface)
     if host_ll is not None:
         on_step(MacConnectMethod.LINK_LOCAL.value)
         try:
-            outcome = connect(replace(params, host=host_ll), choice)
+            outcome = connect(replace(params, host=host_ll), choice, **ports)
             return MacConnectResult(outcome, MacConnectMethod.LINK_LOCAL, host=host_ll)
         except AuthError:
             raise
@@ -141,7 +168,7 @@ def connect_by_mac(
     on_step(MacConnectMethod.MAC_TELNET.value)
     prefix = interface.network.prefixlen
     address = f"{proposed_address}/{prefix}"
-    device_interface = bootstrap_interface(device.interface_name)
+    device_interface = device_interface or bootstrap_interface(device.interface_name)
     session = session_factory(device, params, str(interface.address))
     try:
         session.authenticate()
@@ -177,7 +204,7 @@ def connect_by_mac(
 
     ip_params = replace(params, host=str(proposed_address))
     try:
-        outcome = connect(ip_params, choice)
+        outcome = connect(ip_params, choice, **ports)
     except TransportError as exc:
         # Take the address back over the session we still hold, so a failed attempt does
         # not leave the device carrying an address nobody can reach it on.
@@ -218,6 +245,7 @@ __all__ = [
     "TEMP_COMMENT",
     "MacConnectMethod",
     "MacConnectResult",
+    "MacRoute",
     "bootstrap_interface",
     "connect_by_mac",
     "default_session_factory",

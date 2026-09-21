@@ -106,9 +106,11 @@ def describe_session(session: DeviceSession, out: Any) -> None:
     print(f"switches    : {', '.join(s.type for s in inventory.switches) or '-'}", file=out)
     print(f"services    : {', '.join(f'{s.name}:{s.port}' for s in inventory.services)}", file=out)
     print(f"session port: {session.session_port or '?'}", file=out)
-    if session.mac_method is not None:
-        print(f"by MAC      : {session.mac_method}, temporary address "
-              f"{session.temp_address or '-'}", file=out)
+    route = session.reached_by_mac
+    if route is not None:
+        print(f"by MAC      : {route.mac} over {session.mac_method}, "
+              f"{session.transport.kind.value} on {session.params.host}, "
+              f"temporary address {session.temp_address or '-'}", file=out)
     print(f"probes      : {probe_summary(session.probes) or '-'}", file=out)
 
 
@@ -215,7 +217,8 @@ def open_device(
                        f"{interface.network} ({interface.name})")
     on_step(f"lending {address}/{interface.network.prefixlen} to "
             f"{device.identity or device.mac} on {device.interface_name or '?'}")
-    return connect_mac(device, params, address, interface, choice, on_step=on_step)
+    return connect_mac(device, params, address, interface, choice,
+                       api_port=args.api_port, ssh_port=args.ssh_port, on_step=on_step)
 
 
 def hang_up(session: DeviceSession, out: Any) -> None:

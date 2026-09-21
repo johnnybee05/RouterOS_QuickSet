@@ -20,6 +20,7 @@ from mqs.transport.base import (
     TransportError,
 )
 from mqs.transport.factory import ConnectFailed, TransportChoice, connect_transport
+from mqs.transport.mac_connect import MacConnectResult, MacRoute, connect_by_mac
 
 
 @dataclass(frozen=True)
@@ -28,10 +29,31 @@ class ReconnectTarget:
     api_port: int
     ssh_port: int
     alternatives: tuple[str, ...] = ()  # further addresses to try, in order
+    mac: MacRoute | None = None  # reached by MAC: go back that way before any address
+    mac_interface: str | None = None  # device interface to lend the address on, once applied
 
     @property
     def hosts(self) -> tuple[str, ...]:
         return (self.params.host, *self.alternatives)
+
+    def describe(self) -> str:
+        """Everything the reconnect will try, in order, for the log."""
+        mac = (f"{self.mac.mac} (MAC)",) if self.mac is not None else ()
+        return ", ".join((*mac, *self.hosts))
+
+
+def mac_interface_after_apply(profile: DeviceProfile, reported: str | None) -> str:
+    """Device interface to lend the address on once ``profile`` is on the device.
+
+    MNDP names the port the device answered on, as "<bridge>/<port>" while it is bridged
+    (verified 2026-09-16 on a hEX S). The port is the part an apply does not change; the
+    bridge around it may. A factory hEX S has ether1 in its bridge, a router profile makes
+    it the WAN port, and an address left on the bridge no longer reaches this PC.
+    """
+    port = (reported or "ether1").rsplit("/", 1)[-1]
+    if port == profile.bridge.name or port in profile.bridge.ports:
+        return profile.bridge.name
+    return port
 
 
 def _static_lan(profile: DeviceProfile) -> str | None:
@@ -87,7 +109,7 @@ def reconnect_hosts(
 class ReconnectFailed(TransportError):
     def __init__(self, target: ReconnectTarget, attempts: int, last_error: str) -> None:
         super().__init__(
-            f"reconnect to {', '.join(target.hosts)} failed after {attempts} attempts "
+            f"reconnect to {target.describe()} failed after {attempts} attempts "
             f"(api-ssl {target.api_port}, ssh {target.ssh_port}): {last_error}"
         )
         self.target = target
@@ -100,19 +122,26 @@ def reconnect_with_retry(
     *,
     timeout_s: float,
     connect: Callable[..., Any] = connect_transport,
+    mac_connect: Callable[..., MacConnectResult] = connect_by_mac,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     cancelled: Callable[[], bool] = lambda: False,
     on_attempt: Callable[[int, str], None] = lambda attempt, error: None,
     initial_delay_s: float = 2.0,
     max_delay_s: float = 15.0,
-) -> Transport:
+) -> Transport | MacConnectResult:
     """AUTO transport (API-SSL first, then SSH on the new port) until `timeout_s` elapses.
 
     Every address in `target.hosts` is tried before backing off, so a round costs one
     sweep and the first address that answers wins. A refused login does not abort the
     sweep - the address may belong to something else entirely now - but it is what gets
     reported if no address works, because "wrong password" is the more useful answer.
+
+    A device reached by MAC is reached by MAC again, ahead of every address, and the
+    result then says which address was lent to get in. A console login refused over
+    MAC-Telnet is only a failed attempt: after a reset the device answers on MAC-Telnet
+    before its script has set the new admin password (NUTNO OVĚŘIT how early), and giving
+    up at the first refusal would give up on a device that is merely not ready yet.
     """
     start = clock()
     delay = initial_delay_s
@@ -120,6 +149,20 @@ def reconnect_with_retry(
     while True:
         attempt += 1
         auth_error: AuthError | None = None
+        if target.mac is not None:
+            route = target.mac
+            try:
+                return mac_connect(route.device, target.params, route.address, route.interface,
+                                   connect=connect, choice=TransportChoice.AUTO,
+                                   api_port=target.api_port, ssh_port=target.ssh_port,
+                                   device_interface=target.mac_interface)
+            except AuthError as exc:  # refused over IPv6 link-local, not by the console
+                auth_error = exc
+                last_error = f"{route.mac}: {exc}"
+                on_attempt(attempt, last_error)
+            except (TransportError, OSError) as exc:  # OSError: the UDP socket itself
+                last_error = f"{route.mac}: {exc}"
+                on_attempt(attempt, last_error)
         for host in target.hosts:
             try:
                 outcome = connect(replace(target.params, host=host), TransportChoice.AUTO,

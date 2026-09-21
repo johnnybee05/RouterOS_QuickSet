@@ -17,14 +17,16 @@ from mqs.apply.session import (
     LazyConsole,
     LazySsh,
     TempAddressLeft,
+    build_apply_context,
     build_uploader_factory,
     end_session,
     open_mac_session,
     session_after_apply,
 )
+from mqs.model.profile import DeviceProfile
 from mqs.transport.base import CommandError, ConnectionParams, TransportError
 from mqs.transport.factory import ConnectOutcome
-from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
+from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult, MacRoute
 from mqs.transport.mactelnet.client import MacTelnetAuthError
 from mqs.transport.mactelnet.files import MacTelnetStrategy
 from mqs.transport.mndp import DiscoveredDevice
@@ -42,9 +44,11 @@ def make_session(**fields) -> DeviceSession:
     return DeviceSession(PARAMS, FakeTransport(), make_inventory("7.20.7", FIVE_PORTS), **fields)
 
 
+ROUTE = MacRoute(DEVICE, LOCAL, IPv4Address("192.168.55.254"))
+
+
 def by_mac(method: MacConnectMethod) -> DeviceSession:
-    return make_session(mac_method=method.value, mac_device=DEVICE,
-                        mac_local_address=str(LOCAL.address))
+    return make_session(mac_method=method.value, mac_route=ROUTE)
 
 
 def order(session: DeviceSession) -> list[UploadStrategy]:
@@ -150,7 +154,8 @@ def test_open_mac_session_keeps_the_way_back_to_the_console(method, host, expect
     )
     assert seen == [transport]
     assert session.params.host == expected_host
-    assert session.mac_device is DEVICE and session.mac_local_address == "192.168.55.55"
+    assert session.mac_route == ROUTE, "the way back in by MAC, and to the console"
+    assert session.reached_by_mac == ROUTE
     assert session.mac_method == method.value
     assert session.temp_address == "192.168.55.254/24"
 
@@ -208,6 +213,27 @@ def test_after_a_reset_the_session_carries_on_without_the_lent_address():
     assert session.transport is new
     assert session.params.password == "N3w"  # a later console login needs the new one
     assert session.temp_address is None
+
+
+@pytest.mark.parametrize(("mac_method", "reached"), [
+    ("mac-telnet", ROUTE),  # back in by MAC: still named by its MAC
+    (None, None),  # back in by address: named by the address, the route kept for files
+])
+def test_after_an_apply_the_session_says_how_it_came_back(mac_method, reached):
+    session = by_mac(MacConnectMethod.MAC_TELNET)
+    new = FakeTransport()
+    applied = report(new, "192.168.55.254/24" if mac_method else None)
+    applied.mac_method = mac_method
+    session_after_apply(session, applied)
+    assert session.reached_by_mac == reached
+    assert session.mac_route == ROUTE
+
+
+def test_the_apply_knows_the_way_back_in_by_mac():
+    ctx = build_apply_context(DeviceProfile(), None, IMPORT, by_mac(MacConnectMethod.MAC_TELNET),
+                              on_event=lambda event: None,
+                              uploader_factory_builder=lambda session, options: None)
+    assert ctx.mac_route == ROUTE
 
 
 def test_after_an_import_the_lent_address_is_still_to_give_back():

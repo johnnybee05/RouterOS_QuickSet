@@ -27,6 +27,7 @@ from mqs.transport.factory import TransportChoice, connect_transport
 from mqs.transport.mac_connect import (
     MacConnectMethod,
     MacConnectResult,
+    MacRoute,
     connect_by_mac,
     default_session_factory,
     remove_temp_address,
@@ -48,10 +49,15 @@ class DeviceSession:
     session_port: str | None = None
     fell_back: bool = False
     temp_address: str | None = None  # bootstrap IP added by connect-by-MAC, to remove later
-    mac_method: str | None = None
-    # How to open a MAC-Telnet console again, for moving files without an IP path.
-    mac_device: DiscoveredDevice | None = None
-    mac_local_address: str | None = None  # this PC's address on the device's network
+    mac_method: str | None = None  # how the connection in use got in by MAC, if it did
+    # How the device was reached by MAC: to get back in the same way after an apply, and
+    # to open a MAC-Telnet console for moving files without an IP path.
+    mac_route: MacRoute | None = None
+
+    @property
+    def reached_by_mac(self) -> MacRoute | None:
+        """The route the connection in use came in by, None when it came to an address."""
+        return self.mac_route if self.mac_method is not None else None
 
 
 class TempAddressLeft(TransportError):
@@ -86,10 +92,12 @@ def end_session(session: DeviceSession) -> None:
 
 def session_after_apply(session: DeviceSession, report: ApplyReport) -> None:
     """Carry over what an apply changed: the connection it ended on (a new SSH port, a
-    reboot, a reset's new admin password) and whether the lent address survived it."""
+    reboot, a reset's new admin password), whether it came back by MAC, and which lent
+    address is on the device now."""
     if report.transport is not session.transport:
         session.transport = report.transport
         session.params = report.transport.params
+        session.mac_method = report.mac_method
     session.temp_address = report.temp_address
 
 
@@ -108,8 +116,7 @@ def discover_session(
     fell_back: bool = False,
     temp_address: str | None = None,
     mac_method: str | None = None,
-    mac_device: DiscoveredDevice | None = None,
-    mac_local_address: str | None = None,
+    mac_route: MacRoute | None = None,
     discover: Callable[..., DeviceInventory] = collect_inventory,
     probe: Callable[..., dict[str, bool]] = probe_features,
     session_port: Callable[[Transport, str], str | None] = find_session_port,
@@ -119,8 +126,7 @@ def discover_session(
     return DeviceSession(
         params, transport, inventory, probe(transport, inventory.version),
         session_port(transport, params.host), fell_back,
-        temp_address=temp_address, mac_method=mac_method,
-        mac_device=mac_device, mac_local_address=mac_local_address,
+        temp_address=temp_address, mac_method=mac_method, mac_route=mac_route,
     )
 
 
@@ -147,6 +153,8 @@ def open_mac_session(
     interface: LocalInterface,
     choice: TransportChoice = TransportChoice.AUTO,
     *,
+    api_port: int | None = None,
+    ssh_port: int | None = None,
     on_step: Callable[[Any], None] = lambda step: None,
     on_connected: Callable[[Transport], None] = lambda transport: None,
     mac_connect: Callable[..., MacConnectResult] = connect_by_mac,
@@ -157,13 +165,14 @@ def open_mac_session(
     ``address`` is the free address in this PC's subnet the user agreed to lend the
     device; ``on_connected`` gets the transport before the slower inventory runs.
     """
-    result = mac_connect(device, params, address, interface, choice=choice, on_step=on_step)
+    result = mac_connect(device, params, address, interface, choice=choice,
+                         api_port=api_port, ssh_port=ssh_port, on_step=on_step)
     on_connected(result.transport)
     reached = replace(params, host=result.host or str(address))
     return discover_session(
         result.transport, reached, on_step=on_step,
         temp_address=result.temp_address, mac_method=result.method.value,
-        mac_device=device, mac_local_address=str(interface.address), **discover_fns,
+        mac_route=MacRoute(device, interface, address), **discover_fns,
     )
 
 
@@ -253,8 +262,9 @@ def build_uploader_factory(session: DeviceSession,
             ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
         console: LazyConsole | None = None
-        if session.mac_device is not None and session.mac_local_address is not None:
-            console = LazyConsole(session.mac_device, session.params, session.mac_local_address)
+        if session.mac_route is not None:
+            route = session.mac_route
+            console = LazyConsole(route.device, session.params, str(route.interface.address))
             # Reached over MAC-Telnet, the console is the one path known to work: the IP
             # address is only lent to the device, and SSH may be firewalled, limited to
             # other addresses or off. Reached over IPv6 link-local, IP works: SSH first.
@@ -303,6 +313,7 @@ def build_apply_context(
         # configuration is on it, which is not always where it answers now.
         session_port=session.session_port,
         temp_address=session.temp_address,
+        mac_route=session.mac_route,
         uploader_factory=uploader_factory_builder(session, options),
         reconnect=lambda target: reconnect_fn(
             target, timeout_s=options.reconnect_timeout_s, cancelled=cancelled),

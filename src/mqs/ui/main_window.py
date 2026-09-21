@@ -29,7 +29,7 @@ from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.apply import ApplyPage
 from mqs.ui.pages.basic import BasicPage
-from mqs.ui.pages.device import DevicePage
+from mqs.ui.pages.device import DevicePage, connection_summary
 from mqs.ui.pages.firewall import FirewallPage
 from mqs.ui.pages.lan_bridge import LanBridgePage
 from mqs.ui.pages.preview import PreviewPage
@@ -212,8 +212,7 @@ class MainWindow(QMainWindow):
         else:
             inventory = session.inventory
             transport = session.transport
-            self.status_connection.setText(
-                f"{S.CONNECTED}: {session.params.host} ({transport.kind.value}:{transport.port})")
+            self.status_connection.setText(connection_summary(session, with_port=True))
             self.status_device.setText(f"RouterOS {inventory.version} | "
                                        f"{inventory.resource.board_name}")
             fingerprint = getattr(transport, "host_key_fingerprint", "") or ""

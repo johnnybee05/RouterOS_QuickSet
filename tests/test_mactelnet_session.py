@@ -228,6 +228,36 @@ def test_bootstrap_without_ipv6_goes_straight_to_mac_telnet():
     assert calls == ["192.168.88.253"]
 
 
+def test_the_ports_asked_for_are_used_on_every_path():
+    """After an apply SSH is on 122, not 22: a reconnect by MAC has to know."""
+    seen = []
+
+    def connect(params, choice=None, **kwargs):
+        seen.append((params.host, kwargs))
+        if params.host.startswith("fe80"):
+            raise ConnectFailed([])
+        return ConnectOutcome(FakeTransport({}))
+
+    device = FakeDevice(password="pw")
+    factory, _ = bootstrap_session_factory(device)
+    connect_by_mac(device_with_ipv6("fe80::1"), PARAMS, IPv4Address("192.168.88.253"), LOCAL,
+                   connect=connect, session_factory=factory, api_port=8729, ssh_port=122)
+    ports = {"api_port": 8729, "ssh_port": 122}
+    assert seen == [("fe80::1%12", ports), ("192.168.88.253", ports)]
+
+
+def test_the_address_goes_where_the_caller_says_once_mndp_is_out_of_date():
+    device = FakeDevice(password="pw")
+    factory, _ = bootstrap_session_factory(device)
+    connect, _ = fake_connect_factory()
+    result = connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                            LOCAL, connect=connect, session_factory=factory,
+                            device_interface="bridge")
+    assert result.device_interface == "bridge"
+    assert "/ip address add address=192.168.88.253/24 interface=bridge comment=mqs-temp" \
+        in device.commands
+
+
 def test_bootstrap_auth_failure_propagates_and_closes():
     device = FakeDevice(password="right")
     session_holder = {}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
-from ipaddress import IPv4Address, IPv4Interface
+from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 
 import pytest
 
@@ -22,6 +22,7 @@ from mqs.apply.plan import ROLLBACK_JOB, ApplyMode, ApplyOptions
 from mqs.apply.reconnect import (
     ReconnectFailed,
     ReconnectTarget,
+    mac_interface_after_apply,
     reconnect_hosts,
     reconnect_with_retry,
 )
@@ -35,6 +36,10 @@ from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import StaticWan
 from mqs.transport.base import AuthError, ConnectionParams, ServiceUnavailable, TransportKind
 from mqs.transport.factory import ConnectFailed, ConnectOutcome
+from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult, MacRoute
+from mqs.transport.mactelnet.client import MacTelnetAuthError, MacTelnetError
+from mqs.transport.mndp import DiscoveredDevice
+from mqs.transport.netifs import LocalInterface
 
 PORTS = ["ether1", "ether2", "ether3", "ether4", "ether5"]
 NOW = datetime(2026, 9, 15, 10, 0, 0)
@@ -535,3 +540,166 @@ def test_the_report_says_whether_the_lent_address_survived(mode, left):
     _, orchestrator, _, _ = build(mode, admin_password="N3w", confirmed_identity="MikroTik")
     orchestrator.ctx.temp_address = "192.168.55.254/24"
     assert orchestrator.run().temp_address == left
+
+
+# ---------------------------------------------------------------- back in by MAC
+
+
+MAC_DEVICE = DiscoveredDevice(mac="D0:EA:11:5D:65:E2", identity="MikroTik",
+                              interface_name="bridge/ether1")
+MAC_LOCAL = LocalInterface("Ethernet", IPv4Address("192.168.55.55"),
+                           IPv4Network("192.168.55.0/24"), index=7)
+ROUTE = MacRoute(MAC_DEVICE, MAC_LOCAL, IPv4Address("192.168.55.254"))
+
+
+@pytest.mark.parametrize(("reported", "expected"), [
+    ("bridge/ether1", "ether1"),  # a factory hEX S; the router profile makes ether1 the WAN
+    ("ether1", "ether1"),
+    ("ether3", "bridge"),  # a LAN port goes into the profile's bridge
+    ("bridge/ether3", "bridge"),
+    ("bridge", "bridge"),
+    (None, "ether1"),
+])
+def test_the_lent_address_goes_where_the_port_ends_up(reported, expected):
+    assert mac_interface_after_apply(_static_wan_profile(), reported) == expected
+
+
+def mac_result(transport="transport", temp="192.168.55.254/24"):
+    return MacConnectResult(ConnectOutcome(transport), MacConnectMethod.MAC_TELNET,
+                            temp_address=temp, host="192.168.55.254")
+
+
+def test_a_device_reached_by_mac_is_reached_by_mac_again():
+    clock = Clock()
+    calls = []
+
+    def mac_connect(device, params, address, interface, **kwargs):
+        calls.append((device, params, address, interface, kwargs))
+        return mac_result()
+
+    def connect(*args, **kwargs):
+        raise AssertionError("no address is tried while MAC answers")
+
+    target = ReconnectTarget(ConnectionParams(host="192.168.55.68", username="admin",
+                                              password="N3w"), 8729, 122,
+                             mac=ROUTE, mac_interface="ether1")
+    result = reconnect_with_retry(target, timeout_s=60, connect=connect, mac_connect=mac_connect,
+                                  sleep=clock.sleep, clock=clock)
+    assert result.temp_address == "192.168.55.254/24"
+    device, params, address, interface, kwargs = calls[0]
+    assert (device, address, interface) == (MAC_DEVICE, ROUTE.address, MAC_LOCAL)
+    assert params.password == "N3w"
+    assert kwargs["api_port"] == 8729 and kwargs["ssh_port"] == 122
+    assert kwargs["device_interface"] == "ether1"
+    assert kwargs["connect"] is connect, "the IP half goes through the same connect"
+
+
+def test_a_console_that_refuses_the_login_is_asked_again():
+    """After a reset MAC-Telnet may answer before the script has set the new password."""
+    clock = Clock()
+    answers = [MacTelnetAuthError("Login failed, incorrect username or password"),
+               MacTelnetError("no answer"), mac_result()]
+
+    def mac_connect(*args, **kwargs):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def refuse(*args, **kwargs):
+        raise ServiceUnavailable("refused")
+
+    target = ReconnectTarget(ConnectionParams(host="192.168.55.68", username="admin"),
+                             8729, 122, mac=ROUTE)
+    result = reconnect_with_retry(target, timeout_s=120, connect=refuse,
+                                  mac_connect=mac_connect, sleep=clock.sleep, clock=clock)
+    assert result.method == MacConnectMethod.MAC_TELNET and answers == []
+
+
+def test_when_mac_does_not_answer_the_addresses_still_do():
+    clock = Clock()
+
+    def mac_connect(*args, **kwargs):
+        raise MacTelnetError("device did not answer")
+
+    def connect(params, choice, api_port, ssh_port):
+        return ConnectOutcome("transport")
+
+    target = ReconnectTarget(ConnectionParams(host="192.168.55.68", username="admin"),
+                             8729, 122, mac=ROUTE)
+    assert reconnect_with_retry(target, timeout_s=60, connect=connect, mac_connect=mac_connect,
+                                sleep=clock.sleep, clock=clock) == "transport"
+    assert clock.now == 0, "the address answered in the same round"
+
+
+def test_a_failed_reconnect_names_the_mac_first():
+    clock = Clock()
+
+    def silent(*args, **kwargs):
+        raise MacTelnetError("device did not answer")
+
+    def refuse(*args, **kwargs):
+        raise ServiceUnavailable("refused")
+
+    target = ReconnectTarget(ConnectionParams(host="192.168.55.68", username="admin"),
+                             8729, 122, alternatives=("192.168.88.1",), mac=ROUTE)
+    assert target.describe() == "D0:EA:11:5D:65:E2 (MAC), 192.168.55.68, 192.168.88.1"
+    with pytest.raises(ReconnectFailed, match=r"D0:EA:11:5D:65:E2 \(MAC\), 192\.168\.55\.68"):
+        reconnect_with_retry(target, timeout_s=10, connect=refuse, mac_connect=silent,
+                             sleep=clock.sleep, clock=clock)
+
+
+def _mac_reset_build(reached):
+    """A reset of a device reached by MAC, the reconnect answering with ``reached``."""
+    targets = []
+
+    def reconnect(target):
+        targets.append(target)
+        return reached(router, target)
+
+    router, orchestrator, events, _ = build(
+        ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik",
+        reconnect=reconnect)
+    orchestrator.ctx.profile = _static_wan_profile()
+    orchestrator.ctx.transport.params = replace(orchestrator.ctx.transport.params,
+                                                host="192.168.55.254")
+    orchestrator.ctx.session_port = "ether1"
+    orchestrator.ctx.temp_address = "192.168.55.254/24"
+    orchestrator.ctx.mac_route = ROUTE
+    return orchestrator, events, targets
+
+
+def _router_session(router, target):
+    return router.session(port=target.api_port, username=target.params.username,
+                          password=target.params.password)
+
+
+def test_a_reset_by_mac_comes_back_by_mac_with_a_new_lent_address():
+    """The hardware report of 2026-09-21: after the apply the reconnect went to IP
+    addresses only, although the session had been opened by MAC."""
+
+    def by_mac(router, target):
+        return MacConnectResult(ConnectOutcome(_router_session(router, target)),
+                                MacConnectMethod.MAC_TELNET,
+                                temp_address="192.168.55.254/24", host="192.168.55.254")
+
+    orchestrator, events, targets = _mac_reset_build(by_mac)
+    report = orchestrator.run()
+    target = targets[0]
+    assert target.mac == ROUTE
+    assert target.mac_interface == "ether1", "ether1 left the factory bridge for the WAN"
+    assert target.params.username == "admin" and target.params.password == "N3w"
+    assert report.temp_address == "192.168.55.254/24", "lent again, to give back again"
+    assert report.mac_method == "mac-telnet"
+    running = next(e for e in events if e.step == "apply.step.reconnect"
+                   and e.status == StepStatus.RUNNING)
+    assert running.params["hosts"].startswith("D0:EA:11:5D:65:E2 (MAC), 192.168.55.68")
+    done = next(e for e in events if e.step == "apply.step.reconnect"
+                and e.status == StepStatus.OK)
+    assert done.params["hosts"].startswith("D0:EA:11:5D:65:E2 (mac-telnet")
+
+
+def test_a_reset_by_mac_that_comes_back_by_address_lends_nothing():
+    orchestrator, _, _ = _mac_reset_build(_router_session)
+    report = orchestrator.run()
+    assert report.temp_address is None and report.mac_method is None

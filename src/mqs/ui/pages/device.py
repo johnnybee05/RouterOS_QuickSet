@@ -49,7 +49,12 @@ from mqs.transport.base import (
 )
 from mqs.transport.discovery import collect_inventory, probe_features
 from mqs.transport.factory import ConnectFailed, TransportChoice, connect_transport
-from mqs.transport.mac_connect import MacConnectResult, connect_by_mac, local_interface_for
+from mqs.transport.mac_connect import (
+    MacConnectResult,
+    bootstrap_interface,
+    connect_by_mac,
+    local_interface_for,
+)
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
 from mqs.transport.netifs import (
     LocalInterface,
@@ -79,6 +84,21 @@ def describe_error(exc: BaseException) -> str:
     if isinstance(exc, TransportError):
         return str(exc)
     return f"{type(exc).__name__}: {exc}"
+
+
+def connection_summary(session: DeviceSession, *, with_port: bool = False) -> str:
+    """"Připojeno: …" naming the device the way the user reached it.
+
+    A device reached by MAC is named by its MAC: the address the transport runs over is
+    only lent to it, and after an apply the session comes back by MAC again.
+    """
+    transport = session.transport
+    kind = f"{transport.kind.value}:{transport.port}" if with_port else transport.kind.value
+    route = session.reached_by_mac
+    if route is not None:
+        return S.CONNECTED_BY_MAC.format(mac=route.mac, method=session.mac_method,
+                                         transport=kind, host=session.params.host)
+    return f"{S.CONNECTED}: {session.params.host} ({kind})"
 
 
 def default_scanner() -> MndpScanner:
@@ -378,7 +398,7 @@ class DevicePage(Page):
             self.dialogs.error(self, S.MAC_NO_ADDRESS)
             return
         cidr = f"{address}/{interface.network.prefixlen}"
-        iface_name = device.interface_name or "ether1"
+        iface_name = bootstrap_interface(device.interface_name)  # where the address goes
         if not self.dialogs.question(self, S.MAC_CONFIRM_TITLE, S.MAC_CONFIRM_TEXT.format(
                 identity=device.identity or device.mac, mac=device.mac, address=cidr,
                 interface=iface_name)):
@@ -388,11 +408,13 @@ class DevicePage(Page):
         if self.registry is not None:
             self.registry.add(params.password)
         choice = self.transport_choice.currentData()
+        api_port, ssh_port = self.api_port.value(), self.ssh_port.value()
         self.connect_status.setText(S.CONNECT_PROGRESS)
 
         def task(token: CancelToken, report: Callable[[object], None]) -> DeviceSession:
             return open_mac_session(
-                device, params, address, interface, choice, on_step=report,
+                device, params, address, interface, choice,
+                api_port=api_port, ssh_port=ssh_port, on_step=report,
                 on_connected=lambda transport: token.on_cancel(transport.close),
                 mac_connect=self.mac_connect_fn, discover=self.discover_fn,
                 probe=self.probe_fn, session_port=self.session_port_fn,
@@ -414,7 +436,13 @@ class DevicePage(Page):
         self._connect_token = None
         self.session = session
         self._show_session(session)
-        log.info("connected to %s via %s", session.params.host, session.transport.kind.value)
+        route = session.reached_by_mac
+        if route is not None:
+            log.info("connected to %s by %s, %s on %s", route.mac, session.mac_method,
+                     session.transport.kind.value, session.params.host)
+        else:
+            log.info("connected to %s via %s", session.params.host,
+                     session.transport.kind.value)
         self.controller.set_inventory(session.inventory, session.probes)
         self.sessionChanged.emit(session)
         self._update_buttons()
@@ -430,9 +458,7 @@ class DevicePage(Page):
 
     def _show_session(self, session: DeviceSession) -> None:
         version = session.inventory.version
-        status = [f"{S.CONNECTED}: {session.params.host} ({session.transport.kind.value})"]
-        if session.mac_method is not None:
-            status.append(S.MAC_CONNECTED.format(method=session.mac_method))
+        status = [connection_summary(session)]
         if session.temp_address is not None:
             status.append(S.MAC_TEMP_ADDRESS.format(address=session.temp_address))
         if session.fell_back:

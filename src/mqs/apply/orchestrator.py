@@ -20,7 +20,12 @@ from mqs.apply.plan import (
     make_names,
     result_for_mode,
 )
-from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget, reconnect_hosts
+from mqs.apply.reconnect import (
+    ReconnectFailed,
+    ReconnectTarget,
+    mac_interface_after_apply,
+    reconnect_hosts,
+)
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.verify import CheckResult, verify_configuration
 from mqs.generator.base import GenerationResult
@@ -36,6 +41,7 @@ from mqs.transport.base import (
     Transport,
     TransportError,
 )
+from mqs.transport.mac_connect import MacConnectResult, MacRoute
 from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, UploadStrategy
 
 # The device needs a moment after an SFTP write before it will arm the script for
@@ -77,6 +83,9 @@ class ApplyReport:
     connection_lost_during: str | None = None
     # The address connect-by-MAC lent the device, while it is still there to give back.
     temp_address: str | None = None
+    # How the reconnect got back in by MAC ("mac-telnet", "link-local"); None when it went
+    # to an address, or when the session never had to reconnect.
+    mac_method: str | None = None
     succeeded: bool = False
 
     @property
@@ -91,7 +100,7 @@ class ApplyAborted(Exception):
         self.issue = issue
 
 
-Reconnector = Callable[[ReconnectTarget], Transport]
+Reconnector = Callable[[ReconnectTarget], Transport | MacConnectResult]
 
 
 @dataclass
@@ -105,6 +114,7 @@ class ApplyContext:
     reconnect: Reconnector
     session_port: str | None = None  # device interface this session comes in on
     temp_address: str | None = None  # address connect-by-MAC added, which a reset wipes
+    mac_route: MacRoute | None = None  # how the session reached the device by MAC
     now: Callable[[], datetime] = datetime.now
     sleep: Callable[[float], None] = lambda seconds: None
     cancelled: Callable[[], bool] = lambda: False
@@ -321,9 +331,17 @@ class ApplyOrchestrator:
             expiring = (self.ctx.temp_address,) if self.ctx.temp_address else ()
         hosts = reconnect_hosts(self.ctx.profile, current_host=params.host,
                                 session_port=self.ctx.session_port, expiring=expiring)
-        target = ReconnectTarget(params=replace(params, port=None, host=hosts[0]),
-                                 api_port=access.api_ssl_port, ssh_port=access.ssh_port,
-                                 alternatives=tuple(hosts[1:]))
+        # A device reached by MAC is reached by MAC again: after a reset it has no
+        # address this PC knows of, the lent one included.
+        route = self.ctx.mac_route
+        target = ReconnectTarget(
+            params=replace(params, port=None, host=hosts[0]),
+            api_port=access.api_ssl_port, ssh_port=access.ssh_port,
+            alternatives=tuple(hosts[1:]), mac=route,
+            mac_interface=mac_interface_after_apply(self.ctx.profile,
+                                                    route.device.interface_name)
+            if route is not None else None,
+        )
         if self.ctx.options.mode == ApplyMode.IMPORT and self.transport.connected:
             try:
                 self.transport.execute("/system/identity/print")
@@ -333,18 +351,26 @@ class ApplyOrchestrator:
             except ConnectionLost:
                 self.report.connection_lost_during = self.report.connection_lost_during or \
                     "verify"
-        self._event("apply.step.reconnect", StepStatus.RUNNING,
-                    hosts=", ".join(target.hosts),
+        self._event("apply.step.reconnect", StepStatus.RUNNING, hosts=target.describe(),
                     api_port=target.api_port, ssh_port=target.ssh_port)
         try:
-            new_transport = self.ctx.reconnect(target)
+            reached = self.ctx.reconnect(target)
         except (ReconnectFailed, TransportError) as exc:
             attempts = getattr(exc, "attempts", 1)
             raise self._abort("apply.failed.reconnect", repr(exc), attempts=attempts,
                               api_port=target.api_port, ssh_port=target.ssh_port,
                               error=str(exc)) from exc
-        self.report.transport = new_transport
-        self._event("apply.step.reconnect", StepStatus.OK, hosts=new_transport.params.host,
+        if isinstance(reached, MacConnectResult):
+            # Back in by MAC, over an address lent anew: that one is to give back now.
+            self.report.transport = reached.transport
+            self.report.temp_address = reached.temp_address
+            self.report.mac_method = reached.method.value
+            where = (f"{route.mac if route else '?'} ({reached.method.value}, "
+                     f"{reached.transport.params.host})")
+        else:
+            self.report.transport = reached
+            where = reached.params.host
+        self._event("apply.step.reconnect", StepStatus.OK, hosts=where,
                     api_port=target.api_port, ssh_port=target.ssh_port)
 
     def _verify(self) -> None:

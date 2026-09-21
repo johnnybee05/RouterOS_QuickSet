@@ -57,9 +57,10 @@ MAC_CONFIRM_TEXT = (
     "Zařízení {identity} (MAC {mac}) nemá použitelnou IP. Zkusí se IPv6 link-local; pokud "
     "neodpoví, přihlásím se přes MAC-Telnet a na rozhraní {interface} přidám dočasnou adresu "
     "{address} (komentář mqs-temp), přes kterou se pak připojím. Při odpojení ji zase "
-    "odeberu.\n\nOvěřeno na RouterOS 7.20.7. Pokračovat?"
+    "odeberu. Po aplikaci konfigurace se připojím znovu stejnou cestou přes MAC, i "
+    "s dočasnou adresou.\n\nOvěřeno na RouterOS 7.20.7. Pokračovat?"
 )
-MAC_CONNECTED = "připojeno přes {method}"
+CONNECTED_BY_MAC = "Připojeno: {mac} (přes {method}; {transport} na {host})"
 MAC_TEMP_ADDRESS = ("dočasná adresa na zařízení: {address} (komentář mqs-temp; při odpojení ji "
                     "odeberu, reset ji smaže sám)")
 MAC_RETURNING = "Odpojuji – odebírám dočasnou adresu {address}…"

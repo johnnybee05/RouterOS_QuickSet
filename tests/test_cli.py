@@ -19,6 +19,7 @@ from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.profiles.store import profile_to_json
 from mqs.transport.base import ConnectionParams
+from mqs.transport.mac_connect import MacRoute
 from mqs.transport.mndp import DiscoveredDevice
 from mqs.transport.netifs import LocalInterface
 
@@ -155,12 +156,12 @@ def mac_deps(calls, *, found=MAC_DEVICE):
 
     def connect_mac(device, params, address, interface, choice, **kwargs):
         calls.append({"device": device, "address": address, "interface": interface,
-                      "params": params})
+                      "params": params, **kwargs})
         return DeviceSession(
             ConnectionParams(host=str(address), username="admin"), transport,
             make_inventory("7.20.7", PORTS), {}, "ether1",
             temp_address=f"{address}/24", mac_method="mac-telnet",
-            mac_device=device, mac_local_address=str(interface.address),
+            mac_route=MacRoute(device, interface, address),
         )
 
     return transport, {"find_device": lambda mac, seconds: found,
@@ -172,12 +173,13 @@ def test_connect_by_mac_lends_an_address_and_gives_it_back(monkeypatch):
     calls = []
     transport, deps = mac_deps(calls)
     code, out = run(["connect", "--mac", "d0-ea-11-5d-65-e2",
-                     "--temp-address", "192.168.55.254"], **deps)
+                     "--temp-address", "192.168.55.254", "--ssh-port", "122"], **deps)
     assert code == cli.OK, out
     assert calls[0]["device"] is MAC_DEVICE and calls[0]["interface"] is LAN
     assert str(calls[0]["address"]) == "192.168.55.254"
     assert calls[0]["params"].password == "pw"
-    assert "by MAC      : mac-telnet" in out
+    assert calls[0]["ssh_port"] == 122, "the ports asked for hold by MAC as well"
+    assert f"by MAC      : {MAC} over mac-telnet" in out
     removed = [c for c in transport.commands if c.verb == "remove"]
     assert removed and removed[0].api_path == "/ip/address"
 
