@@ -171,6 +171,30 @@ def test_execute_command_resolves_selectors():
         transport.execute_command(cmd("/ip service", "set", selector=Find(raw="where port=22")))
 
 
+def test_a_name_means_the_configured_item_not_its_connections():
+    """Captured on a hEX S, 7.20.7: our own connection is listed as a dynamic api-ssl row,
+    and `/ip/service/set =numbers=*9,*14` was refused with "this is configured elsewhere"
+    while `=numbers=*9` went through. The console's `set api-ssl` means *9 alone."""
+    api = FakeApi(data={
+        "/ip/service/print": [
+            {".id": "*9", "name": "api-ssl", "port": 8729, "dynamic": False},
+            {".id": "*14", "name": "api-ssl", "port": 8729, "dynamic": True,
+             "connection": True, "remote": "192.168.55.55:62253"},
+        ],
+        "/interface/print": [{".id": "*20", "name": "pppoe-out1", "dynamic": True}],
+    })
+    transport = connected(api)
+    transport.execute_command(cmd("/ip service", "set", selector="api-ssl", port=8729))
+    assert api.calls[-1] == ("/ip/service/set", {"port": "8729", "numbers": "*9"})
+    # A find takes dynamic rows along, in the console too.
+    transport.execute_command(cmd("/ip service", "set", selector=Find.by(name="api-ssl"),
+                                  port=8729))
+    assert api.calls[-1] == ("/ip/service/set", {"port": "8729", "numbers": "*9,*14"})
+    # With nothing configured under the name, the device gets to say what it thinks.
+    transport.execute_command(cmd("/interface", "set", selector="pppoe-out1", mtu=1480))
+    assert api.calls[-1] == ("/interface/set", {"mtu": "1480", "numbers": "*20"})
+
+
 def test_traps_and_connection_loss():
     api = FakeApi(traps={"/ip/dns/set": "invalid value for argument servers"},
                   lost={"/system/reboot"})

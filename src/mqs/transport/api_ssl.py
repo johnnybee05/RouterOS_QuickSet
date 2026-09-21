@@ -193,7 +193,13 @@ class ApiSslTransport:
                 raise CommandError(command.api_path, f"no such item {selector}")
             return [items[selector][".id"]]
         if isinstance(selector, str):
-            ids = [i[".id"] for i in items if i.get("name") == selector]
+            # The console's `set ssh` means the configured item. 7.20.7 also lists every
+            # open connection as a dynamic /ip service row under its service's name, and
+            # a set that includes one is refused: "this is configured elsewhere". A find
+            # takes the dynamic rows along in the console too, so it is left as it is.
+            named = [i for i in items if i.get("name") == selector]
+            static = [i for i in named if i.get("dynamic") != "yes"]
+            ids = [i[".id"] for i in static or named]
         elif isinstance(selector, Find):
             if selector.raw is not None:
                 raise CommandError(command.api_path, "complex find expressions need SSH")
