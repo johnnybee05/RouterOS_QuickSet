@@ -30,6 +30,7 @@ from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.verify import CheckResult, verify_configuration
 from mqs.generator.base import GenerationResult
 from mqs.generator.ir import Command, Find, RawLine, cmd
+from mqs.generator.render import render_inline
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.inventory import DeviceInventory
@@ -257,12 +258,16 @@ class ApplyOrchestrator:
                 items = [i for i in self.result.script.items() if not hasattr(i, "text")
                          or isinstance(i, RawLine)]
                 runnable = [i for i in items if isinstance(i, Command | RawLine)]
+                execute_raw = getattr(self.transport, "execute_raw", None)
+                console_only = next((i for i in runnable if isinstance(i, RawLine) or (
+                    isinstance(i.selector, Find) and i.selector.raw is not None)), None)
+                if console_only is not None and execute_raw is None:
+                    # Refused before the first line, not halfway through the configuration.
+                    raise CommandError(render_inline(console_only),
+                                       "raw lines need the SSH transport")
                 self._event("apply.step.execute_lines", StepStatus.RUNNING, count=len(runnable))
                 for item in runnable:
                     if isinstance(item, RawLine):
-                        execute_raw = getattr(self.transport, "execute_raw", None)
-                        if execute_raw is None:
-                            raise CommandError(item.text, "raw lines need the SSH transport")
                         execute_raw(item)
                     else:
                         self.transport.execute_command(item)

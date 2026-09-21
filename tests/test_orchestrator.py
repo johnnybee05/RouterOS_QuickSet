@@ -148,6 +148,24 @@ def test_upload_failure_and_line_by_line_fallback():
     orchestrator.ctx.uploader_factory = lambda t: RouterUploader(router, fail=True,
                                                                  line_by_line=True)
     router.pending_import_effects = {}  # line-by-line does not use /import
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    # The firewall reorders its rules with a console-only line, which the API cannot run:
+    # refused before the first line rather than halfway through the configuration.
+    assert err.value.issue.code == "apply.failed.execute"
+    assert "raw lines need the SSH transport" in err.value.issue.params["error"]
+    assert ("apply.step.execute_lines", StepStatus.RUNNING) not in [
+        (e.step, e.status) for e in events]
+    assert "/import" not in router.log and router.state.identity == "MikroTik"
+
+    router, orchestrator, events, _ = build()
+    profile = apply_preset(DeviceProfile(identity="PV-AP1"), Mode.BRIDGE_AP, PORTS)
+    assert not profile.firewall.basic_filter and not profile.wan.enabled
+    orchestrator.ctx.result = generate(profile, TargetContext.from_inventory(
+        orchestrator.ctx.inventory))
+    orchestrator.ctx.uploader_factory = lambda t: RouterUploader(router, fail=True,
+                                                                 line_by_line=True)
+    router.pending_import_effects = {}
     with pytest.raises(ApplyAborted):
         orchestrator.run()  # FakeRouter does not implement the individual commands
     assert ("apply.step.execute_lines", StepStatus.RUNNING) in [(e.step, e.status) for e in events]
