@@ -2,106 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from ipaddress import IPv4Interface
-
+from mqs.apply.adopt import ExistingObjects, adopt_existing, collect_existing
 from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result_for_mode
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import wan_l3_interface, wan_port
-from mqs.generator.ir import Script
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
-from mqs.transport.base import CommandError, Transport
+
+__all__ = ["ExistingObjects", "collect_existing", "preflight", "prepare_import"]
 
 E, W, INFO = Severity.ERROR, Severity.WARNING, Severity.INFO
 _MANAGEMENT = ("api-ssl", "ssh", "winbox")
-
-
-@dataclass(frozen=True)
-class ExistingObjects:
-    bridges: frozenset[str] = frozenset()
-    interface_lists: frozenset[str] = frozenset()
-    pools: frozenset[str] = frozenset()
-    dhcp_servers: frozenset[str] = frozenset()
-    pppoe_clients: frozenset[str] = frozenset()
-    addresses: frozenset[str] = frozenset()  # normalised "a.b.c.d/nn"
-    dhcp_clients: frozenset[str] = frozenset()  # interfaces
-    bridge_ports: dict[str, str] = field(default_factory=dict)  # interface -> bridge
-
-
-def _names(transport: Transport, path: str, key: str = "name") -> frozenset[str]:
-    try:
-        return frozenset(i[key] for i in transport.execute(path) if key in i)
-    except CommandError:
-        return frozenset()
-
-
-def collect_existing(transport: Transport) -> ExistingObjects:
-    try:
-        ports = {p["interface"]: p.get("bridge", "")
-                 for p in transport.execute("/interface/bridge/port/print") if "interface" in p}
-    except CommandError:
-        ports = {}
-    return ExistingObjects(
-        bridges=_names(transport, "/interface/bridge/print"),
-        interface_lists=_names(transport, "/interface/list/print"),
-        pools=_names(transport, "/ip/pool/print"),
-        dhcp_servers=_names(transport, "/ip/dhcp-server/print"),
-        pppoe_clients=_names(transport, "/interface/pppoe-client/print"),
-        addresses=frozenset(_normalise_address(a) for a in
-                            _names(transport, "/ip/address/print", "address")),
-        dhcp_clients=_names(transport, "/ip/dhcp-client/print", "interface"),
-        bridge_ports=ports,
-    )
-
-
-def _normalise_address(value: str) -> str:
-    try:
-        return str(IPv4Interface(value))
-    except ValueError:
-        return value
-
-
-_NAMED_ADDS = {
-    "/interface bridge": ("bridges", "bridge"),
-    "/interface list": ("interface_lists", "interface-list"),
-    "/ip pool": ("pools", "pool"),
-    "/ip dhcp-server": ("dhcp_servers", "dhcp-server"),
-    "/interface pppoe-client": ("pppoe_clients", "pppoe-client"),
-}
-
-
-def find_collisions(script: Script, existing: ExistingObjects) -> list[Issue]:
-    """Objects the script adds that already exist; `/import` would stop at the first one."""
-    issues: list[Issue] = []
-
-    def collision(kind: str, name: str, other: str = "") -> None:
-        issues.append(Issue("apply.collision", W, "", {"kind": kind, "name": name,
-                                                        "other": other}))
-
-    for command in script.commands():
-        if command.verb != "add":
-            continue
-        if command.path in _NAMED_ADDS:
-            attr, kind = _NAMED_ADDS[command.path]
-            name = command.arg("name")
-            if name and name in getattr(existing, attr):
-                collision(kind, name)
-        elif command.path == "/ip address":
-            address = _normalise_address(command.arg("address") or "")
-            if address in existing.addresses:
-                collision("ip-address", address)
-        elif command.path == "/interface bridge port":
-            interface = command.arg("interface") or ""
-            if interface in existing.bridge_ports:
-                other_bridge = existing.bridge_ports[interface]
-                collision("bridge-port", interface, f" (v bridge {other_bridge})")
-        elif command.path == "/ip dhcp-client":
-            interface = command.arg("interface") or ""
-            if interface in existing.dhcp_clients:
-                collision("dhcp-client", interface)
-    return issues
 
 
 def preflight(
@@ -155,11 +67,19 @@ def preflight(
             issues.append(Issue("apply.lockout_unconfigured_port", W, "bridge.ports",
                                 {"port": session_port}))
 
-    if options.mode == ApplyMode.IMPORT and existing is not None:
-        issues.extend(find_collisions(result.script, existing))
+    if options.mode == ApplyMode.IMPORT:
+        issues.extend(adopt_existing(result, existing)[1])
 
     issues.extend(_notices(result))
     return issues
+
+
+def prepare_import(result: GenerationResult, options: ApplyOptions,
+                   existing: ExistingObjects | None) -> GenerationResult:
+    """The script to show and send: on a running configuration, adopted to what is there."""
+    if options.mode != ApplyMode.IMPORT:
+        return result
+    return adopt_existing(result, existing)[0]
 
 
 def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str) -> Issue:

@@ -4,6 +4,7 @@ import pytest
 
 from factories import FIVE_PORTS, make_inventory, router_profile
 from fake_transport import FakeTransport
+from mqs.apply.adopt import ADOPT_KEYS, item_key
 from mqs.apply.plan import (
     ApplyMode,
     ApplyOptions,
@@ -11,7 +12,7 @@ from mqs.apply.plan import (
     make_names,
     result_for_mode,
 )
-from mqs.apply.preflight import ExistingObjects, collect_existing, find_collisions, preflight
+from mqs.apply.preflight import ExistingObjects, collect_existing, preflight, prepare_import
 from mqs.apply.rollback import (
     DateStyle,
     cancel_rollback,
@@ -268,35 +269,77 @@ def test_lockout_warnings():
         preflight(other, result, [], reset, inventory, session_port="ether2"))
 
 
-def test_collisions_with_existing_defconf():
+def _same_as_script(result) -> ExistingObjects:
+    """The device after an earlier apply of the same script: every add already there."""
+    items: dict[str, set[tuple[str, ...]]] = {}
+    ports = {}
+    for command in result.script.commands():
+        if command.verb == "add" and command.path in ADOPT_KEYS:
+            args = dict(command.args)
+            items.setdefault(command.path, set()).add(item_key(command.path, args))
+            if command.path == "/interface bridge port":
+                ports[args["interface"]] = args["bridge"]
+    return ExistingObjects({p: frozenset(v) for p, v in items.items()}, ports)
+
+
+def test_import_adopts_what_an_earlier_apply_left():
     profile, inventory, result = _setup()
-    existing = ExistingObjects(
-        bridges=frozenset({"bridge"}), interface_lists=frozenset({"WAN", "LAN"}),
-        pools=frozenset({"dhcp_pool"}), dhcp_servers=frozenset({"dhcp1"}),
-        addresses=frozenset({"192.168.88.1/24"}), dhcp_clients=frozenset({"ether1"}),
-        bridge_ports={"ether2": "bridge"}, pppoe_clients=frozenset(),
-    )
+    existing = _same_as_script(result)
+    options = ApplyOptions(ApplyMode.IMPORT)
+    issues = preflight(profile, result, [], options, inventory, existing=existing)
+    assert not has_errors(issues)
+    adopted = next(i for i in issues if i.code == "apply.adopted")
+    assert "/interface bridge bridge" in adopted.params["items"]
+    assert "apply.bridge_port_moved" not in codes(issues)
+
+    again = prepare_import(result, options, existing)
+    # Nothing is added twice, except what is replaced by its comment (the firewall).
+    adds = [c for c in again.script.commands() if c.verb == "add"]
+    assert {c.path for c in adds} <= {"/ip firewall filter", "/ip firewall nat",
+                                      "/ip firewall mangle"}, [c.path for c in adds]
+    text = again.text
+    assert "set [ find name=bridge ] protocol-mode=rstp" in text
+    assert "set [ find interface=ether2 ] bridge=bridge" in text
+    assert "set [ find address=192.168.88.1/24 ] interface=bridge" in text
+    assert "set [ find name=dhcp1 ] interface=bridge" in text
+    assert "add name=WAN" not in text and "add interface=ether1 list=WAN" not in text
+    assert text.startswith(result.text.split("# ---- ")[0])  # the header is kept
+
+    # Only on a running configuration, and nothing to adopt leaves the script alone.
+    assert prepare_import(result, ApplyOptions(ApplyMode.RESET_AND_IMPORT), existing) is result
+    assert prepare_import(result, options, ExistingObjects()) is result
+    assert prepare_import(result, options, None) is result
+
+
+def test_import_warns_about_moving_a_port_between_bridges():
+    profile, inventory, result = _setup()
+    existing = ExistingObjects({"/interface bridge port": frozenset({("ether2",)})},
+                               {"ether2": "bridge1"})
     issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
                        existing=existing)
-    kinds = sorted({i.params["kind"] for i in issues if i.code == "apply.collision"})
-    assert kinds == ["bridge", "bridge-port", "dhcp-client", "dhcp-server", "interface-list",
-                     "ip-address", "pool"]
-    assert not has_errors(issues)
-    assert find_collisions(result.script, ExistingObjects()) == []
+    moved = next(i for i in issues if i.code == "apply.bridge_port_moved")
+    assert moved.params == {"port": "ether2", "old": "bridge1", "new": "bridge"}
 
 
 def test_collect_existing_from_transport():
     fake = FakeTransport({
         "/interface/bridge/print": [{"name": "bridge"}],
         "/interface/list/print": [{"name": "WAN"}, {"comment": "no name"}],
-        "/ip/address/print": [{"address": "192.168.88.1/24"}, {"address": "bogus"}],
+        "/interface/list/member/print": [
+            {"list": "WAN", "interface": "ether1"},
+            {"list": "LAN", "interface": "bridge", "dynamic": "true"}],
+        "/ip/address/print": [{"address": "192.168.88.1/24"}, {"address": "bogus"},
+                              {"address": "192.168.55.132/24", "_flags": "D"}],
         "/interface/bridge/port/print": [{"interface": "ether2", "bridge": "bridge"}],
         "/ip/dhcp-client/print": [{"interface": "ether1"}],
     })
     existing = collect_existing(fake)
-    assert existing.bridges == {"bridge"} and existing.interface_lists == {"WAN"}
-    assert existing.addresses == {"192.168.88.1/24", "bogus"}
-    assert existing.pools == frozenset() and existing.bridge_ports == {"ether2": "bridge"}
+    assert existing.items["/interface bridge"] == {("bridge",)}
+    assert existing.items["/interface list"] == {("WAN",)}
+    assert existing.items["/interface list member"] == {("WAN", "ether1")}  # dynamic left out
+    assert existing.items["/ip address"] == {("192.168.88.1/24",), ("bogus",)}
+    assert not existing.has("/ip pool", ("dhcp_pool",))  # a menu that failed to print
+    assert existing.bridge_ports == {"ether2": "bridge"}
     assert collect_existing(FakeTransport({})).bridge_ports == {}
 
 
@@ -305,10 +348,15 @@ def test_apply_messages_format():
     text = binding.set_ssh_port(profile.services.hardening_text, 2222)
     profile = profile.model_copy(update={"services": profile.services.model_copy(
         update={"hardening_text": text})})
-    existing = ExistingObjects(bridges=frozenset({"bridge"}), bridge_ports={"ether2": "old"})
+    existing = ExistingObjects({"/interface bridge": frozenset({("bridge",)}),
+                                "/interface bridge port": frozenset({("ether2",)})},
+                               {"ether2": "old"})
     options = ApplyOptions(ApplyMode.RESET_AND_IMPORT, rollback_minutes=1)
     issues = preflight(profile, result, [], options, make_inventory("6.49", FIVE_PORTS),
                        session_port="ether1", existing=existing)
-    issues += find_collisions(result.script, existing)
+    issues += preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT, rollback_minutes=1),
+                        make_inventory("6.49", FIVE_PORTS), session_port="ether1",
+                        existing=existing)
+    assert {"apply.adopted", "apply.bridge_port_moved"} <= codes(issues)
     for issue in issues:
         assert issue.code in MESSAGES and "{" not in issue.message, issue.code

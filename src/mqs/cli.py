@@ -22,7 +22,7 @@ from typing import Any
 
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
 from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
-from mqs.apply.preflight import collect_existing, preflight
+from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.session import (
     DeviceSession,
     TempAddressLeft,
@@ -301,6 +301,7 @@ def _apply_to(
     print_issues(issues, out)
     if any(i.severity == Severity.ERROR for i in issues):
         return BLOCKED
+    result = prepare_import(result, options, existing)
 
     names = make_names(now(), session.inventory.has_flash_dir)
     if args.show_script:

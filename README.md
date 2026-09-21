@@ -75,7 +75,7 @@ v pořádku, nejde aplikovat.
 | Režim | Co se stane |
 |---|---|
 | Jen vygenerovat | skript se uloží do souboru, na síť se nesahá |
-| Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je |
+| Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
 | Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
 
 Než aplikace cokoliv změní, vždy:

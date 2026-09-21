@@ -37,7 +37,7 @@ from mqs.apply.orchestrator import (
     ApplyReport,
 )
 from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_names
-from mqs.apply.preflight import collect_existing, preflight
+from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.reconnect import reconnect_with_retry
 from mqs.apply.session import DeviceSession, build_apply_context, build_uploader_factory
 from mqs.apply.verify import CheckResult
@@ -246,8 +246,8 @@ class ApplyPage(Page):
             self.dialogs.error(self, "\n".join(i.message for i in blocking))
             self.refresh()
             return
-        result = self.controller.generate_for_apply()
         options = self.options()
+        result = prepare_import(self.controller.generate_for_apply(), options, existing)
         names = make_names(self.now(), session.inventory.has_flash_dir)
         preview = build_upload_script(result.text, options, names, mask_secrets=True)
         if not self.dialogs.confirm_dry_run(self, preview, issues):

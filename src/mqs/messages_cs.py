@@ -161,8 +161,10 @@ MESSAGES: dict[str, str] = {
     "WAN. Správa z WAN zůstane dostupná ({paths}).",
     "apply.lockout_unconfigured_port": "Aplikace je připojená přes port {port}, který po resetu "
     "nebude mít IP adresu ani nebude v bridge.",
-    "apply.collision": "Na zařízení už existuje {kind} {name}{other} – /import se na tomto řádku "
-    "zastaví. Zvažte režim Reset + aplikovat.",
+    "apply.adopted": "Na zařízení už je {count} položek, které skript přidává ({items}). "
+    "Skript je místo přidání upraví (set), položky bez dalších parametrů vynechá.",
+    "apply.bridge_port_moved": "Port {port} je teď v bridge {old}; skript ho přesune do "
+    "bridge {new}. Pokud přes něj vede spojení, na chvíli se přeruší.",
     "apply.notice_ssh_port": "Po aplikaci poběží SSH na portu {port}.",
     "apply.notice_services_disabled": "Po aplikaci budou vypnuté služby: {services}.",
     "apply.notice_api_ssl_kept": "api-ssl ({port}) zůstává zapnuté – je to hlavní transport "

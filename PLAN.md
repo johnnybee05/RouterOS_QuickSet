@@ -412,7 +412,7 @@ block lives in `model/resources/`; data files live in `src/mqs/data/` so they ar
 | Q2 | Password after reset | Reset script sets the admin password (entered for this run only); the uploaded `.rsc` removes itself at the end |
 | Q3 | IPv6 on v6 | ipv6 package enabled → `/system package disable ipv6` + "reboot required" warning; package missing → block omitted with warning. `disable-ipv6` on v6 marked NUTNO OVĚŘIT |
 | Q4 | SNMP addresses | v7 keeps `::/0` (RouterOS default), v6 generates `0.0.0.0/0` |
-| Q5 | Import on running config | Plain script; pre-flight collision check against the device with warnings |
+| Q5 | Import on running config | Plain script, adopted to the device before the dry-run: an `add` of an object that exists becomes `set [ find <key> ]` or is left out (`apply/adopt.py`, 2026-09-21; was a collision warning) |
 | Q6 | Anonymous DH | Automatic fallback, permanently visible "nešifrovaná identita protistrany" badge |
 | Q7 | Minimum v6 | 6.40 supported; older versions refused |
 | Q8 | api-ssl certificate | Choose from certificates already on the device; no generation |
