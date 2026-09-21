@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mqs.apply.session import DeviceSession
+from mqs.apply.session import DeviceSession, end_session
 from mqs.logging_setup import SecretRegistry
 from mqs.messages_cs import format_message
 from mqs.model.presets import apply_preset
@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self.device_page.sessionChanged.connect(self._session_changed)
-        self.apply_page.sessionReplaced.connect(self.device_page.replace_transport)
+        self.apply_page.applied.connect(self.device_page.adopt_apply)
         self.controller.analysisReady.connect(self._analysis_ready)
         self.controller.inventoryChanged.connect(lambda _: self._update_badge())
 
@@ -249,6 +249,6 @@ class MainWindow(QMainWindow):
         session = self.device_page.session
         if session is not None:
             with contextlib.suppress(Exception):  # closing on exit must never raise
-                session.transport.close()
+                end_session(session)  # gives a lent address back first
         self.registry.clear()
         super().closeEvent(event)

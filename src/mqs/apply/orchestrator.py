@@ -18,6 +18,7 @@ from mqs.apply.plan import (
     ApplyOptions,
     build_upload_script,
     make_names,
+    result_for_mode,
 )
 from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget, reconnect_hosts
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
@@ -74,6 +75,8 @@ class ApplyReport:
     checks: list[CheckResult] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     connection_lost_during: str | None = None
+    # The address connect-by-MAC lent the device, while it is still there to give back.
+    temp_address: str | None = None
     succeeded: bool = False
 
     @property
@@ -122,6 +125,12 @@ class ApplyOrchestrator:
     def transport(self) -> Transport:
         return self.report.transport
 
+    @property
+    def result(self) -> GenerationResult:
+        """What the device will be like afterwards, which after a reset is not what it is
+        now: the services to expect and the ports to reconnect on."""
+        return result_for_mode(self.ctx.result, self.ctx.options.mode)
+
     # Positional-only names, so message parameters like `step=` cannot collide with them.
     def _event(self, step: str, status: StepStatus, detail: str = "", /, **params: Any) -> None:
         self.ctx.on_event(ApplyEvent(step, status, params, detail))
@@ -146,6 +155,7 @@ class ApplyOrchestrator:
         # One transfer connection for both directions, released as early as possible:
         # download and upload used to open one each, and the download's stayed open for
         # the whole flow, including the reset.
+        self.report.temp_address = self.ctx.temp_address
         uploader = self.ctx.uploader_factory(self.transport)
         try:
             self._check_cancel()
@@ -205,7 +215,7 @@ class ApplyOrchestrator:
 
     def _upload(self, uploader: FileUploader) -> None:
         file = self.names.remote_script
-        data = build_upload_script(self.ctx.result.text, self.ctx.options, self.names)
+        data = build_upload_script(self.result.text, self.ctx.options, self.names)
         self._event("apply.step.upload", StepStatus.RUNNING, file=file, strategy="-")
         try:
             result = uploader.upload(data.encode("utf-8"), file)
@@ -234,7 +244,7 @@ class ApplyOrchestrator:
         upload = self.report.upload
         try:
             if upload is not None and upload.strategy == UploadStrategy.LINE_BY_LINE:
-                items = [i for i in self.ctx.result.script.items() if not hasattr(i, "text")
+                items = [i for i in self.result.script.items() if not hasattr(i, "text")
                          or isinstance(i, RawLine)]
                 runnable = [i for i in items if isinstance(i, Command | RawLine)]
                 self._event("apply.step.execute_lines", StepStatus.RUNNING, count=len(runnable))
@@ -295,12 +305,13 @@ class ApplyOrchestrator:
         except TransportError as exc:
             raise self._abort("apply.failed.execute", repr(exc), error=str(exc)) from exc
         self.report.connection_lost_during = "reset"
+        self.report.temp_address = None  # the reset takes every address with it
         self.transport.close()
         self._event("apply.step.execute_reset", StepStatus.OK, file=file)
         self.ctx.sleep(float(self.ctx.options.reset_delay_s))
 
     def _reconnect(self) -> None:
-        access = self.ctx.result.access
+        access = self.result.access
         params = self.transport.params
         expiring: tuple[str, ...] = ()
         if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
@@ -339,8 +350,7 @@ class ApplyOrchestrator:
     def _verify(self) -> None:
         self._event("apply.step.verify", StepStatus.RUNNING)
         try:
-            checks, issues = verify_configuration(self.transport, self.ctx.profile,
-                                                  self.ctx.result)
+            checks, issues = verify_configuration(self.transport, self.ctx.profile, self.result)
         except TransportError as exc:
             raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
         self.report.checks.extend(checks)

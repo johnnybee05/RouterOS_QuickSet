@@ -151,6 +151,7 @@ LAN = LocalInterface("Ethernet", IPv4Address("192.168.55.55"), IPv4Network("192.
 
 def mac_deps(calls, *, found=MAC_DEVICE):
     transport = FakeTransport()
+    transport.connect()
 
     def connect_mac(device, params, address, interface, choice, **kwargs):
         calls.append({"device": device, "address": address, "interface": interface,
@@ -215,3 +216,37 @@ def test_passwords_are_never_command_line_arguments():
             cli.build_parser().parse_args(["apply", "--profile", "x", option, "secret"])
     args = cli.build_parser().parse_args(["apply", "--profile", "x"])
     assert args.password_env and args.admin_password_env
+
+
+@pytest.mark.parametrize(("mode", "extra", "code", "given_back"), [
+    ("import", [], cli.OK, True),
+    ("reset", ["--confirm-identity", "MikroTik"], cli.OK, False),  # the reset took it
+    ("reset", [], cli.BLOCKED, True),  # preflight said no: nothing changed, give it back
+])
+def test_apply_by_mac_gives_the_lent_address_back(router, profile_file, monkeypatch,
+                                                  mode, extra, code, given_back):
+    monkeypatch.setenv("MQS_PASSWORD", "pw")
+    monkeypatch.setenv("MQS_ADMIN_PASSWORD", "N3w")
+
+    def connect_mac(device, params, address, interface, choice, **kwargs):
+        return DeviceSession(ConnectionParams(host=str(address), username="admin"),
+                             router.session(), make_inventory("7.15.3", PORTS), {}, "ether9",
+                             temp_address=f"{address}/24", mac_method="mac-telnet")
+
+    def orchestrator_factory(ctx):
+        ctx.uploader_factory = lambda transport: RouterUploader(router)
+        ctx.reconnect = lambda target: router.session(username=target.params.username,
+                                                      password=target.params.password)
+        ctx.sleep = lambda seconds: None
+        return ApplyOrchestrator(ctx)
+
+    _transport, deps = mac_deps([])
+    deps["connect_mac"] = connect_mac
+    result, out = run(["apply", "--mac", MAC, "--temp-address", "192.168.55.254",
+                       "--profile-file", str(profile_file), "--mode", mode, "--yes", *extra],
+                      router=router, orchestrator_factory=orchestrator_factory, **deps)
+    assert result == code, out
+    assert ("/ip/address/remove" in router.log) == given_back
+    assert ("temporary address 192.168.55.254/24 removed" in out) == given_back
+    if given_back:
+        assert router.log[-1] == "/ip/address/remove"  # after everything else

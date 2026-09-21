@@ -9,6 +9,7 @@ from mqs.model.inventory import (
     InterfaceInfo,
     PackageInfo,
     ResourceInfo,
+    ServiceInfo,
     SwitchChip,
 )
 from mqs.model.presets import apply_preset
@@ -27,6 +28,7 @@ def make_inventory(
     port_switch: Mapping[str, str] | None = None,
     packages: Sequence[PackageInfo] = (),
     board_name: str = "test-board",
+    services: Sequence[ServiceInfo] = (),
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name."""
     port_types = port_types or {}
@@ -45,6 +47,7 @@ def make_inventory(
         ],
         switches=[SwitchChip(name=n, type=t) for n, t in (switches or {}).items()],
         packages=list(packages),
+        services=list(services),
     )
 
 

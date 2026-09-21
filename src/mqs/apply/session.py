@@ -15,7 +15,7 @@ from datetime import datetime
 from ipaddress import IPv4Address
 from typing import Any
 
-from mqs.apply.orchestrator import ApplyContext, ApplyEvent
+from mqs.apply.orchestrator import ApplyContext, ApplyEvent, ApplyReport
 from mqs.apply.plan import ApplyMode, ApplyOptions
 from mqs.apply.reconnect import reconnect_with_retry
 from mqs.generator.base import GenerationResult
@@ -29,6 +29,7 @@ from mqs.transport.mac_connect import (
     MacConnectResult,
     connect_by_mac,
     default_session_factory,
+    remove_temp_address,
 )
 from mqs.transport.mactelnet.client import MacTelnetSession
 from mqs.transport.mactelnet.files import MacTelnetStrategy
@@ -51,6 +52,45 @@ class DeviceSession:
     # How to open a MAC-Telnet console again, for moving files without an IP path.
     mac_device: DiscoveredDevice | None = None
     mac_local_address: str | None = None  # this PC's address on the device's network
+
+
+class TempAddressLeft(TransportError):
+    """The address connect-by-MAC lent the device could not be given back."""
+
+    def __init__(self, address: str, reason: str) -> None:
+        super().__init__(f"temporary address {address} is still on the device: {reason}")
+        self.address = address
+
+
+def end_session(session: DeviceSession) -> None:
+    """Hang up, first giving back the address connect-by-MAC lent the device.
+
+    Nothing gave it back before: after an import, or after only looking, the device kept
+    an address from this PC's network for good. The connection is closed either way;
+    raises TempAddressLeft when the address could not be removed.
+    """
+    address = session.temp_address
+    try:
+        if address is not None:
+            if not session.transport.connected:
+                raise TempAddressLeft(address, "the connection to the device is gone")
+            try:
+                remove_temp_address(session.transport, address)
+            except TransportError as exc:
+                raise TempAddressLeft(address, str(exc)) from exc
+            session.temp_address = None
+    finally:
+        with contextlib.suppress(OSError, TransportError):
+            session.transport.close()
+
+
+def session_after_apply(session: DeviceSession, report: ApplyReport) -> None:
+    """Carry over what an apply changed: the connection it ended on (a new SSH port, a
+    reboot, a reset's new admin password) and whether the lent address survived it."""
+    if report.transport is not session.transport:
+        session.transport = report.transport
+        session.params = report.transport.params
+    session.temp_address = report.temp_address
 
 
 def find_session_port(transport: Transport, host: str) -> str | None:

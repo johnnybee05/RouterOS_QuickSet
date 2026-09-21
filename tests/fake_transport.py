@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
+
 from mqs.generator.ir import Command
 from mqs.transport.base import (
     CommandError,
@@ -22,6 +25,8 @@ class FakeTransport:
         self.replies = replies or {}
         self.calls: list[tuple[str, dict]] = []
         self.commands: list[Command] = []
+        self.reply_timeouts: list[float] = []  # set while each command in `commands` ran
+        self._timeout: float | None = None
         self._connected = False
 
     @property
@@ -52,6 +57,15 @@ class FakeTransport:
     def file_reference(self, name: str) -> str:
         return name
 
+    @contextlib.contextmanager
+    def reply_timeout(self, seconds: float) -> Iterator[None]:
+        previous, self._timeout = self._timeout, seconds
+        try:
+            yield
+        finally:
+            self._timeout = previous
+
     def execute_command(self, command: Command) -> Reply:
         self.commands.append(command)
+        self.reply_timeouts.append(self._timeout or self.params.command_timeout)
         return []

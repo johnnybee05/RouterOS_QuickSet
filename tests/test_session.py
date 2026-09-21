@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network
 
 import pytest
@@ -9,15 +10,19 @@ import pytest
 from factories import FIVE_PORTS, make_inventory
 from fake_transport import FakeTransport
 from mqs.apply import session as session_mod
-from mqs.apply.plan import ApplyMode, ApplyOptions
+from mqs.apply.orchestrator import ApplyReport
+from mqs.apply.plan import ApplyMode, ApplyOptions, make_names
 from mqs.apply.session import (
     DeviceSession,
     LazyConsole,
     LazySsh,
+    TempAddressLeft,
     build_uploader_factory,
+    end_session,
     open_mac_session,
+    session_after_apply,
 )
-from mqs.transport.base import ConnectionParams, TransportError
+from mqs.transport.base import CommandError, ConnectionParams, TransportError
 from mqs.transport.factory import ConnectOutcome
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mactelnet.client import MacTelnetAuthError
@@ -147,4 +152,67 @@ def test_open_mac_session_keeps_the_way_back_to_the_console(method, host, expect
     assert session.params.host == expected_host
     assert session.mac_device is DEVICE and session.mac_local_address == "192.168.55.55"
     assert session.mac_method == method.value
+    assert session.temp_address == "192.168.55.254/24"
+
+
+def connected(session: DeviceSession) -> DeviceSession:
+    session.transport.connect()
+    return session
+
+
+def test_hanging_up_gives_the_lent_address_back():
+    """Nothing did before: after an import the device kept the address for good."""
+    session = connected(make_session(temp_address="192.168.55.254/24"))
+    end_session(session)
+    removed = session.transport.commands[0]
+    assert removed.path == "/ip address" and removed.verb == "remove"
+    assert removed.selector.get("address") == "192.168.55.254/24"
+    assert session.temp_address is None
+    assert not session.transport.connected
+
+
+def test_hanging_up_with_nothing_lent_only_closes():
+    session = connected(make_session())
+    end_session(session)
+    assert session.transport.commands == [] and not session.transport.connected
+
+
+class RefusingTransport(FakeTransport):
+    def execute_command(self, command):
+        raise CommandError("/ip/address/remove", "failure: not allowed")
+
+
+@pytest.mark.parametrize("still_connected", [True, False])
+def test_an_address_that_cannot_be_given_back_is_reported(still_connected):
+    session = DeviceSession(PARAMS, RefusingTransport(), make_inventory("7.20.7", FIVE_PORTS),
+                            temp_address="192.168.55.254/24")
+    if still_connected:
+        session.transport.connect()
+    with pytest.raises(TempAddressLeft) as err:
+        end_session(session)
+    assert err.value.address == "192.168.55.254/24"
+    assert session.temp_address == "192.168.55.254/24"
+    assert not session.transport.connected
+
+
+def report(transport, temp_address):
+    return ApplyReport(names=make_names(datetime(2026, 9, 21), False), transport=transport,
+                       temp_address=temp_address)
+
+
+def test_after_a_reset_the_session_carries_on_without_the_lent_address():
+    session = make_session(temp_address="192.168.55.254/24")
+    new = FakeTransport()
+    new.params = ConnectionParams(host="192.168.55.68", username="admin", password="N3w")
+    session_after_apply(session, report(new, None))
+    assert session.transport is new
+    assert session.params.password == "N3w"  # a later console login needs the new one
+    assert session.temp_address is None
+
+
+def test_after_an_import_the_lent_address_is_still_to_give_back():
+    session = make_session(temp_address="192.168.55.254/24")
+    transport = session.transport
+    session_after_apply(session, report(transport, "192.168.55.254/24"))
+    assert session.transport is transport and session.params is PARAMS
     assert session.temp_address == "192.168.55.254/24"

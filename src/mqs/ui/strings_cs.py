@@ -56,12 +56,16 @@ MAC_CONFIRM_TITLE = "Připojit přes MAC adresu"
 MAC_CONFIRM_TEXT = (
     "Zařízení {identity} (MAC {mac}) nemá použitelnou IP. Zkusí se IPv6 link-local; pokud "
     "neodpoví, přihlásím se přes MAC-Telnet a na rozhraní {interface} přidám dočasnou adresu "
-    "{address} (komentář mqs-temp), přes kterou se pak připojím.\n\nTato funkce nebyla ověřená "
-    "na skutečném zařízení. Pokračovat?"
+    "{address} (komentář mqs-temp), přes kterou se pak připojím. Při odpojení ji zase "
+    "odeberu.\n\nOvěřeno na RouterOS 7.20.7. Pokračovat?"
 )
 MAC_CONNECTED = "připojeno přes {method}"
-MAC_TEMP_ADDRESS = ("dočasná adresa na zařízení: {address} (komentář mqs-temp; reset ji smaže, "
-                    "jinak ji odeberte ručně)")
+MAC_TEMP_ADDRESS = ("dočasná adresa na zařízení: {address} (komentář mqs-temp; při odpojení ji "
+                    "odeberu, reset ji smaže sám)")
+MAC_RETURNING = "Odpojuji – odebírám dočasnou adresu {address}…"
+MAC_RETURNED = "Odpojeno – dočasná adresa {address} odebrána"
+MAC_NOT_RETURNED = ("Odpojeno, ale dočasná adresa {address} na zařízení zůstala. Odeberte ji "
+                    "ručně (IP → Addresses, komentář mqs-temp).")
 MAC_NO_INTERFACE = ("Nepodařilo se zjistit, přes kterou síťovou kartu je zařízení dostupné. "
                     "Spusťte vyhledávání znovu.")
 MAC_NO_ADDRESS = "V síti této karty není volná adresa, kterou by šlo dočasně přidělit."

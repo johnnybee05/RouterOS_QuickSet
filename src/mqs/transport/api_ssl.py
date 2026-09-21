@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import librouteros
@@ -134,6 +135,19 @@ class ApiSslTransport:
             self._tls_socket.settimeout(self.params.command_timeout)
         else:
             self._security = security
+
+    @contextlib.contextmanager
+    def reply_timeout(self, seconds: float) -> Iterator[None]:
+        self._set_timeout(seconds)
+        try:
+            yield
+        finally:
+            self._set_timeout(self.params.command_timeout)
+
+    def _set_timeout(self, seconds: float) -> None:
+        if self._tls_socket is not None:
+            with contextlib.suppress(OSError):  # closed meanwhile: nothing to wait on
+                self._tls_socket.settimeout(seconds)
 
     def close(self) -> None:
         if self._api is not None:

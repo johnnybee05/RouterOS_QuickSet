@@ -15,7 +15,7 @@ from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import BridgePortState
 from mqs.model.profile import DeviceProfile
 from mqs.transport.base import CommandError, Transport
-from mqs.transport.discovery import to_bool, to_optional_bool
+from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,8 @@ def verify_configuration(
     checks.append(CheckResult("verify.identity", identity == profile.identity,
                               {"expected": profile.identity, "actual": identity}))
 
-    device_services = {s["name"]: s for s in transport.execute("/ip/service/print") if "name" in s}
+    rows = configured_services(transport.execute("/ip/service/print"))
+    device_services = {s["name"]: s for s in rows if "name" in s}
     wrong = []
     for name, expected in sorted(result.access.services.items()):
         actual = device_services.get(name)

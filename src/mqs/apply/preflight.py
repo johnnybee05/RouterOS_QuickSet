@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface
 
-from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions
+from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result_for_mode
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import wan_port
 from mqs.generator.ir import Script
@@ -115,6 +115,7 @@ def preflight(
     session_port: str | None = None,
 ) -> list[Issue]:
     issues: list[Issue] = []
+    result = result_for_mode(result, options.mode)
     if has_errors([*validation, *result.issues]):
         issues.append(Issue("apply.blocked_by_errors", E))
     if options.mode == ApplyMode.GENERATE_ONLY:

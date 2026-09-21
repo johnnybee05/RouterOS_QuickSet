@@ -27,7 +27,9 @@ from mqs.apply.reconnect import (
 )
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
+from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.issues import codes
+from mqs.model.inventory import ServiceInfo
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import StaticWan
@@ -504,3 +506,32 @@ def test_one_transfer_connection_released_before_the_reset(tmp_path):
     assert "/system/reset-configuration" not in log_at_release[0], \
         "the reset was issued while a transfer connection was still open"
     assert report.succeeded
+
+
+def test_a_reset_is_checked_against_factory_services():
+    """The hardware run of 2026-09-21: ssh was off before the reset and, the script only
+    moving its port, rightly on afterwards - and the checklist reported it as wrong."""
+    router, orchestrator, _, reconnects = build(
+        ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik")
+    services = [ServiceInfo(name=name, port=port, disabled=name in ("ssh", "www-ssl"))
+                for name, port in DEFAULT_SERVICE_PORTS.items()]
+    ssh_off = make_inventory("7.15.3", PORTS, services=services)
+    orchestrator.ctx.result = generate(orchestrator.ctx.profile,
+                                       TargetContext.from_inventory(ssh_off))
+    # Factory defaults, then what the script switches off.
+    router.pending_import_effects["services_disabled"] = {"ftp", "telnet", "www", "api",
+                                                          "www-ssl"}
+    report = orchestrator.run()
+    check = next(c for c in report.checks if c.code == "verify.services")
+    assert check.ok, check.message
+    assert reconnects[0].ssh_port == 122
+
+
+@pytest.mark.parametrize(("mode", "left"), [
+    (ApplyMode.IMPORT, "192.168.55.254/24"),  # still there, to give back on hang-up
+    (ApplyMode.RESET_AND_IMPORT, None),  # the reset took it along
+])
+def test_the_report_says_whether_the_lent_address_survived(mode, left):
+    _, orchestrator, _, _ = build(mode, admin_password="N3w", confirmed_identity="MikroTik")
+    orchestrator.ctx.temp_address = "192.168.55.254/24"
+    assert orchestrator.run().temp_address == left

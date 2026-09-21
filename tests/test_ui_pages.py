@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
 from typing import ClassVar
@@ -121,7 +122,8 @@ class RecordingOrchestrator:
         names = make_names(self.ctx.now(), False)
         report = ApplyReport(names=names, transport=self.ctx.transport,
                              checks=[CheckResult("verify.identity", True,
-                                                 {"expected": "R", "actual": "R"})])
+                                                 {"expected": "R", "actual": "R"})],
+                             temp_address=self.ctx.temp_address)
         report.rollback_at = None if self.ctx.options.rollback_minutes is None else self.ctx.now()
         report.succeeded = True
         return report
@@ -141,6 +143,7 @@ def window(qtbot, tmp_path):
         connect_calls.append((params, choice, kwargs))
         if params.password == "wrong":
             raise AuthError("bad")
+        transport.connect()
         return ConnectOutcome(transport)
 
     mac_calls = []
@@ -148,6 +151,7 @@ def window(qtbot, tmp_path):
     def mac_connect_fn(device, params, address, interface, **kwargs):
         mac_calls.append({"device": device, "params": params, "address": address,
                           "interface": interface, **kwargs})
+        transport.connect()
         return MacConnectResult(
             ConnectOutcome(transport), MacConnectMethod.MAC_TELNET,
             temp_address=f"{address}/{interface.network.prefixlen}",
@@ -522,3 +526,62 @@ def test_close_window_cleans_up(window, qtbot):
     window.close()
     assert not window.test_transport.connected
     window.set_dark(True)
+
+
+def connect_by_mac(win, qtbot):
+    page = win.device_page
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    page.password.setText("pw")
+    win.test_dialogs.answers["question"] = True
+    page.connect_by_mac_clicked()
+    qtbot.waitUntil(lambda: page.session is not None and not win.runner.busy, timeout=5000)
+    return page
+
+
+def removals(win):
+    return [c for c in win.test_transport.commands if c.verb == "remove"]
+
+
+def test_disconnect_gives_the_lent_address_back(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    page.disconnect_device()
+    # Off the UI thread, and no new connection until it is done.
+    assert "odebírám" in page.connect_status.text()
+    assert not page.connect_button.isEnabled()
+    qtbot.waitUntil(lambda: not window.runner.busy and page.connect_button.isEnabled(),
+                    timeout=5000)
+    assert removals(window)[0].selector.get("address") == "192.168.88.253/24"
+    assert "odebrána" in page.connect_status.text()
+    assert not window.test_transport.connected
+    assert window.status_connection.text() == "Odpojeno"
+
+
+def test_an_address_left_behind_is_reported(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    window.test_transport.close()  # the connection died meanwhile
+    page.disconnect_device()
+    qtbot.waitUntil(lambda: not window.runner.busy and page.connect_button.isEnabled(),
+                    timeout=5000)
+    assert "zůstala" in page.connect_status.text()
+    assert "192.168.88.253/24" in page.connect_status.text()
+
+
+def test_after_a_reset_there_is_no_lent_address_to_give_back(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    new = FakeTransport({})
+    new.connect()
+    window.apply_page.applied.emit(ApplyReport(names=make_names(datetime(2026, 9, 21), False),
+                                               transport=new, temp_address=None))
+    assert page.session.transport is new and page.session.temp_address is None
+    assert "mqs-temp" not in page.connect_status.text()
+    page.disconnect_device()
+    assert page.connect_status.text() == "Odpojeno"
+    assert removals(window) == [] and not new.connected
+
+
+def test_closing_the_window_gives_the_lent_address_back(window, qtbot):
+    connect_by_mac(window, qtbot)
+    window.close()
+    assert removals(window) and not window.test_transport.connected

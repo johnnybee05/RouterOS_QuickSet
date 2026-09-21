@@ -23,7 +23,9 @@ DEFAULT_SERVICE_PORTS = {
     "winbox": 8291,
     "api-ssl": 8729,
 }
-# Offline assumption of services disabled by default; NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
+# Services disabled on a device without configuration: the baseline offline and right
+# after a reset. On 7.20.7 after `no-defaults` www-ssl was off and ssh, winbox and api-ssl
+# on; the other four and v6 NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 OFFLINE_DEFAULT_DISABLED = frozenset({"www-ssl"})
 _FIELD = "services.hardening_text"
 
@@ -88,6 +90,8 @@ def _targets(command: Command, states: dict[str, ServiceState]) -> list[str] | N
 def analyze_access(
     commands: Iterable[Command], device_services: Sequence[ServiceInfo] | None = None
 ) -> AccessReport:
+    """The /ip service state once ``commands`` ran on a device that has ``device_services``,
+    or on one without configuration (offline, or after a reset) when that is None."""
     states = _initial_states(device_services)
     issues: list[Issue] = []
     uncertain = False

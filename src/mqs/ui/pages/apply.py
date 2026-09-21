@@ -58,7 +58,7 @@ IDENTITY_CHECKED_IN_DIALOG = "apply.reset_identity_mismatch"
 
 
 class ApplyPage(Page):
-    sessionReplaced = Signal(object)
+    applied = Signal(object)  # ApplyReport, also of an aborted apply
 
     def __init__(
         self,
@@ -298,9 +298,7 @@ class ApplyPage(Page):
         for issue in report.issues:
             self.log_view.append_line(issue.message)
         self.confirm_button.setVisible(report.rollback_pending)
-        session = self.session_provider()
-        if session is not None and report.transport is not session.transport:
-            self.sessionReplaced.emit(report.transport)
+        self.applied.emit(report)
 
     def _finished(self, report: ApplyReport) -> None:
         self._show_report(report)

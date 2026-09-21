@@ -25,10 +25,13 @@ from mqs.apply.plan import ApplyMode, ApplyOptions, build_upload_script, make_na
 from mqs.apply.preflight import collect_existing, preflight
 from mqs.apply.session import (
     DeviceSession,
+    TempAddressLeft,
     build_apply_context,
+    end_session,
     open_mac_session,
     open_session,
     probe_summary,
+    session_after_apply,
 )
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
@@ -40,7 +43,7 @@ from mqs.paths import profiles_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import ConnectionParams, TransportError
 from mqs.transport.factory import TransportChoice
-from mqs.transport.mac_connect import local_interface_for, remove_temp_address
+from mqs.transport.mac_connect import TEMP_COMMENT, local_interface_for
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
 from mqs.transport.netifs import LocalInterface, list_ipv4_interfaces
 
@@ -215,14 +218,24 @@ def open_device(
     return connect_mac(device, params, address, interface, choice, on_step=on_step)
 
 
+def hang_up(session: DeviceSession, out: Any) -> None:
+    """Close the session, giving back the address lent to reach the device by MAC."""
+    address = session.temp_address
+    try:
+        end_session(session)
+    except TempAddressLeft as exc:
+        print(f"warning: {exc}; remove it by hand (comment {TEMP_COMMENT})", file=sys.stderr)
+        return
+    if address is not None:
+        print(f"  … temporary address {address} removed", file=out)
+
+
 def cmd_connect(args: argparse.Namespace, out: Any, **deps: Any) -> int:
     session = open_device(args, out, **deps)
-    describe_session(session, out)
-    if session.temp_address is not None:
-        # Only looking: give the address back rather than leave it on the device.
-        remove_temp_address(session.transport, session.temp_address)
-        print(f"  … temporary address {session.temp_address} removed", file=out)
-    session.transport.close()
+    try:
+        describe_session(session, out)
+    finally:
+        hang_up(session, out)
     return OK
 
 
@@ -255,6 +268,26 @@ def cmd_apply(
     profile = load_profile(args)
     options = build_options(args, mode)
     session = open_device(args, out, **deps)
+    try:
+        return _apply_to(session, profile, options, args, out,
+                         collect_existing_fn=collect_existing_fn,
+                         orchestrator_factory=orchestrator_factory, now=now)
+    finally:
+        hang_up(session, out)
+
+
+def _apply_to(
+    session: DeviceSession,
+    profile: DeviceProfile,
+    options: ApplyOptions,
+    args: argparse.Namespace,
+    out: Any,
+    *,
+    collect_existing_fn: Callable[..., Any],
+    orchestrator_factory: Callable[..., Any],
+    now: Callable[[], datetime],
+) -> int:
+    mode = options.mode
     describe_session(session, out)
 
     result = generate(profile, TargetContext.from_inventory(session.inventory, session.probes))
@@ -287,11 +320,13 @@ def cmd_apply(
     try:
         report: ApplyReport = orchestrator_factory(ctx).run()
     except ApplyAborted as exc:
+        session_after_apply(session, exc.report)
         print(f"aborted: {exc}", file=sys.stderr)
         return FAILED
     except TransportError as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return FAILED
+    session_after_apply(session, report)
 
     print("\nchecklist:", file=out)
     for check in report.checks:

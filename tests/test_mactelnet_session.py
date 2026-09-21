@@ -10,6 +10,7 @@ from fake_mactelnet_device import FakeChannel, FakeDevice
 from fake_transport import FakeTransport
 from mqs.transport.base import (
     AuthError,
+    CommandTimeout,
     ConnectionLost,
     ConnectionParams,
     ServiceUnavailable,
@@ -18,6 +19,7 @@ from mqs.transport.base import (
 )
 from mqs.transport.factory import ConnectFailed, ConnectOutcome
 from mqs.transport.mac_connect import (
+    REMOVAL_REPLY_S,
     TEMP_COMMENT,
     MacConnectMethod,
     bootstrap_interface,
@@ -299,20 +301,30 @@ def test_bootstrap_interface_targets_the_bridge_not_the_port():
     assert bootstrap_interface("") == "ether1"
 
 
-def test_remove_temp_address_tolerates_the_connection_dying():
-    """We remove the address we are connected through, so losing the session is success."""
+@pytest.mark.parametrize("silence", [
+    ConnectionLost("api-ssl timed out during /ip/address/remove"),
+    CommandTimeout("SSH command timed out: /ip address remove ..."),
+])
+def test_remove_temp_address_tolerates_the_connection_dying(silence):
+    """We remove the address we are connected through, so no answer is success: api-ssl
+    reports the silence as a lost connection, SSH as a command timeout."""
 
-    class DyingTransport:
-        def __init__(self):
-            self.tried = False
-
+    class DyingTransport(FakeTransport):
         def execute_command(self, command):
-            self.tried = True
-            raise ConnectionLost("api-ssl timed out during /ip/address/remove")
+            super().execute_command(command)
+            raise silence
 
     transport = DyingTransport()
     remove_temp_address(transport, "192.168.55.254/24")
-    assert transport.tried
+    assert transport.commands
+
+
+def test_remove_temp_address_does_not_wait_the_command_timeout():
+    """The answer cannot come, and waiting 30 s for it held a disconnect up (2026-09-21)."""
+    transport = FakeTransport({})
+    remove_temp_address(transport, "192.168.55.254/24")
+    assert transport.reply_timeouts == [REMOVAL_REPLY_S]
+    assert transport.params.command_timeout / 3 > REMOVAL_REPLY_S
 
 
 def test_prime_answers_the_licence_question():

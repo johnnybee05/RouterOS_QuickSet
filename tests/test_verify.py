@@ -129,3 +129,21 @@ def test_bridge_ap_profile_skips_address_and_offload_offline():
     checks, issues = verify_configuration(fake, profile, result)
     assert [c.code for c in checks] == ["verify.identity", "verify.services", "verify.bridge"]
     assert issues == []
+
+
+def test_an_open_connection_does_not_stand_in_for_its_service():
+    """7.20.7 lists every open connection as a dynamic /ip service row under the name of
+    its service, always enabled. Read by name, the last row won: here the connection
+    hid that api-ssl itself had been switched off."""
+    profile, result = setup()
+    rows = [dict(r) for r in device_after_apply().replies["/ip/service/print"]]
+    rows[-1]["disabled"] = "yes"  # api-ssl
+    rows.append({"name": "api-ssl", "port": "8729", "disabled": "no", "dynamic": "yes",
+                 "connection": "yes", "local": "192.168.55.68",
+                 "remote": "192.168.55.55:62681"})
+    rows.append({"_flags": "Dc", "name": "ssh", "port": "22", "local": "192.168.55.68",
+                 "remote": "192.168.55.55:61425"})  # the same row read over SSH
+    checks, _ = verify_configuration(device_after_apply(**{"/ip/service/print": rows}),
+                                     profile, result)
+    services = next(c for c in checks if c.code == "verify.services")
+    assert services.params["services"] == "api-ssl"

@@ -9,7 +9,8 @@ RouterOS CLI over SSH is not a normal shell, so this transport:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import paramiko
@@ -63,6 +64,7 @@ class SshTransport:
         self.params = params
         self._client_factory = client_factory
         self._client: Any = None
+        self._reply_timeout: float | None = None  # None: the command timeout
         self.host_key_fingerprint: str | None = None
 
     # ---------------------------------------------------------------- lifecycle
@@ -119,6 +121,14 @@ class SshTransport:
         if key is not None:
             self.host_key_fingerprint = key.get_fingerprint().hex(":")
 
+    @contextlib.contextmanager
+    def reply_timeout(self, seconds: float) -> Iterator[None]:
+        previous, self._reply_timeout = self._reply_timeout, seconds
+        try:
+            yield
+        finally:
+            self._reply_timeout = previous
+
     def close(self) -> None:
         if self._client is not None:
             self._client.close()
@@ -133,9 +143,10 @@ class SshTransport:
         if self._client is None:
             raise ConnectionLost("SSH transport is not connected")
         try:
-            _, stdout, stderr = self._client.exec_command(
-                line, timeout=self.params.command_timeout
-            )
+            timeout = self._reply_timeout
+            if timeout is None:
+                timeout = self.params.command_timeout
+            _, stdout, stderr = self._client.exec_command(line, timeout=timeout)
             output = stdout.read() + stderr.read()
         except TimeoutError as exc:
             raise CommandTimeout(f"SSH command timed out: {line}") from exc

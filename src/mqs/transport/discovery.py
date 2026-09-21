@@ -38,6 +38,17 @@ def to_bool(item: dict[str, str], key: str, flag: str | None = None) -> bool:
     return bool(flag and flag in item.get("_flags", ""))
 
 
+def configured_services(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The services themselves, without the rows 7.x lists among them.
+
+    7.20.7 prints the listeners of other features (resolver, dhcp, ntp, ...) and every
+    open connection as dynamic rows of /ip service, the connections under the name of
+    their service: `ssh port=122 local=... remote=...`. Read by name, such a row stood in
+    for the service it belongs to.
+    """
+    return [row for row in rows if not to_bool(row, "dynamic", "D")]
+
+
 def to_optional_bool(item: dict[str, str], key: str, flag: str | None = None) -> bool | None:
     if key in item:
         return item[key].lower() in _TRUE
@@ -119,7 +130,7 @@ def collect_inventory(
             address=s.get("address", ""),
             certificate="" if s.get("certificate") in (None, "none") else s["certificate"],
         )
-        for s in transport.execute("/ip/service/print")
+        for s in configured_services(transport.execute("/ip/service/print"))
     ]
     certificates = [c["name"] for c in (_optional(transport, "/certificate/print") or [])
                     if "name" in c]

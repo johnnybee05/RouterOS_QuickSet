@@ -44,8 +44,10 @@ def find_error(text: str) -> str | None:
     return None
 
 
+# A flag is one character standing alone, and may be lower case: 7.20.7 marks an open
+# connection in /ip service with "c" ("8 D c name=ssh ...").
 _TERSE_PREFIX_RE = re.compile(
-    r"^\s*(?P<index>\d+)\s+(?P<flags>(?:[A-Z*]\s*)*?)\s*(?=[a-z][\w.-]*=)"
+    r"^\s*(?P<index>\d+)\s+(?P<flags>(?:[A-Za-z*](?=\s)\s*)*?)\s*(?=[a-z][\w.-]*=)"
 )
 _TERSE_KEY_RE = re.compile(r"(?:^|\s)(?=[a-z][\w.-]*=)")
 

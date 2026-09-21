@@ -22,6 +22,7 @@ from ipaddress import IPv4Address
 
 from mqs.transport.base import (
     AuthError,
+    CommandTimeout,
     ConnectionLost,
     ConnectionParams,
     ServiceUnavailable,
@@ -44,6 +45,7 @@ from mqs.transport.netifs import (
 )
 
 TEMP_COMMENT = "mqs-temp"
+REMOVAL_REPLY_S = 5.0  # how long a removal may stay unanswered before it counts as done
 
 
 class MacConnectMethod(StrEnum):
@@ -193,22 +195,26 @@ def connect_by_mac(
 
 
 def remove_temp_address(transport: Transport, address: str) -> None:
-    """Remove the bootstrap management IP once we no longer need it (import mode).
+    """Give back the bootstrap management IP once we no longer need it.
 
-    Losing the connection here is the normal outcome rather than a failure: we are talking
-    to the device *through* this very address, so the moment RouterOS drops it our session
-    dies before the reply can come back. Verified on 7.20.7 - the address is gone, only the
-    answer never arrives.
+    No answer is the normal outcome rather than a failure: we are talking to the device
+    *through* this very address, so the moment RouterOS drops it the reply has nowhere to
+    come from. Verified on 7.20.7 - the address is gone, only the answer never arrives.
+    Waiting the whole command timeout for it held a disconnect up for 30 s (measured
+    2026-09-21), while a device that does not remove the address answers at once, so a
+    short silence already says it is gone.
     """
     from mqs.generator.ir import Find, cmd
 
-    with contextlib.suppress(ConnectionLost):
+    with (transport.reply_timeout(REMOVAL_REPLY_S),
+          contextlib.suppress(ConnectionLost, CommandTimeout)):
         transport.execute_command(
             cmd("/ip address", "remove", selector=Find.by(address=address, comment=TEMP_COMMENT))
         )
 
 
 __all__ = [
+    "REMOVAL_REPLY_S",
     "TEMP_COMMENT",
     "MacConnectMethod",
     "MacConnectResult",

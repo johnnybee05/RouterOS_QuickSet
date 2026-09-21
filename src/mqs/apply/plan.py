@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import MASKED_SECRET
-from mqs.generator.ir import Find, RawLine, cmd
+from mqs.generator.hardening.access import analyze_access
+from mqs.generator.ir import Find, RawLine, SectionKey, cmd
 from mqs.generator.render import render_inline
 
 SCRIPT_PREFIX = "quickset"
@@ -63,6 +65,22 @@ class ApplyNames:
     @property
     def export_file(self) -> str:
         return self.backup_name + ".rsc"
+
+
+def result_for_mode(result: GenerationResult, mode: ApplyMode) -> GenerationResult:
+    """``result`` with /ip service judged against the state ``mode`` starts from.
+
+    The generator measures the script against the services the device has now, which is
+    what an import changes. A reset puts them back to factory defaults first, so what the
+    device has now tells nothing about the result: on 2026-09-21 an ssh switched off
+    before a reset was "expected" off afterwards, and the checklist called a device that
+    was exactly right wrong. The same baseline gives the ports to reconnect on.
+    """
+    if mode != ApplyMode.RESET_AND_IMPORT:
+        return result
+    access = analyze_access(result.script.section(SectionKey.SERVICES).commands())
+    issues = tuple(i for i in result.issues if i not in result.access.issues)
+    return replace(result, access=access, issues=issues + access.issues)
 
 
 def make_names(now: datetime, has_flash_dir: bool) -> ApplyNames:

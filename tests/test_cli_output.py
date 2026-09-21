@@ -36,6 +36,20 @@ def test_parse_terse():
     assert len(items) == 3
 
 
+def test_parse_terse_lower_case_flags():
+    """Captured from `/ip service print terse` on a hEX S, 7.20.7: an open connection is
+    flagged "D c", and the lower-case flag used to throw index and flags away."""
+    text = (
+        " 7     name=ssh port=122 proto=tcp address= vrf=main max-sessions=20\n"
+        " 8 D c name=ssh port=122 proto=tcp local=192.168.55.68 remote=192.168.55.55:61425\n"
+        "11  X  name=www-ssl port=443 proto=tcp address= certificate=none tls-version=any\n"
+    )
+    items = parse_terse(text)
+    assert [(i["_index"], i["_flags"], i["name"]) for i in items] == [
+        ("7", "", "ssh"), ("8", "Dc", "ssh"), ("11", "X", "www-ssl")]
+    assert items[1]["remote"] == "192.168.55.55:61425"
+
+
 def test_parse_terse_without_index():
     assert parse_terse("name=switch1 type=RTL8367\n") == [{"name": "switch1", "type": "RTL8367"}]
     assert parse_terse("garbage line\n") == []

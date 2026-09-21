@@ -7,8 +7,10 @@ a transport session that drops when it should.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -139,6 +141,9 @@ class FakeRouter:
             return [{"name": n, "protocol-mode": m} for n, m in s.bridges.items()]
         if word == "/ip/address/print":
             return [{"address": a, "interface": i} for a, i in s.addresses]
+        if word == "/ip/address/remove":
+            s.addresses = [(a, i) for a, i in s.addresses if a != args.get("address")]
+            return []
         if word == "/interface/bridge/port/print":
             return [dict(p) for p in s.bridge_ports]
         raise CommandError(word, "bad command name")
@@ -204,6 +209,10 @@ class RouterSession:
     def file_reference(self, name: str) -> str:
         return name
 
+    @contextlib.contextmanager
+    def reply_timeout(self, seconds: float) -> Iterator[None]:
+        yield
+
     def execute_command(self, command: Command) -> Reply:
         if not self.alive:
             raise ConnectionLost("session gone")
@@ -211,6 +220,7 @@ class RouterSession:
         args: dict[str, object] = dict(command.args)
         if isinstance(command.selector, Find):
             args["names"] = [command.selector.get("name")]
+            args |= dict(command.selector.conditions)
         return self.router.handle(self, command.api_path + "/" + command.verb, args)  # type: ignore[arg-type]
 
 

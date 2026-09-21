@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from collections.abc import Callable
 from ipaddress import IPv4Address
@@ -26,11 +25,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.session import (
     DeviceSession,
     discover_session,
+    end_session,
     find_session_port,
     open_mac_session,
+    session_after_apply,
 )
 from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
@@ -113,6 +115,7 @@ class DevicePage(Page):
         self.propose_fn = propose_fn
         self.session: DeviceSession | None = None
         self._connect_token: CancelToken | None = None
+        self._returning = False  # giving a lent address back after a disconnect
         self._scanner: Any = None
         self._scan_ticks = 0
 
@@ -410,17 +413,7 @@ class DevicePage(Page):
     def _connected(self, session: DeviceSession) -> None:
         self._connect_token = None
         self.session = session
-        version = session.inventory.version
-        status = [f"{S.CONNECTED}: {session.params.host} ({session.transport.kind.value})"]
-        if session.mac_method is not None:
-            status.append(S.MAC_CONNECTED.format(method=session.mac_method))
-        if session.temp_address is not None:
-            status.append(S.MAC_TEMP_ADDRESS.format(address=session.temp_address))
-        if session.fell_back:
-            status.append(S.CONNECT_FELL_BACK)
-        if not is_supported_version(version):
-            status.append(S.CONNECT_UNSUPPORTED.format(version=version))
-        self.connect_status.setText("\n".join(status))
+        self._show_session(session)
         log.info("connected to %s via %s", session.params.host, session.transport.kind.value)
         self.controller.set_inventory(session.inventory, session.probes)
         self.sessionChanged.emit(session)
@@ -435,25 +428,60 @@ class DevicePage(Page):
             self.dialogs.error(self, message)
         self._update_buttons()
 
+    def _show_session(self, session: DeviceSession) -> None:
+        version = session.inventory.version
+        status = [f"{S.CONNECTED}: {session.params.host} ({session.transport.kind.value})"]
+        if session.mac_method is not None:
+            status.append(S.MAC_CONNECTED.format(method=session.mac_method))
+        if session.temp_address is not None:
+            status.append(S.MAC_TEMP_ADDRESS.format(address=session.temp_address))
+        if session.fell_back:
+            status.append(S.CONNECT_FELL_BACK)
+        if not is_supported_version(version):
+            status.append(S.CONNECT_UNSUPPORTED.format(version=version))
+        self.connect_status.setText("\n".join(status))
+
     def disconnect_device(self) -> None:
-        if self.session is not None:
-            with contextlib.suppress(OSError, TransportError):
-                self.session.transport.close()
-        self.session = None
-        self.connect_status.setText(S.DISCONNECTED)
+        session, self.session = self.session, None
         self.controller.set_inventory(None)
         self.sessionChanged.emit(None)
+        if session is not None and session.temp_address is not None:
+            # Off the UI thread: the removal waits a few seconds for an answer that cannot
+            # come, because the address it removes is the one the answer would come from.
+            address = session.temp_address
+            self._returning = True
+            self.connect_status.setText(S.MAC_RETURNING.format(address=address))
+            self.runner.start(
+                lambda token, report: end_session(session),
+                on_finished=lambda _: self._returned(S.MAC_RETURNED.format(address=address)),
+                on_failed=lambda exc: self._returned(
+                    S.MAC_NOT_RETURNED.format(address=address), exc),
+            )
+        else:
+            if session is not None:
+                end_session(session)  # nothing lent: this only closes the connection
+            self.connect_status.setText(S.DISCONNECTED)
         self._update_buttons()
 
-    def replace_transport(self, transport: Transport) -> None:
-        """After apply the session may run over a new connection (new SSH port, reboot)."""
-        if self.session is not None and transport is not self.session.transport:
-            self.session.transport = transport
-            self.sessionChanged.emit(self.session)
+    def _returned(self, text: str, exc: BaseException | None = None) -> None:
+        self._returning = False
+        if exc is not None:
+            log.warning("temporary address not given back: %s", exc)
+        self.connect_status.setText(text)
+        self._update_buttons()
+
+    def adopt_apply(self, report: ApplyReport) -> None:
+        """After apply the session may run over a new connection (new SSH port, reboot),
+        and a reset has taken the lent address with it."""
+        if self.session is None:
+            return
+        session_after_apply(self.session, report)
+        self._show_session(self.session)
+        self.sessionChanged.emit(self.session)
 
     def _update_buttons(self) -> None:
         connecting = self._connect_token is not None
-        idle = not connecting and self.session is None
+        idle = not connecting and self.session is None and not self._returning
         self.connect_button.setEnabled(idle)
         self.cancel_button.setEnabled(connecting)
         self.disconnect_button.setEnabled(self.session is not None)

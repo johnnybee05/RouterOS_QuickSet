@@ -9,6 +9,7 @@ from mqs.apply.plan import (
     ApplyOptions,
     build_upload_script,
     make_names,
+    result_for_mode,
 )
 from mqs.apply.preflight import ExistingObjects, collect_existing, find_collisions, preflight
 from mqs.apply.rollback import (
@@ -22,9 +23,11 @@ from mqs.apply.rollback import (
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
+from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.generator.render import render_inline
 from mqs.issues import codes, has_errors
 from mqs.messages_cs import MESSAGES
+from mqs.model.inventory import ServiceInfo
 from mqs.model.validation import validate_profile
 
 NOW = datetime(2026, 9, 15, 14, 5, 9)
@@ -181,6 +184,42 @@ def test_reset_checks():
     good = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity="MikroTik",
                         admin_password="x")
     assert not has_errors(preflight(profile, result, [], good, inventory))
+
+
+def device_with_ssh_off():
+    """A device whose owner switched ssh off, as the hEX S had been on 2026-09-21."""
+    services = [ServiceInfo(name=name, port=port, disabled=name in ("ssh", "www-ssl"))
+                for name, port in DEFAULT_SERVICE_PORTS.items()]
+    return make_inventory("7.20.7", FIVE_PORTS, services=services)
+
+
+def test_a_reset_is_judged_against_factory_services():
+    """A reset puts /ip service back to factory defaults before the script runs, so an
+    ssh switched off beforehand comes back on: the script only moves its port. Judged
+    against the device as it was, the checklist called the right result wrong."""
+    profile = router_profile(FIVE_PORTS, identity="R1")
+    result = generate(profile, TargetContext.from_inventory(device_with_ssh_off()))
+    assert result.access.services["ssh"].disabled  # an import does leave it off
+
+    reset = result_for_mode(result, ApplyMode.RESET_AND_IMPORT)
+    ssh = reset.access.services["ssh"]
+    assert not ssh.disabled and ssh.port == 122
+    assert reset.access.remaining == ("api-ssl", "ssh", "winbox")
+    assert "access.path_disabled" in codes(result.issues)
+    assert "access.path_disabled" not in codes(reset.issues)
+    assert reset.text == result.text
+    assert result_for_mode(result, ApplyMode.IMPORT) is result
+
+
+def test_preflight_of_a_reset_names_the_paths_the_reset_leaves():
+    profile = router_profile(FIVE_PORTS, identity="R1")
+    inventory = device_with_ssh_off()
+    result = generate(profile, TargetContext.from_inventory(inventory))
+    options = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity=inventory.identity,
+                           admin_password="x")
+    remaining = next(i for i in preflight(profile, result, [], options, inventory)
+                     if i.code == "apply.notice_remaining_paths")
+    assert remaining.params == {"count": 3, "paths": "api-ssl 8729, ssh 122, winbox 8291"}
 
 
 def test_rollback_minimum():

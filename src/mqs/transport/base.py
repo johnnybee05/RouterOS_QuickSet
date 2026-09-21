@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
@@ -130,6 +131,11 @@ class Transport(Protocol):
     def execute_command(self, command: Command) -> Reply: ...
 
     def file_reference(self, name: str) -> str: ...
+
+    def reply_timeout(self, seconds: float) -> AbstractContextManager[None]:
+        """Within the block, give up on a reply after ``seconds`` instead of the command
+        timeout: for the command whose answer cannot come back."""
+        ...
 
     def close(self) -> None: ...
 

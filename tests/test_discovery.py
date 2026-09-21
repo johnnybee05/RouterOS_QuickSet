@@ -178,3 +178,18 @@ def test_value_helpers():
     assert to_bytes("512KiB") == 512 * 1024
     assert to_bytes("123") == 123
     assert to_bytes("n/a") == 0 and to_bytes(None) == 0
+
+
+def test_dynamic_service_rows_are_not_services():
+    """7.20.7 lists other features' listeners and every open connection in /ip service."""
+    replies = rb4011_v7_api()
+    replies["/ip/service/print"] = [
+        *replies["/ip/service/print"],
+        {"name": "resolver", "port": "53", "disabled": "no", "dynamic": "yes"},
+        {"name": "api-ssl", "port": "8729", "disabled": "no", "dynamic": "yes",
+         "connection": "yes"},
+        {"_flags": "Dc", "name": "ssh", "port": "22"},
+    ]
+    inv = collect_inventory(FakeTransport(replies))
+    assert [(s.name, s.certificate) for s in inv.services] == [("ssh", ""),
+                                                               ("api-ssl", "api-cert")]
