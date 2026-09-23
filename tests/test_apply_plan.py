@@ -4,7 +4,7 @@ import pytest
 
 from factories import FIVE_PORTS, make_inventory, router_profile
 from fake_transport import FakeTransport
-from mqs.apply.adopt import ADOPT_KEYS, item_key
+from mqs.apply.adopt import ADOPT_KEYS, adopt_existing, item_key
 from mqs.apply.plan import (
     ApplyMode,
     ApplyOptions,
@@ -26,6 +26,7 @@ from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
 from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
+from mqs.generator.ir import Find
 from mqs.generator.render import render_inline
 from mqs.issues import Severity, codes, has_errors
 from mqs.messages_cs import MESSAGES
@@ -369,6 +370,47 @@ def test_collect_existing_from_transport():
     assert not existing.has("/ip pool", ("dhcp_pool",))  # a menu that failed to print
     assert existing.bridge_ports == {"ether2": "bridge"}
     assert collect_existing(FakeTransport({})).bridge_ports == {}
+
+
+def test_collect_existing_counts_our_nat_and_mangle_rules():
+    fake = FakeTransport({
+        "/ip/firewall/nat/print": [
+            {"comment": "quickset: masquerade to WAN", "chain": "srcnat"},
+            {"comment": "port forward to NAS", "chain": "dstnat"}],
+        "/ip/firewall/mangle/print": [
+            {"comment": "special dummy rule to show fasttrack counters", "dynamic": "true"},
+            {"comment": "quickset: clamp MSS to path MTU", "chain": "forward"}],
+    })
+    assert collect_existing(fake).own_rules == {"/ip firewall nat": 1,
+                                                "/ip firewall mangle": 1}
+    assert collect_existing(FakeTransport({})).own_rules == {}
+
+
+def test_import_removes_our_rules_the_profile_no_longer_adds():
+    # Seen on the hEX S: MSS clamping switched off, and the rule stayed after the import.
+    _, _, result = _setup()
+    assert result.script.find("/ip firewall nat", "add")  # the router profile masquerades
+    assert not result.script.find("/ip firewall mangle", "add")  # and does not clamp
+    existing = ExistingObjects(own_rules={"/ip firewall nat": 1, "/ip firewall mangle": 1})
+    options = ApplyOptions(ApplyMode.IMPORT)
+    changed = prepare_import(result, options, existing)
+    mangle = [c for c in changed.script.commands() if c.path == "/ip firewall mangle"]
+    assert [(c.verb, c.selector) for c in mangle] == [
+        ("remove", Find.matching("comment", "^quickset: "))]
+    assert '/ip firewall mangle\nremove [ find where comment~"^quickset: " ]' in changed.text
+    # NAT is still added, and the script replaces its rule by itself: not removed twice.
+    nat_removals = [c for c in changed.script.commands()
+                    if c.path == "/ip firewall nat" and c.verb == "remove"]
+    assert len(nat_removals) == 1
+    issues = adopt_existing(result, existing)[1]
+    assert [i.params for i in issues if i.code == "apply.own_rules_removed"] == [
+        {"table": "/ip firewall mangle", "count": 1}]
+    assert "{" not in issues[0].message
+
+    # A reset starts from nothing, and a table without our rules needs nothing.
+    assert prepare_import(result, ApplyOptions(ApplyMode.RESET_AND_IMPORT), existing) is result
+    assert prepare_import(result, options, ExistingObjects(
+        own_rules={"/ip firewall nat": 1})) is result
 
 
 def test_apply_messages_format():

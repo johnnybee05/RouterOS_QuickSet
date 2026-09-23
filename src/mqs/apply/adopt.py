@@ -8,17 +8,21 @@ and sent: an `add` of an object that exists becomes `set [ find <key> ] <the oth
 and one with nothing else to set is left out. The rewritten script is what the dry-run
 shows, and it needs no console scripting, so it also runs line by line over the API.
 
-The firewall block handles its own rules (they are replaced by their comment).
+The firewall block handles its own rules (they are replaced by their comment). A table
+the profile no longer adds to is not in the script at all, so the NAT and MSS clamping
+rules of an earlier run would stay; those are removed here when the device has them.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from ipaddress import IPv4Interface
 
 from mqs.generator.base import GenerationResult
-from mqs.generator.ir import Command, Find, Item, Script, Section
+from mqs.generator.blocks.firewall import MANGLE, NAT, OWN_REGEX, remove_own
+from mqs.generator.ir import Command, Comment, Find, Item, Script, Section, SectionKey
 from mqs.generator.render import render_script
 from mqs.issues import Issue, Severity
 from mqs.transport.base import CommandError, Transport
@@ -43,6 +47,9 @@ ADOPT_KEYS: dict[str, tuple[str, ...]] = {
     "/system ntp client servers": ("address",),
 }
 _ADDRESS_KEYS = {"address", "dst-address"}
+# Tables whose rules of an earlier run go once the profile adds nothing to them. The
+# filter is not among them: dropping its rules would open the router.
+OWN_RULE_TABLES = (NAT, MANGLE)
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,7 @@ class ExistingObjects:
 
     items: Mapping[str, frozenset[tuple[str, ...]]] = field(default_factory=dict)
     bridge_ports: Mapping[str, str] = field(default_factory=dict)  # interface -> bridge
+    own_rules: Mapping[str, int] = field(default_factory=dict)  # table -> our rules there
 
     def has(self, path: str, key: tuple[str, ...]) -> bool:
         return key in self.items.get(path, frozenset())
@@ -88,7 +96,16 @@ def collect_existing(transport: Transport) -> ExistingObjects:
         if path == "/interface bridge port":
             bridge_ports = {r["interface"]: r.get("bridge", "") for r in static
                             if "interface" in r}
-    return ExistingObjects(items=items, bridge_ports=bridge_ports)
+    own_rules: dict[str, int] = {}
+    for table in OWN_RULE_TABLES:
+        try:
+            rows = transport.execute(table.replace(" ", "/") + "/print")
+        except CommandError:
+            continue
+        count = sum(1 for r in rows if re.search(OWN_REGEX, r.get("comment", "")))
+        if count:
+            own_rules[table] = count
+    return ExistingObjects(items=items, bridge_ports=bridge_ports, own_rules=own_rules)
 
 
 def _adopt(command: Command, existing: ExistingObjects,
@@ -143,10 +160,30 @@ def adopt_existing(
             else:
                 items.append(item)
         sections.append(Section(section.key, items))
-    if not adopted:
-        return result, issues
-    issues.insert(0, Issue("apply.adopted", Severity.INFO, "",
-                           {"count": len(adopted), "items": ", ".join(adopted)}))
     script = Script(sections)
+    dropped = _drop_own_rules(result.script, existing, script, issues)
+    if not adopted and not dropped:
+        return result, issues
+    if adopted:
+        issues.insert(0, Issue("apply.adopted", Severity.INFO, "",
+                               {"count": len(adopted), "items": ", ".join(adopted)}))
     text = render_script(script, header=_header(result.text))
     return replace(result, script=script, text=text), issues
+
+
+def _drop_own_rules(generated: Script, existing: ExistingObjects, script: Script,
+                    issues: list[Issue]) -> bool:
+    """Remove our NAT / MSS clamping rules the profile no longer adds (switched off)."""
+    dropped = False
+    for table in OWN_RULE_TABLES:
+        count = existing.own_rules.get(table, 0)
+        if not count or generated.find(table, "add"):
+            continue  # nothing there, or the script replaces them itself
+        script.section(SectionKey.FIREWALL).add(
+            Comment("Rules of an earlier QuickSet run the profile no longer adds"),
+            remove_own(table),
+        )
+        issues.append(Issue("apply.own_rules_removed", Severity.INFO, "",
+                            {"table": table, "count": count}))
+        dropped = True
+    return dropped

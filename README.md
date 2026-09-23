@@ -75,7 +75,7 @@ v pořádku, nejde aplikovat.
 | Režim | Co se stane |
 |---|---|
 | Jen vygenerovat | skript se uloží do souboru, na síť se nesahá |
-| Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
+| Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Pravidla NAT a MSS clampingu z dřívějšího běhu odstraní, i když je profil už nepřidává (vypnutý masquerade nebo MSS clamping); cizí pravidla nechá být. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
 | Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
 | Reset + aplikovat, *Zachovat uživatele* | totéž s `keep-users=yes`: uživatelé, jejich hesla i SSH klíče reset přežijí. Nové heslo pro `admin` je nepovinné (prázdné ponechá současné) a aplikace se po resetu připojí pod stejným účtem, třeba uživatelem s klíčem. V CLI `--keep-users`. |
 
@@ -204,9 +204,10 @@ se po uplynutí času samo vrátí na zálohu.
 ## Omezení a známé nejistoty
 
 - Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
-- **Aplikace na běžící konfiguraci volby jen zapíná, nevypíná.** Když profil něco vypne
-  (VLAN filtering na bridge, MSS clamping, management podsíť), zůstane na zařízení stav
-  z dřívějška. Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
+- **Aplikace na běžící konfiguraci některé volby jen zapíná, nevypíná.** Když profil vypne
+  VLAN filtering na bridge nebo management podsíť, zůstane na zařízení stav z dřívějška;
+  totéž platí pro pravidla filtru, když profil vypne základní filtr i FastTrack zároveň.
+  Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
 - **Připojení přes MAC adresu** je ověřené na RouterOS 7.20.7 (16. 9. 2026), včetně
   přidání dočasné adresy a připojení přes ni. Pro RouterOS starší než 6.43 (přihlášení
   MD5) není MAC-Telnet implementovaný vůbec.
