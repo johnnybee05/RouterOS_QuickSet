@@ -17,11 +17,12 @@ from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.verify import CheckResult
-from mqs.model.bridge import FrameTypes, LanAddressing, ProtocolMode
+from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
+from mqs.model.inventory import Ipv6PackageState
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import AuthError, ConnectionParams
-from mqs.transport.factory import ConnectOutcome
+from mqs.transport.factory import ConnectOutcome, TransportChoice
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
 from mqs.transport.netifs import LocalInterface
@@ -351,6 +352,27 @@ def test_lan_page_locks_wan_and_shows_offload_conflict(window, qtbot):
     window.controller.recompute()
     assert window.controller.profile.bridge.protocol_mode == ProtocolMode.RSTP
     assert not page.switch_to_rstp.isVisibleTo(page)
+
+
+def test_enum_combos_store_enums_not_strings(window, qtbot):
+    """Qt returns StrEnum item data as a plain str; the check after apply then failed on
+    protocol_mode.value with AttributeError (bridge mode, hEX S, 2026-09-23)."""
+    page = window.lan_page
+    page.protocol.setCurrentIndex(page.protocol.findData(ProtocolMode.NONE))
+    page.frame_types.setCurrentIndex(page.frame_types.findData(FrameTypes.ADMIT_ONLY_VLAN_TAGGED))
+    page.offload_mode.setCurrentIndex(page.offload_mode.findData(HwOffloadMode.OFF))
+    page.addressing.setCurrentIndex(page.addressing.findData(LanAddressing.DHCP_CLIENT))
+    bridge, lan = window.controller.profile.bridge, window.controller.profile.lan
+    assert type(bridge.protocol_mode) is ProtocolMode and bridge.protocol_mode.value == "none"
+    assert type(bridge.frame_types) is FrameTypes
+    assert type(bridge.hw_offload) is HwOffloadMode and bridge.hw_offload == HwOffloadMode.OFF
+    assert type(lan.addressing) is LanAddressing
+
+    device = window.device_page
+    device.offline_ipv6.setCurrentIndex(device.offline_ipv6.findData(Ipv6PackageState.DISABLED))
+    assert type(window.controller.offline_ipv6) is Ipv6PackageState
+    connect(window, qtbot)
+    assert type(window.test_connect_calls[0][1]) is TransportChoice
 
 
 def test_lan_page_static_address_and_gateway(window):

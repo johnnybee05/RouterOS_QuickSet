@@ -282,7 +282,7 @@ class DevicePage(Page):
             self.controller.set_offline_target(
                 version=self.offline_version.currentText().strip(),
                 ports=split_list(self.offline_ports.text()),
-                ipv6=self.offline_ipv6.currentData(),
+                ipv6=Ipv6PackageState(self.offline_ipv6.currentData()),
             )
         except ValueError:
             return  # incomplete version while typing
@@ -362,7 +362,7 @@ class DevicePage(Page):
             return
         if self.registry is not None:
             self.registry.add(params.password)
-        choice = self.transport_choice.currentData()
+        choice = TransportChoice(self.transport_choice.currentData())
         api_port, ssh_port = self.api_port.value(), self.ssh_port.value()
         self.connect_status.setText(S.CONNECT_PROGRESS)
 
@@ -407,7 +407,7 @@ class DevicePage(Page):
         params = self.connection_params()
         if self.registry is not None:
             self.registry.add(params.password)
-        choice = self.transport_choice.currentData()
+        choice = TransportChoice(self.transport_choice.currentData())
         api_port, ssh_port = self.api_port.value(), self.ssh_port.value()
         self.connect_status.setText(S.CONNECT_PROGRESS)
 

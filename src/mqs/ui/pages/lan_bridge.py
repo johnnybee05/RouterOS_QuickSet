@@ -87,8 +87,9 @@ class LanBridgePage(Page):
         self.protocol = QComboBox()
         for mode in ProtocolMode:
             self.protocol.addItem(mode.value, mode)
-        self.protocol.currentIndexChanged.connect(
-            lambda _: self.push_value("bridge.protocol_mode", self.protocol.currentData()))
+        # Qt hands a StrEnum back as a plain str; the profile must hold the enum again.
+        self.protocol.currentIndexChanged.connect(lambda _: self.push_value(
+            "bridge.protocol_mode", ProtocolMode(self.protocol.currentData())))
         form.addRow(S.BRIDGE_PROTOCOL, self.protocol)
 
         self.priority = QLineEdit()
@@ -110,8 +111,8 @@ class LanBridgePage(Page):
         self.frame_types = QComboBox()
         for frame in FrameTypes:
             self.frame_types.addItem(frame.value, frame)
-        self.frame_types.currentIndexChanged.connect(
-            lambda _: self.push_value("bridge.frame_types", self.frame_types.currentData()))
+        self.frame_types.currentIndexChanged.connect(lambda _: self.push_value(
+            "bridge.frame_types", FrameTypes(self.frame_types.currentData())))
         vlan_row.addWidget(self.vlan_filtering)
         vlan_row.addWidget(QLabel(S.BRIDGE_PVID))
         vlan_row.addWidget(self.pvid)
@@ -139,8 +140,8 @@ class LanBridgePage(Page):
         self.offload_mode = QComboBox()
         for value, label in S.OFFLOAD_MODES.items():
             self.offload_mode.addItem(label, HwOffloadMode(value))
-        self.offload_mode.currentIndexChanged.connect(
-            lambda _: self.push_value("bridge.hw_offload", self.offload_mode.currentData()))
+        self.offload_mode.currentIndexChanged.connect(lambda _: self.push_value(
+            "bridge.hw_offload", HwOffloadMode(self.offload_mode.currentData())))
         layout.addWidget(self.offload_mode)
 
         conflict_row = QHBoxLayout()
@@ -196,7 +197,7 @@ class LanBridgePage(Page):
     def _addressing_changed(self, _index: int) -> None:
         if self._loading:
             return
-        addressing = self.addressing.currentData()
+        addressing = LanAddressing(self.addressing.currentData())
         self.push(lambda profile: profile.model_copy(
             update={"lan": profile.lan.with_addressing(addressing)}))
         # with_addressing can fill in an address and switch the DHCP server off; values
