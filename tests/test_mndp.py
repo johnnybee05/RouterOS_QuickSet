@@ -3,6 +3,7 @@ capture must still confirm the TLV codes (docs/DIALECT_NOTES.md, NUTNO OVĚŘIT)
 
 from __future__ import annotations
 
+import errno
 from ipaddress import IPv4Address, IPv4Network, IPv6Address
 
 import pytest
@@ -120,12 +121,14 @@ class Clock:
         return self.now
 
 
-def make_scanner(interfaces, fail=()):
+def make_scanner(interfaces, fail=(), unassigned=()):
     sockets: dict[str, FakeSocket] = {}
 
     def factory(address):
         if address in fail:
             raise OSError("address in use")
+        if address in unassigned:
+            raise OSError(errno.EADDRNOTAVAIL, "address not valid in this context")
         sockets[address] = FakeSocket(address)
         return sockets[address]
 
@@ -214,3 +217,16 @@ def test_scanner_wildcard_fallback_and_errors():
     dead.open()
     assert not dead.listening and len(dead.errors) == 2
     assert dead.poll(0.1) == []
+
+
+def test_scanner_skips_disconnected_adapters_quietly():
+    # Windows lists a tentative 169.254 address on an unplugged adapter; binding it fails.
+    unplugged = LocalInterface("Wi-Fi", IPv4Address("169.254.155.168"),
+                               IPv4Network("169.254.0.0/16"))
+    scanner, sockets, _ = make_scanner([unplugged, LAN], unassigned={"169.254.155.168"})
+    scanner.open()
+    assert set(sockets) == {"192.168.88.254"} and scanner.errors == []
+
+    alone, sockets, _ = make_scanner([unplugged], unassigned={"169.254.155.168"})
+    alone.open()
+    assert set(sockets) == {"0.0.0.0"} and alone.errors == []

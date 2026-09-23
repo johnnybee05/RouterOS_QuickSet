@@ -8,6 +8,7 @@ TLVs of 2 bytes type + 2 bytes length (big endian) + value. The type codes live 
 
 from __future__ import annotations
 
+import errno
 import select
 import socket
 import time
@@ -187,7 +188,10 @@ class MndpScanner:
             try:
                 self._sockets[self._socket_factory(str(iface.address))] = iface
             except OSError as exc:
-                self.errors.append(f"{iface.name} {iface.address}: {exc}")
+                # A disconnected adapter keeps a tentative 169.254 address that cannot be bound;
+                # there is nothing to hear on it, so it is no error worth showing.
+                if exc.errno != errno.EADDRNOTAVAIL:
+                    self.errors.append(f"{iface.name} {iface.address}: {exc}")
         if not self._sockets:
             try:
                 self._sockets[self._socket_factory("0.0.0.0")] = None
