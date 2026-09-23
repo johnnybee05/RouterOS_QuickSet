@@ -51,7 +51,9 @@ def preflight(
         if options.confirmed_identity != inventory.identity:
             issues.append(Issue("apply.reset_identity_mismatch", E, "",
                                 {"identity": inventory.identity}))
-        if not options.admin_password:
+        if options.keep_users:
+            issues.append(Issue("apply.reset_keep_users", INFO))
+        elif not options.admin_password:
             issues.append(Issue("apply.reset_password_required", E))
         if options.rollback_minutes is not None:
             issues.append(Issue("apply.rollback_ignored_reset", W))

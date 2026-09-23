@@ -19,6 +19,7 @@ from mqs.apply.orchestrator import (
     ApplyOrchestrator,
     StepStatus,
     keep_own_first,
+    reset_credentials,
 )
 from mqs.apply.plan import ROLLBACK_JOB, ApplyMode, ApplyOptions
 from mqs.apply.reconnect import (
@@ -235,6 +236,36 @@ def test_reset_flow_reconnects_as_admin_with_new_password():
     assert report.succeeded
     assert "quickset-20260915-100000.rsc" not in router.files  # removed by the script itself
     assert not report.rollback_pending
+    assert "keep-users" not in router.reset_args  # the verified command, unchanged
+
+
+def test_reset_keeping_users_reconnects_as_the_same_account():
+    router, orchestrator, _, reconnects = build(
+        ApplyMode.RESET_AND_IMPORT, keep_users=True, confirmed_identity="MikroTik")
+    router.state.admin_password = "Old"
+    orchestrator.transport.params = ConnectionParams(host="192.168.88.1", username="bee",
+                                                     key_filename="id_rsa")
+    report = orchestrator.run()
+    assert report.succeeded
+    assert router.reset_args["keep-users"] == "yes"
+    assert router.reset_args["no-defaults"] == "yes" and router.reset_args["skip-backup"] == "no"
+    assert router.state.admin_password == "Old"  # none given, so admin keeps its own
+    params = reconnects[0].params
+    assert (params.username, params.password, params.key_filename) == ("bee", "", "id_rsa")
+
+
+@pytest.mark.parametrize(("keep_users", "user", "given", "expected"), [
+    (False, "bee", "N3w", ("admin", "N3w", None)),  # a plain reset leaves admin alone
+    (True, "bee", "N3w", ("bee", "pw", "id_rsa")),  # bee is still there, key included
+    (True, "admin", "N3w", ("admin", "N3w", "id_rsa")),  # the script changes admin's
+    (True, "admin", "", ("admin", "pw", "id_rsa")),  # and leaves it without a new one
+])
+def test_who_logs_in_after_a_reset(keep_users, user, given, expected):
+    params = ConnectionParams(host="h", username=user, password="pw", key_filename="id_rsa")
+    options = ApplyOptions(ApplyMode.RESET_AND_IMPORT, keep_users=keep_users,
+                           admin_password=given)
+    after = reset_credentials(params, options)
+    assert (after.username, after.password, after.key_filename) == expected
 
 
 def test_import_error_with_rollback_pending_is_explained():

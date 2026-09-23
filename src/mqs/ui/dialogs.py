@@ -52,11 +52,13 @@ class DryRunDialog(QDialog):
 
 
 class ResetIdentityDialog(QDialog):
-    def __init__(self, parent: QWidget | None, identity: str) -> None:
+    def __init__(self, parent: QWidget | None, identity: str, *,
+                 keep_users: bool = False) -> None:
         super().__init__(parent)
         self.setWindowTitle(S.RESET_TITLE)
         layout = QVBoxLayout(self)
-        text = QLabel(S.RESET_TEXT.format(identity=identity))
+        users = S.RESET_USERS_KEPT if keep_users else S.RESET_USERS_DELETED
+        text = QLabel(S.RESET_TEXT.format(identity=identity, users=users))
         text.setWordWrap(True)
         text.setProperty("role", "danger")
         layout.addWidget(text)
@@ -111,8 +113,9 @@ class Dialogs:
                         issues: Sequence[Issue]) -> bool:
         return DryRunDialog(parent, script, issues).exec() == QDialog.DialogCode.Accepted
 
-    def ask_reset_identity(self, parent: QWidget | None, identity: str) -> str | None:
-        dialog = ResetIdentityDialog(parent, identity)
+    def ask_reset_identity(self, parent: QWidget | None, identity: str, *,
+                           keep_users: bool = False) -> str | None:
+        dialog = ResetIdentityDialog(parent, identity, keep_users=keep_users)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.input.text()

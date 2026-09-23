@@ -217,7 +217,13 @@ APPLY_DOWNLOAD = "Stáhnout zálohu a export do složky"
 APPLY_KEEP_BACKUPS = "Ponechat na zařízení posledních záloh"
 APPLY_KEEP_BACKUPS_ALL = "všechny"
 APPLY_RESET_DELAY = "Prodleva po startu [s]"
+APPLY_KEEP_USERS = "Zachovat uživatele (keep-users)"
+APPLY_KEEP_USERS_TIP = (
+    "Reset ponechá uživatele a jejich hesla. Aplikace se po resetu připojí pod stejným "
+    "účtem a heslo admina změní, jen pokud ho zadáte."
+)
 APPLY_ADMIN_PASSWORD = "Nové heslo uživatele admin (po resetu)"
+APPLY_ADMIN_PASSWORD_KEEP = "nepovinné – prázdné ponechá současné"
 APPLY_PREFLIGHT = "Kontroly před aplikací"
 APPLY_DRY_RUN = "Dry-run a aplikovat…"
 APPLY_BUTTON = "Aplikovat"
@@ -232,8 +238,10 @@ DIALECT_MISMATCH_CONFIRM = "Skript pro jinou hlavní verzi RouterOS aplikovat p�
 RESET_TITLE = "Reset konfigurace zařízení"
 RESET_TEXT = (
     "Zařízení {identity} se resetuje bez výchozí konfigurace, restartuje a po startu "
-    "naimportuje nahraný skript.\n\nPro potvrzení opište identity zařízení:"
+    "naimportuje nahraný skript. {users}\n\nPro potvrzení opište identity zařízení:"
 )
+RESET_USERS_DELETED = "Všichni uživatelé kromě admina budou smazáni."
+RESET_USERS_KEPT = "Uživatelé a jejich hesla zůstanou zachováni."
 
 # profiles
 MENU_PROFILE = "Profil"

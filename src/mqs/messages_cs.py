@@ -148,6 +148,8 @@ MESSAGES: dict[str, str] = {
     "apply.target_version_differs": "Skript je vygenerovaný pro {target}, zařízení má {device}.",
     "apply.reset_identity_mismatch": "Pro reset opište přesně identity zařízení: {identity}",
     "apply.reset_password_required": "Po resetu by admin neměl heslo – zadejte nové heslo.",
+    "apply.reset_keep_users": "Reset zachová uživatele a jejich hesla (keep-users), aplikace "
+    "se po něm připojí pod stejným účtem. Heslo admina se změní, jen pokud ho zadáte.",
     "apply.rollback_ignored_reset": "Rollback pojistka se u resetu nepoužije (reset smaže "
     "i naplánovanou úlohu).",
     "apply.rollback_too_short": "Rollback pojistka musí mít alespoň {minimum} minuty.",

@@ -12,6 +12,7 @@ from fake_router import FakeRouter, RouterUploader
 from fake_transport import FakeTransport
 from mqs import cli
 from mqs.apply.orchestrator import ApplyOrchestrator
+from mqs.apply.plan import ApplyMode
 from mqs.apply.session import DeviceSession
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
@@ -135,6 +136,19 @@ def test_reset_needs_the_right_identity(router, profile_file):
                     router=router)
     assert code == cli.BLOCKED
     assert "/system/reset-configuration" not in router.log
+
+
+def test_reset_keeping_users_asks_for_no_admin_password(router, profile_file, monkeypatch):
+    monkeypatch.delenv("MQS_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: pytest.fail(prompt))
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    args = cli.build_parser().parse_args(["apply", "--profile", "x", "--mode", "reset",
+                                          "--keep-users"])
+    options = cli.build_options(args, ApplyMode.RESET_AND_IMPORT)
+    assert options.keep_users and options.admin_password == ""
+    # --keep-users means nothing outside a reset.
+    args = cli.build_parser().parse_args(["apply", "--profile", "x", "--keep-users"])
+    assert not cli.build_options(args, ApplyMode.IMPORT).keep_users
 
 
 def test_host_is_required_for_a_real_mode(profile_file, capsys):

@@ -70,7 +70,8 @@ class FakeDialogs:
         self.dry_runs.append(script)
         return bool(self.answers.get("dry_run", True))
 
-    def ask_reset_identity(self, parent, identity):
+    def ask_reset_identity(self, parent, identity, *, keep_users=False):
+        self.reset_keep_users = keep_users
         return self.answers.get("identity", identity)
 
 
@@ -498,6 +499,24 @@ def test_reset_identity_must_match(window, qtbot):
     qtbot.waitUntil(lambda: bool(window.test_dialogs.errors) and not window.runner.busy,
                     timeout=5000)
     assert RecordingOrchestrator.instances == []
+
+
+def test_reset_keeping_users_needs_no_admin_password(window, qtbot):
+    connect(window, qtbot)
+    page = window.apply_page
+    assert not page.keep_users.isEnabled()  # import mode
+    page.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
+    assert page.keep_users.isEnabled() and not page.apply_button.isEnabled()  # no password
+    page.keep_users.setChecked(True)
+    assert page.apply_button.isEnabled() and page.admin_password.placeholderText()
+    page.start_apply()
+    qtbot.waitUntil(lambda: page.last_report is not None and not window.runner.busy,
+                    timeout=5000)
+    options = RecordingOrchestrator.instances[-1].ctx.options
+    assert options.keep_users and options.admin_password == ""
+    assert window.test_dialogs.reset_keep_users
+    page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
+    assert not page.options().keep_users  # never outside a reset
 
 
 def test_profiles_menu_roundtrip(window, tmp_path):

@@ -52,6 +52,7 @@ class FakeRouter:
         self.drop_on: set[str] = set()  # words that drop the session
         self.pending_import_effects: dict[str, object] = {}
         self.run_after_reset: str | None = None
+        self.reset_args: dict[str, str] = {}
         self.reset_refusals = 0  # how many times to answer "cannot use file" first
         self.offload_running = True
 
@@ -127,9 +128,13 @@ class FakeRouter:
                 self.reset_refusals -= 1
                 raise CommandError(word, "cannot use file")
             self.run_after_reset = args["run-after-reset"]
+            self.reset_args = dict(args)
             session.alive = False
             self.reboots += 1
+            kept_password = self.state.admin_password
             self.state = RouterState()
+            if args.get("keep-users") == "yes":
+                self.state.admin_password = kept_password
             self._run_after_reset(self.run_after_reset)
             raise ConnectionLost("rebooting")
         if word == "/system/identity/print":
@@ -155,7 +160,10 @@ class FakeRouter:
         if script is None:
             return
         self._apply_import()
-        self.state.admin_password = self.pending_import_effects.get("admin_password", "")
+        # The script sets admin's password only when it was given one.
+        password = self.pending_import_effects.get("admin_password", "")
+        if password:
+            self.state.admin_password = password
         self.files.pop(name or "", None)
 
     def _apply_import(self) -> None:

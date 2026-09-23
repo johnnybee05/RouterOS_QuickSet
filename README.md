@@ -77,6 +77,7 @@ v pořádku, nejde aplikovat.
 | Jen vygenerovat | skript se uloží do souboru, na síť se nesahá |
 | Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
 | Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
+| Reset + aplikovat, *Zachovat uživatele* | totéž s `keep-users=yes`: uživatelé, jejich hesla i SSH klíče reset přežijí. Nové heslo pro `admin` je nepovinné (prázdné ponechá současné) a aplikace se po resetu připojí pod stejným účtem, třeba uživatelem s klíčem. V CLI `--keep-users`. |
 
 Než aplikace cokoliv změní, vždy:
 

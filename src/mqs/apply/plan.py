@@ -39,6 +39,9 @@ class ApplyOptions:
     rollback_minutes: int | None = None  # opt-in safety net, IMPORT only
     reset_delay_s: int = DEFAULT_RESET_DELAY_S
     admin_password: str = field(default="", repr=False)  # RESET: new admin password
+    # RESET: `keep-users=yes`, the users and their passwords survive the reset, so the
+    # admin password becomes optional and the session's own account gets back in.
+    keep_users: bool = False
     download_dir: Path | None = None  # where to store the pre-apply backup and export
     import_timeout_s: float = 300.0
     reconnect_timeout_s: float = 300.0

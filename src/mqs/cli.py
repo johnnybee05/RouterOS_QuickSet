@@ -126,12 +126,16 @@ def print_issues(issues: Sequence[Issue], out: Any) -> None:
 
 
 def build_options(args: argparse.Namespace, mode: ApplyMode) -> ApplyOptions:
+    reset = mode == ApplyMode.RESET_AND_IMPORT
+    keep_users = reset and args.keep_users
     return ApplyOptions(
         mode=mode,
         rollback_minutes=args.rollback_minutes if mode == ApplyMode.IMPORT else None,
         reset_delay_s=args.reset_delay,
-        admin_password=_password(args.admin_password_env, "New admin password after reset: ")
-        if mode == ApplyMode.RESET_AND_IMPORT else "",
+        # With keep-users admin keeps its password unless the variable gives a new one.
+        admin_password=_password(args.admin_password_env, "New admin password after reset: ",
+                                 ask=not keep_users) if reset else "",
+        keep_users=keep_users,
         download_dir=Path(args.download_dir) if args.download_dir else None,
         confirm_dialect_mismatch=args.allow_dialect_mismatch,
         confirmed_identity=args.confirm_identity or "",
@@ -405,6 +409,10 @@ def build_parser() -> argparse.ArgumentParser:
                                 f"included (default {DEFAULT_KEEP_BACKUPS}; 0 keeps all)")
     apply_cmd.add_argument("--admin-password-env", default="MQS_ADMIN_PASSWORD", metavar="VAR",
                            help="environment variable with the new admin password (reset)")
+    apply_cmd.add_argument("--keep-users", action="store_true",
+                           help="reset with keep-users=yes: users and their passwords stay, "
+                           "the admin password is optional, and the apply reconnects as the "
+                           "same user")
     apply_cmd.add_argument("--confirm-identity", metavar="IDENTITY",
                            help="the device identity, required by reset")
     apply_cmd.add_argument("--allow-dialect-mismatch", action="store_true")

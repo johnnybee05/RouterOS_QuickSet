@@ -208,6 +208,11 @@ def test_reset_checks():
     good = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity="MikroTik",
                         admin_password="x")
     assert not has_errors(preflight(profile, result, [], good, inventory))
+    # Keeping the users keeps admin's password too, so a new one is optional.
+    kept = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity="MikroTik",
+                        keep_users=True)
+    issues = preflight(profile, result, [], kept, inventory)
+    assert not has_errors(issues) and "apply.reset_keep_users" in codes(issues)
 
 
 def device_with_ssh_off():

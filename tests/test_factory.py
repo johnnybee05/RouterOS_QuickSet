@@ -68,6 +68,24 @@ def test_auth_error_is_not_retried():
     assert len(log) == 1
 
 
+def test_a_key_account_refused_by_api_ssl_still_tries_ssh():
+    # api-ssl has no key login: bee with a key and no password is refused there, and that
+    # says nothing about the key. It made the reconnect after a keep-users reset give up.
+    keyed = ConnectionParams(host="192.168.88.1", username="bee", key_filename="id_rsa")
+    api, ssh, log = factories(api_error=AuthError("bad password"))
+    outcome = connect_transport(keyed, api_factory=api, ssh_factory=ssh, ssh_port=122)
+    assert outcome.transport.kind == TransportKind.SSH and len(log) == 2
+
+    # When SSH does not answer either, the refusal is the useful thing to report.
+    api, ssh, log = factories(api_error=AuthError("bad password"),
+                              ssh_error=ServiceUnavailable("closed"))
+    with pytest.raises(AuthError):
+        connect_transport(keyed, api_factory=api, ssh_factory=ssh)
+    api, ssh, log = factories(api_error=AuthError("bad password"))
+    with pytest.raises(AuthError):
+        connect_transport(keyed, TransportChoice.API_SSL, api_factory=api, ssh_factory=ssh)
+
+
 def test_explicit_choices_and_total_failure():
     api, ssh, log = factories(api_error=ServiceUnavailable("closed"))
     with pytest.raises(ConnectFailed) as err:

@@ -41,6 +41,7 @@ from mqs.transport.base import (
     Cancelled,
     CommandError,
     ConnectionLost,
+    ConnectionParams,
     Transport,
     TransportError,
 )
@@ -105,6 +106,21 @@ class ApplyAborted(Exception):
 
 
 Reconnector = Callable[[ReconnectTarget], Transport | MacConnectResult]
+
+
+def reset_credentials(params: ConnectionParams, options: ApplyOptions) -> ConnectionParams:
+    """Who logs in after a reset.
+
+    A plain reset leaves only admin, with the password the script sets. With keep-users
+    the account the session used is still there, key included, so it gets back in as
+    itself; only admin's own password changes, and only when a new one was given.
+    """
+    if not options.keep_users:
+        return replace(params, username="admin", password=options.admin_password,
+                       key_filename=None)
+    if params.username == "admin" and options.admin_password:
+        return replace(params, password=options.admin_password)
+    return params
 
 
 def keep_own_first(transport: Transport, item: KeepOwnFirst) -> None:
@@ -319,12 +335,13 @@ class ApplyOrchestrator:
         it is the wait that matters and not the size. A refused reset changes nothing on
         the device, which is what makes simply asking again the right answer to the jitter.
         """
+        keep: dict[str, bool] = {"keep_users": True} if self.ctx.options.keep_users else {}
         for attempt in range(1, RESET_ARM_ATTEMPTS + 1):
             self.ctx.sleep(RESET_SETTLE_S)
             try:
                 # The API wants the file's .id here, the console wants its name.
                 self.transport.execute("/system/reset-configuration", no_defaults=True,
-                                       skip_backup=False,
+                                       skip_backup=False, **keep,
                                        run_after_reset=self.transport.file_reference(file))
                 return
             except CommandError as exc:
@@ -352,7 +369,7 @@ class ApplyOrchestrator:
         params = self.transport.params
         expiring: tuple[str, ...] = ()
         if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
-            params = replace(params, username="admin", password=self.ctx.options.admin_password)
+            params = reset_credentials(params, self.ctx.options)
             # A reset takes every address with it, including the temporary one that
             # connect-by-MAC added to reach the device - the very one we are talking to.
             expiring = (self.ctx.temp_address,) if self.ctx.temp_address else ()

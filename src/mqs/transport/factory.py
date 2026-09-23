@@ -63,8 +63,13 @@ def connect_transport(
     ssh_factory: Callable[[ConnectionParams], Any] = SshTransport,
     cancelled: Callable[[], bool] = lambda: False,
 ) -> ConnectOutcome:
-    """Connect with the chosen transport. Authentication errors are never retried on another
-    transport (same credentials), unreachable services are."""
+    """Connect with the chosen transport. Authentication errors are not retried on another
+    transport with the same credentials, unreachable services are.
+
+    With an SSH key the credentials are not the same: api-ssl has no key login and gets
+    only the password, which a key-only account may not even have. A refusal there then
+    still leaves SSH to try, and is what gets raised if SSH does not answer either.
+    """
     plan: list[tuple[TransportKind, Callable[[ConnectionParams], Any], int | None]] = []
     if choice in (TransportChoice.AUTO, TransportChoice.API_SSL):
         plan.append((TransportKind.API_SSL, api_factory, api_port))
@@ -72,17 +77,24 @@ def connect_transport(
         plan.append((TransportKind.SSH, ssh_factory, ssh_port))
 
     attempts: list[ConnectAttempt] = []
+    refused: AuthError | None = None
     for kind, factory, port in plan:
         if cancelled():
             raise Cancelled("connect cancelled")
         transport = factory(replace(params, port=port))
         try:
             transport.connect()
-        except AuthError:
-            raise
+        except AuthError as exc:
+            if kind != TransportKind.API_SSL or not params.key_filename:
+                raise
+            attempts.append(ConnectAttempt(kind, transport.port, str(exc)))
+            refused = exc
+            continue
         except (ServiceUnavailable, ConnectTimeout) as exc:
             attempts.append(ConnectAttempt(kind, transport.port, str(exc)))
             continue
         attempts.append(ConnectAttempt(kind, transport.port))
         return ConnectOutcome(transport, attempts)
+    if refused is not None:
+        raise refused
     raise ConnectFailed(attempts)

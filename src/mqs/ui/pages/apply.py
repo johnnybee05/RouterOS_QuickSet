@@ -176,6 +176,10 @@ class ApplyPage(Page):
         self.reset_delay.setRange(0, 300)
         self.reset_delay.setValue(15)
         form.addRow(S.APPLY_RESET_DELAY, self.reset_delay)
+        self.keep_users = QCheckBox(S.APPLY_KEEP_USERS)
+        self.keep_users.setToolTip(S.APPLY_KEEP_USERS_TIP)
+        self.keep_users.toggled.connect(lambda _: self.refresh())
+        form.addRow(self.keep_users)
         self.admin_password = QLineEdit()
         self.admin_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.admin_password.textChanged.connect(lambda _: self.refresh())
@@ -196,6 +200,7 @@ class ApplyPage(Page):
             and mode == ApplyMode.IMPORT else None,
             reset_delay_s=self.reset_delay.value(),
             admin_password=self.admin_password.text(),
+            keep_users=self.keep_users.isChecked() and mode == ApplyMode.RESET_AND_IMPORT,
             download_dir=Path(self.download_dir.text()) if self.download.isChecked() else None,
             confirm_dialect_mismatch=self.dialect_confirm.isChecked(),
             confirmed_identity=confirmed_identity,
@@ -224,7 +229,10 @@ class ApplyPage(Page):
         mode = self.mode
         reset = mode == ApplyMode.RESET_AND_IMPORT
         self.reset_delay.setEnabled(reset)
+        self.keep_users.setEnabled(reset)
         self.admin_password.setEnabled(reset)
+        self.admin_password.setPlaceholderText(
+            S.APPLY_ADMIN_PASSWORD_KEEP if reset and self.keep_users.isChecked() else "")
         self.rollback.setEnabled(mode == ApplyMode.IMPORT)
         self.rollback_minutes.setEnabled(mode == ApplyMode.IMPORT)
         self.apply_button.setText(S.APPLY_SAVE_SCRIPT if mode == ApplyMode.GENERATE_ONLY
@@ -266,7 +274,8 @@ class ApplyPage(Page):
             self.refresh()
             return
         if options.mode == ApplyMode.RESET_AND_IMPORT:
-            typed = self.dialogs.ask_reset_identity(self, session.inventory.identity)
+            typed = self.dialogs.ask_reset_identity(self, session.inventory.identity,
+                                                    keep_users=options.keep_users)
             if typed is None:
                 self.refresh()
                 return
