@@ -165,7 +165,10 @@ MESSAGES: dict[str, str] = {
     "nebude mít IP adresu ani nebude v bridge.",
     "apply.adopted": "Na zařízení už je {count} položek, které skript přidává ({items}). "
     "Skript je místo přidání upraví (set), položky bez dalších parametrů vynechá.",
-    "apply.own_rules_removed": "Profil už nepřidává pravidla do {table}; skript odtud "
+    "apply.route_ambiguous": "Na zařízení je víc statických tras do {dst} (brány {gateways}). "
+    "Skript žádnou nezmění a přidá další přes {gateway}; zkontrolujte je, jinak může provoz "
+    "jít přes víc bran najednou.",
+    "apply.own_rules_removed":"Profil už nepřidává pravidla do {table}; skript odtud "
     "odstraní pravidla z dřívějšího běhu QuickSet (komentář „quickset: …“, počet {count}).",
     "apply.bridge_port_moved":"Port {port} je teď v bridge {old}; skript ho přesune do "
     "bridge {new}. Pokud přes něj vede spojení, na chvíli se přeruší.",

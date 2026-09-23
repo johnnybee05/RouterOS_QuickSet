@@ -1,4 +1,5 @@
 from datetime import datetime
+from ipaddress import IPv4Address, IPv4Interface
 
 import pytest
 
@@ -32,7 +33,7 @@ from mqs.issues import Severity, codes, has_errors
 from mqs.messages_cs import MESSAGES
 from mqs.model.inventory import ServiceInfo
 from mqs.model.validation import validate_profile
-from mqs.model.wan import PppoeWan
+from mqs.model.wan import PppoeWan, WanType
 
 NOW = datetime(2026, 9, 15, 14, 5, 9)
 
@@ -384,6 +385,41 @@ def test_collect_existing_counts_our_nat_and_mangle_rules():
     assert collect_existing(fake).own_rules == {"/ip firewall nat": 1,
                                                 "/ip firewall mangle": 1}
     assert collect_existing(FakeTransport({})).own_rules == {}
+
+
+def _static_wan_result(gateway: str):
+    profile = router_profile(FIVE_PORTS, identity="R1")
+    wan = profile.wan.with_type(WanType.STATIC)
+    wan = wan.model_copy(update={"settings": wan.settings.model_copy(update={
+        "address": IPv4Interface("192.0.2.2/24"), "gateway": IPv4Address(gateway)})})
+    return _setup(profile=profile.model_copy(update={"wan": wan}))[2]
+
+
+def test_import_moves_a_route_to_the_new_gateway():
+    # On the hEX S the add left the old default route too: two of them, both active.
+    result = _static_wan_result("192.0.2.9")
+    options = ApplyOptions(ApplyMode.IMPORT)
+    existing = ExistingObjects({"/ip route": frozenset({("0.0.0.0/0", "192.0.2.1")})})
+    text = prepare_import(result, options, existing).text
+    assert ('/ip route\nset [ find dst-address="0.0.0.0/0" gateway="192.0.2.1" dynamic=no ] '
+            'gateway=192.0.2.9') in text
+    assert "add dst-address=0.0.0.0/0" not in text
+    adopted = next(i for i in adopt_existing(result, existing)[1] if i.code == "apply.adopted")
+    assert "/ip route 0.0.0.0/0 192.0.2.1 → 192.0.2.9" in adopted.params["items"]
+
+    # The same gateway: nothing to do. Several routes (failover): not ours to pick one.
+    same = ExistingObjects({"/ip route": frozenset({("0.0.0.0/0", "192.0.2.9")})})
+    assert "/ip route" not in prepare_import(result, options, same).text.split("---- FIREWALL")[0]
+    pair = ExistingObjects({"/ip route": frozenset({("0.0.0.0/0", "192.0.2.1"),
+                                                   ("0.0.0.0/0", "192.0.2.5")})})
+    assert "add dst-address=0.0.0.0/0 gateway=192.0.2.9" in prepare_import(
+        result, options, pair).text
+    warning = next(i for i in adopt_existing(result, pair)[1]
+                   if i.code == "apply.route_ambiguous")
+    assert warning.severity == Severity.WARNING
+    assert warning.params == {"dst": "0.0.0.0/0", "gateway": "192.0.2.9",
+                              "gateways": "192.0.2.1, 192.0.2.5"}
+    assert "{" not in warning.message
 
 
 def test_import_removes_our_rules_the_profile_no_longer_adds():

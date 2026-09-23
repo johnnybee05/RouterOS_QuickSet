@@ -47,6 +47,7 @@ ADOPT_KEYS: dict[str, tuple[str, ...]] = {
     "/system ntp client servers": ("address",),
 }
 _ADDRESS_KEYS = {"address", "dst-address"}
+ROUTE = "/ip route"
 # Tables whose rules of an earlier run go once the profile adds nothing to them. The
 # filter is not among them: dropping its rules would open the router.
 OWN_RULE_TABLES = (NAT, MANGLE)
@@ -108,13 +109,44 @@ def collect_existing(transport: Transport) -> ExistingObjects:
     return ExistingObjects(items=items, bridge_ports=bridge_ports, own_rules=own_rules)
 
 
+def _adopt_route(command: Command, args: dict[str, str], existing: ExistingObjects,
+                 adopted: list[str], issues: list[Issue]) -> Command:
+    """A static route to the same destination through another gateway: move it over.
+
+    Adding the new one left both. Two static default routes of the same distance are
+    ECMP, and on the hEX S (2026-09-23) the device then sent half of its traffic to the
+    old gateway. With several routes to the destination (a failover pair) it is not ours
+    to pick one, so they are left alone and the preflight says so.
+    """
+    destination = _normalise("dst-address", args["dst-address"])
+    others = sorted(k for k in existing.items.get(ROUTE, ()) if k[0] == destination)
+    if not others:
+        return command
+    if len(others) > 1:
+        issues.append(Issue("apply.route_ambiguous", Severity.WARNING, "", {
+            "dst": destination, "gateway": args["gateway"],
+            "gateways": ", ".join(gateway for _, gateway in others)}))
+        return command
+    old_gateway = others[0][1]
+    adopted.append(f"{ROUTE} {destination} {old_gateway} → {args['gateway']}")
+    # dynamic=no: a DHCP or PPPoE client may hold a route to the same place.
+    selector = Find.by({"dst-address": args["dst-address"], "gateway": old_gateway,
+                        "dynamic": "no"})
+    rest = {k: v for k, v in args.items() if k != "dst-address"}
+    return Command(command.path, "set", tuple(rest.items()), selector)
+
+
 def _adopt(command: Command, existing: ExistingObjects,
            adopted: list[str], issues: list[Issue]) -> Command | None:
     if command.verb != "add" or command.path not in ADOPT_KEYS:
         return command
     args = dict(command.args)
     key = item_key(command.path, args)
-    if key is None or not existing.has(command.path, key):
+    if key is None:
+        return command
+    if not existing.has(command.path, key):
+        if command.path == ROUTE:
+            return _adopt_route(command, args, existing, adopted, issues)
         return command
     names = ADOPT_KEYS[command.path]
     adopted.append(f"{command.path} {' '.join(key)}")
