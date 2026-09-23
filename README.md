@@ -208,6 +208,9 @@ se po uplynutí času samo vrátí na zálohu.
   VLAN filtering na bridge nebo management podsíť, zůstane na zařízení stav z dřívějška;
   totéž platí pro pravidla filtru, když profil vypne základní filtr i FastTrack zároveň.
   Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
+- **Změnu režimu (router ↔ bridge) dělejte resetem.** Import bridge profilu na routeru
+  funguje, ale nechá po routeru prázdný původní bridge s LAN adresou, DHCP serverem a
+  poolem, seznam WAN a zapnuté `allow-remote-requests` (DNS resolver pro celou LAN).
 - **Připojení přes MAC adresu** je ověřené na RouterOS 7.20.7 (16. 9. 2026), včetně
   přidání dočasné adresy a připojení přes ni. Pro RouterOS starší než 6.43 (přihlášení
   MD5) není MAC-Telnet implementovaný vůbec.
