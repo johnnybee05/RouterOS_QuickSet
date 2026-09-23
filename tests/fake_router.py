@@ -38,6 +38,8 @@ class RouterState:
     bridge_ports: list[dict[str, str]] = field(default_factory=list)
     scheduler: dict[str, dict[str, str]] = field(default_factory=dict)
     admin_password: str = ""
+    dhcp_clients: list[str] = field(default_factory=list)  # interfaces
+    default_gateways: list[str] = field(default_factory=list)  # static default routes
 
 
 class FakeRouter:
@@ -153,6 +155,11 @@ class FakeRouter:
             return []
         if word == "/interface/bridge/port/print":
             return [dict(p) for p in s.bridge_ports]
+        if word == "/ip/dhcp-client/print":
+            return [{"interface": i, "disabled": "no", "status": "bound"} for i in s.dhcp_clients]
+        if word == "/ip/route/print":
+            return [{"dst-address": "0.0.0.0/0", "gateway": g, "dynamic": "no"}
+                    for g in s.default_gateways]
         raise CommandError(word, "bad command name")
 
     def _run_after_reset(self, name: str | None) -> None:
@@ -174,6 +181,8 @@ class FakeRouter:
         s.services_disabled = set(effects.get("services_disabled", s.services_disabled))
         s.bridges = dict(effects.get("bridges", s.bridges))
         s.addresses = list(effects.get("addresses", s.addresses))
+        s.dhcp_clients = list(effects.get("dhcp_clients", s.dhcp_clients))
+        s.default_gateways = list(effects.get("default_gateways", s.default_gateways))
         s.bridge_ports = [
             {"interface": p, "bridge": "bridge", "hw": "yes",
              "hw-offload": "yes" if self.offload_running else "no"}

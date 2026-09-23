@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from mqs.apply.adopt import ExistingObjects, adopt_existing, collect_existing
 from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result_for_mode
+from mqs.apply.reconnect import address_after_apply
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.common import wan_l3_interface, wan_port
+from mqs.generator.blocks.common import WAN_LIST, wan_l3_interface, wan_port
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
@@ -71,9 +72,52 @@ def preflight(
 
     if options.mode == ApplyMode.IMPORT:
         issues.extend(adopt_existing(result, existing)[1])
+        if existing is not None:
+            issues.extend(_mode_change(profile, existing))
+            issues.extend(_session_port_to_bridge(profile, existing, session_port))
 
     issues.extend(_notices(result))
     return issues
+
+
+def _mode_change(profile: DeviceProfile, existing: ExistingObjects) -> list[Issue]:
+    """An import that turns a bridge into a router, or a router into a bridge.
+
+    An import only adds and changes: nothing takes a port out of a bridge, and nothing
+    undoes the router around a port that joins one (verified on the hEX S, 2026-09-23).
+    """
+    issues: list[Issue] = []
+    port = wan_port(profile)
+    if port is not None and port in existing.bridge_ports:
+        # The WAN address would sit on a bridge port, where it does not work.
+        issues.append(Issue("apply.import_wan_port_bridged", E, "wan.interface",
+                            {"port": port, "bridge": existing.bridge_ports[port]}))
+    device_wan = sorted(interface for list_name, interface
+                        in existing.items.get("/interface list member", ())
+                        if list_name == WAN_LIST)
+    if port is None and device_wan:
+        issues.append(Issue("apply.import_router_to_bridge", W, "wan.enabled",
+                            {"ports": ", ".join(device_wan)}))
+    return issues
+
+
+def _session_port_to_bridge(profile: DeviceProfile, existing: ExistingObjects,
+                            session_port: str | None) -> list[Issue]:
+    """The port this session comes in on joins a bridge: its address stops working.
+
+    The script moves a known LAN address to the bridge a section later. On the hEX S the
+    import ran through that gap over the very session (2026-09-23); without a known
+    address nothing brings the session back.
+    """
+    if (session_port is None or session_port not in profile.bridge.ports
+            or session_port in existing.bridge_ports):
+        return []
+    params = {"port": session_port, "bridge": profile.bridge.name}
+    address = address_after_apply(profile, session_port)
+    if address is None:
+        return [Issue("apply.session_port_to_bridge_no_address", W, "bridge.ports", params)]
+    return [Issue("apply.session_port_to_bridge", W, "bridge.ports",
+                  {**params, "address": address})]
 
 
 def prepare_import(result: GenerationResult, options: ApplyOptions,

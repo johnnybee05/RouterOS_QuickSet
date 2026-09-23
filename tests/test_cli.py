@@ -52,6 +52,7 @@ def router(profile):
         "bridges": {"bridge": "rstp"},
         "addresses": [("192.168.88.1/24", "bridge")],
         "ports": profile.bridge.ports,
+        "dhcp_clients": ["ether1"],  # the router preset takes its WAN address by DHCP
         "admin_password": "",
     }
     return router

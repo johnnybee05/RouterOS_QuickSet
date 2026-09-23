@@ -89,7 +89,9 @@ Než aplikace cokoliv změní, vždy:
   sebe, takže se nemůže opakovat.
 
 Po aplikaci se aplikace sama přepojí (SSH je nově na portu 122) a ukáže checklist
-OK/CHYBA: identity, služby, bridge, adresa a skutečný stav HW offloadu.
+OK/CHYBA: identity, služby, bridge, adresa, výchozí trasa (statické výchozí trasy musí být
+přesně ty z profilu), DHCP klient (zapsaný a zapnutý, stav jen pro informaci) a skutečný
+stav HW offloadu.
 
 Každá aplikace nechá na zařízení jednu zálohu, takže aplikace po ověření smaže starší
 zálohy `pre-quickset-*` a ponechá jen posledních N (výchozí 3, v CLI `--keep-backups`,
@@ -210,7 +212,12 @@ se po uplynutí času samo vrátí na zálohu.
   Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
 - **Změnu režimu (router ↔ bridge) dělejte resetem.** Import bridge profilu na routeru
   funguje, ale nechá po routeru prázdný původní bridge s LAN adresou, DHCP serverem a
-  poolem, seznam WAN a zapnuté `allow-remote-requests` (DNS resolver pro celou LAN).
+  poolem, seznam WAN a zapnuté `allow-remote-requests` (DNS resolver pro celou LAN);
+  kontrola před aplikací na to upozorní. Import router profilu na zařízení, kde je WAN port
+  v bridge, je zablokovaný: import port z bridge nevyjme a WAN by nefungoval.
+- Když import přidá do bridge port, přes který je aplikace připojená, spojení se na chvíli
+  přeruší, než skript přesune adresu na bridge; kontrola před aplikací na to upozorní, a
+  pokud profil na bridge pevnou adresu nedává, doporučí připojit se potom přes MAC.
 - **Připojení přes MAC adresu** je ověřené na RouterOS 7.20.7 (16. 9. 2026), včetně
   přidání dočasné adresy a připojení přes ni. Pro RouterOS starší než 6.43 (přihlášení
   MD5) není MAC-Telnet implementovaný vůbec.

@@ -31,7 +31,10 @@ from mqs.generator.ir import Find
 from mqs.generator.render import render_inline
 from mqs.issues import Severity, codes, has_errors
 from mqs.messages_cs import MESSAGES
+from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import ServiceInfo
+from mqs.model.presets import apply_preset
+from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.validation import validate_profile
 from mqs.model.wan import PppoeWan, WanType
 
@@ -420,6 +423,71 @@ def test_import_moves_a_route_to_the_new_gateway():
     assert warning.params == {"dst": "0.0.0.0/0", "gateway": "192.0.2.9",
                               "gateways": "192.0.2.1, 192.0.2.5"}
     assert "{" not in warning.message
+
+
+def _bridge_profile(addressing=LanAddressing.STATIC):
+    profile = apply_preset(DeviceProfile(identity="AP1"), Mode.BRIDGE_AP, FIVE_PORTS)
+    if addressing == LanAddressing.STATIC:
+        lan = profile.lan.with_addressing(LanAddressing.STATIC).model_copy(
+            update={"address": IPv4Interface("192.168.55.68/24")})
+        profile = profile.model_copy(update={"lan": lan})
+    return profile
+
+
+def test_import_cannot_turn_a_bridge_into_a_router():
+    # The WAN address would sit on a bridge port: nothing takes the port out of the bridge.
+    profile, inventory, result = _setup()
+    existing = ExistingObjects(bridge_ports={"ether1": "br-ap", "ether2": "br-ap"})
+    issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+                       existing=existing)
+    blocked = next(i for i in issues if i.code == "apply.import_wan_port_bridged")
+    assert blocked.severity == Severity.ERROR
+    assert blocked.params == {"port": "ether1", "bridge": "br-ap"}
+    assert "{" not in blocked.message
+    # A reset starts from nothing and is not concerned.
+    reset = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity=inventory.identity,
+                         keep_users=True)
+    assert "apply.import_wan_port_bridged" not in codes(
+        preflight(profile, result, [], reset, inventory, existing=existing))
+
+
+def test_import_warns_when_a_router_becomes_a_bridge():
+    profile = _bridge_profile()
+    _, inventory, result = _setup(profile=profile)
+    existing = ExistingObjects({"/interface list member": frozenset({
+        ("WAN", "ether1"), ("LAN", "bridge")})})
+    issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+                       existing=existing)
+    warning = next(i for i in issues if i.code == "apply.import_router_to_bridge")
+    assert warning.severity == Severity.WARNING and warning.params == {"ports": "ether1"}
+    assert not has_errors(issues)
+    # Unknown until the device has been read: the window's live preflight says nothing.
+    assert "apply.import_router_to_bridge" not in codes(
+        preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory))
+
+
+def test_import_warns_when_the_session_port_joins_the_bridge():
+    # B0 on the hEX S: ether1 carried the session and its address, and joined the bridge.
+    profile = _bridge_profile()
+    _, inventory, result = _setup(profile=profile)
+    options = ApplyOptions(ApplyMode.IMPORT)
+    issues = preflight(profile, result, [], options, inventory,
+                       existing=ExistingObjects(), session_port="ether1")
+    moved = next(i for i in issues if i.code == "apply.session_port_to_bridge")
+    assert moved.params == {"port": "ether1", "bridge": "bridge", "address": "192.168.55.68"}
+    assert "{" not in moved.message
+
+    dhcp = _bridge_profile(LanAddressing.DHCP_CLIENT)
+    _, _, dhcp_result = _setup(profile=dhcp)
+    assert "apply.session_port_to_bridge_no_address" in codes(preflight(
+        dhcp, dhcp_result, [], options, inventory, existing=ExistingObjects(),
+        session_port="ether1"))
+    # Already a bridge port, or a port that stays out of the bridge: nothing changes for it.
+    for existing, port in ((ExistingObjects(bridge_ports={"ether1": "bridge"}), "ether1"),
+                           (ExistingObjects(), "ether9")):
+        assert not {"apply.session_port_to_bridge", "apply.session_port_to_bridge_no_address"} \
+            & codes(preflight(profile, result, [], options, inventory, existing=existing,
+                              session_port=port))
 
 
 def test_import_removes_our_rules_the_profile_no_longer_adds():

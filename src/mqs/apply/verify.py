@@ -8,12 +8,13 @@ from typing import Any
 
 from mqs.capabilities.offload import OffloadPlan
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.common import bridge_enabled
+from mqs.generator.blocks.common import bridge_enabled, wan_port
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import BridgePortState
 from mqs.model.profile import DeviceProfile
+from mqs.model.wan import DhcpWan, StaticWan
 from mqs.transport.base import CommandError, Transport
 from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
 
@@ -107,6 +108,9 @@ def verify_configuration(
         checks.append(CheckResult("verify.lan_address", present,
                                   {"address": str(lan.address), "bridge": profile.bridge.name}))
 
+    checks.extend(_check_default_route(transport, profile))
+    checks.extend(_check_dhcp_clients(transport, profile))
+
     if result.offload.offered and any(p.hw is not None for p in result.offload.ports):
         try:
             offload_issues = compare_offload(result.offload, read_bridge_ports(transport))
@@ -118,6 +122,71 @@ def verify_configuration(
             i.severity == Severity.WARNING for i in offload_issues),
             {"count": len(offload_issues)}))
     return checks, issues
+
+
+def expected_gateways(profile: DeviceProfile) -> list[str]:
+    """Gateways of the static default routes the profile adds (static WAN, LAN gateway)."""
+    gateways = []
+    settings = profile.wan.settings
+    if wan_port(profile) is not None and isinstance(settings, StaticWan):
+        gateways.append(str(settings.gateway))
+    lan = profile.lan
+    if (bridge_enabled(profile) and lan.addressing == LanAddressing.STATIC and lan.address
+            and lan.gateway is not None):
+        gateways.append(str(lan.gateway))
+    return gateways
+
+
+def expected_dhcp_clients(profile: DeviceProfile) -> list[str]:
+    """Interfaces the profile runs a DHCP client on (DHCP WAN, LAN address by DHCP)."""
+    interfaces = []
+    port = wan_port(profile)
+    if port is not None and isinstance(profile.wan.settings, DhcpWan):
+        interfaces.append(port)
+    if bridge_enabled(profile) and profile.lan.addressing == LanAddressing.DHCP_CLIENT:
+        interfaces.append(profile.bridge.name)
+    return interfaces
+
+
+def _check_default_route(transport: Transport, profile: DeviceProfile) -> list[CheckResult]:
+    """The static default routes on the device are exactly the profile's.
+
+    An import used to add a second default route next to the old one; both were active
+    and the checklist, which did not look at routes, said OK (hEX S, 2026-09-23).
+    Dynamic routes (DHCP, PPPoE) come and go with their lease and are not judged.
+    """
+    expected = expected_gateways(profile)
+    if not expected:
+        return []
+    try:
+        rows = transport.execute("/ip/route/print")
+    except CommandError:
+        rows = None
+    actual = sorted(
+        r.get("gateway", "") for r in rows or []
+        if r.get("dst-address") == "0.0.0.0/0" and r.get("routing-table", "main") == "main"
+        and not to_bool(r, "dynamic", "D") and not to_bool(r, "disabled", "X"))
+    return [CheckResult("verify.default_route", rows is not None and actual == sorted(expected),
+                        {"expected": ", ".join(expected), "actual": ", ".join(actual) or "-"})]
+
+
+def _check_dhcp_clients(transport: Transport, profile: DeviceProfile) -> list[CheckResult]:
+    """A DHCP client is there and enabled; its status only says how far the lease got."""
+    interfaces = expected_dhcp_clients(profile)
+    if not interfaces:
+        return []
+    try:
+        rows = transport.execute("/ip/dhcp-client/print")
+    except CommandError:
+        rows = []
+    checks = []
+    for interface in interfaces:
+        client = next((r for r in rows if r.get("interface") == interface), None)
+        enabled = client is not None and not to_bool(client, "disabled", "X")
+        status = client.get("status", "") if client is not None else ""
+        checks.append(CheckResult("verify.dhcp_client", enabled,
+                                  {"interface": interface, "status": status or "-"}))
+    return checks
 
 
 def _same_address(value: str, expected: IPv4Interface) -> bool:

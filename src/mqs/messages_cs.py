@@ -165,7 +165,19 @@ MESSAGES: dict[str, str] = {
     "nebude mít IP adresu ani nebude v bridge.",
     "apply.adopted": "Na zařízení už je {count} položek, které skript přidává ({items}). "
     "Skript je místo přidání upraví (set), položky bez dalších parametrů vynechá.",
-    "apply.route_ambiguous": "Na zařízení je víc statických tras do {dst} (brány {gateways}). "
+    "apply.import_wan_port_bridged": "Port {port}, který má být WAN, je na zařízení v bridge "
+    "{bridge}. Import ho z bridge nevyjme, takže WAN adresa na něm nebude platit a spojení "
+    "přes něj se ztratí. Změnu režimu bridge → router proveďte resetem (Reset + aplikovat).",
+    "apply.import_router_to_bridge": "Na zařízení je konfigurace routeru (WAN: {ports}), "
+    "profil WAN nemá. Import ji neodstraní: zůstane seznam WAN, původní bridge s adresou a "
+    "DHCP serverem i DNS pro LAN. Změnu režimu router → bridge proveďte raději resetem.",
+    "apply.session_port_to_bridge": "Aplikace je připojená přes port {port}, který import "
+    "přidá do bridge {bridge}. Adresa na portu tím přestane platit, na bridge ji skript "
+    "přesune ({address}) až o krok později, takže se spojení na chvíli přeruší.",
+    "apply.session_port_to_bridge_no_address": "Aplikace je připojená přes port {port}, který "
+    "import přidá do bridge {bridge}. Adresa na portu tím přestane platit a profil na bridge "
+    "žádnou pevnou adresu nedává; po importu se k zařízení připojte přes MAC.",
+    "apply.route_ambiguous":"Na zařízení je víc statických tras do {dst} (brány {gateways}). "
     "Skript žádnou nezmění a přidá další přes {gateway}; zkontrolujte je, jinak může provoz "
     "jít přes víc bran najednou.",
     "apply.own_rules_removed":"Profil už nepřidává pravidla do {table}; skript odtud "
@@ -183,7 +195,10 @@ MESSAGES: dict[str, str] = {
     "verify.services": "Služby /ip service odpovídají (rozdíly: {services})",
     "verify.bridge": "Bridge {name}: protocol-mode očekáván {expected}, na zařízení {actual}",
     "verify.lan_address": "Adresa {address} na {bridge}",
-    "verify.hw_offload": "HW offload odpovídá požadavku (rozdílů: {count})",
+    "verify.default_route": "Výchozí trasa přes {expected} (statické výchozí trasy na zařízení: "
+    "{actual})",
+    "verify.dhcp_client": "DHCP klient na {interface} (stav: {status})",
+    "verify.hw_offload":"HW offload odpovídá požadavku (rozdílů: {count})",
     "verify.offload_not_active": "Port {port}: hw=yes je nastaveno, ale offload na zařízení "
     "neběží. Důvod podle detekce: {reason}",
     "verify.offload_port_missing": "Port {port} na zařízení není v bridge.",

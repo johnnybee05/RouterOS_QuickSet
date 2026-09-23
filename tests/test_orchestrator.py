@@ -62,6 +62,7 @@ def build(mode=ApplyMode.IMPORT, *, kind=TransportKind.API_SSL, port=8729, uploa
         "bridges": {"bridge": "rstp"},
         "addresses": [("192.168.88.1/24", "bridge")],
         "ports": profile.bridge.ports,
+        "dhcp_clients": ["ether1"],  # the router preset takes its WAN address by DHCP
         "admin_password": options.get("admin_password", ""),
     }
     session = router.session(port=port, kind=kind)
