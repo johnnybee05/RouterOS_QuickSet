@@ -9,6 +9,7 @@ from mqs.generator.ir import Command, Comment, Find, RawLine, Script
 # Values made only of these characters are emitted without quotes, like /export does.
 # The '?' and '$' escapes inside quotes are NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 _BARE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:/,!-]+$")
+_PLAIN_WORD_RE = re.compile(r"^[A-Za-z0-9_-]+$")  # compared bare in a `find`
 
 
 def _escape(value: str) -> str:
@@ -21,6 +22,21 @@ def quote(value: str) -> str:
     return f'"{_escape(value)}"'
 
 
+def quote_find(value: str) -> str:
+    """A value compared in `find`: bare only when it is a plain word.
+
+    Unquoted, the console reads a value by its looks, and on 7.20.7 an address read that
+    way never equals a property kept as text: `/ip address find address=10.0.0.1/24` and
+    `/ip dhcp-server network find address=10.0.0.0/24` matched nothing, so a `set` on
+    them did nothing and reported nothing, while the quoted value matched. Quoted names,
+    interfaces, file names, routes and NTP addresses match too. A plain word stays bare:
+    `find default="yes"` matches nothing where `default=yes` matches (verified 2026-09-23).
+    """
+    if _PLAIN_WORD_RE.match(value):
+        return value
+    return f'"{_escape(value)}"'
+
+
 def render_selector(selector: Find | int | str | None) -> str | None:
     if selector is None:
         return None
@@ -28,10 +44,10 @@ def render_selector(selector: Find | int | str | None) -> str | None:
         if selector.raw is not None:
             return f"[ find {selector.raw} ]"
         if selector.patterns:
-            parts = [*(f"{k}={quote(v)}" for k, v in selector.conditions),
+            parts = [*(f"{k}={quote_find(v)}" for k, v in selector.conditions),
                      *(f'{k}~"{_escape(regex)}"' for k, regex in selector.patterns)]
             return f"[ find where {' and '.join(parts)} ]"
-        conditions = " ".join(f"{k}={quote(v)}" for k, v in selector.conditions)
+        conditions = " ".join(f"{k}={quote_find(v)}" for k, v in selector.conditions)
         return f"[ find {conditions} ]" if conditions else "[ find ]"
     if isinstance(selector, int):
         return str(selector)

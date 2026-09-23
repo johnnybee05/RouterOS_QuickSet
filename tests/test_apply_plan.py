@@ -64,7 +64,7 @@ def test_reset_script_wrapping():
     assert lines[1] == ":delay 20s"
     assert lines[2:4] == ["/system identity", "set name=R1"]
     assert lines[-2] == '/user set [ find name=admin ] password="pa ss\\"1"'
-    assert lines[-1] == '/file remove [ find name=flash/quickset-20260915-140509.rsc ]'
+    assert lines[-1] == '/file remove [ find name="flash/quickset-20260915-140509.rsc" ]'
     masked = build_upload_script("x\n", options, names, mask_secrets=True)
     assert "pa ss" not in masked and 'password="********"' in masked
     no_password = build_upload_script("x\n", ApplyOptions(ApplyMode.RESET_AND_IMPORT), names)
@@ -327,7 +327,8 @@ def test_import_adopts_what_an_earlier_apply_left():
     text = again.text
     assert "set [ find name=bridge ] protocol-mode=rstp" in text
     assert "set [ find interface=ether2 ] bridge=bridge" in text
-    assert "set [ find address=192.168.88.1/24 ] interface=bridge" in text
+    # Quoted: a bare address in a find matched no /ip address on 7.20.7.
+    assert 'set [ find address="192.168.88.1/24" ] interface=bridge' in text
     assert "set [ find name=dhcp1 ] interface=bridge" in text
     assert "add name=WAN" not in text and "add interface=ether1 list=WAN" not in text
     assert text.startswith(result.text.split("# ---- ")[0])  # the header is kept

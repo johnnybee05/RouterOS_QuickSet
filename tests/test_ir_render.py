@@ -89,6 +89,20 @@ def test_render_command_selectors():
         'set [ find name="my name" ]'
 
 
+def test_find_quotes_all_but_plain_words():
+    # Bare, an address never equals /ip address's text property; quoted, `yes` never
+    # equals a boolean. Both seen on the hEX S (7.20.7).
+    address = cmd("/ip address", "set", selector=Find.by(address="10.0.0.1/24"),
+                  interface="bridge")
+    assert render_command(address) == 'set [ find address="10.0.0.1/24" ] interface=bridge'
+    assert render_command(cmd("/interface bridge port", "set",
+                              selector=Find.by(interface="ether2"), hw=True)) == \
+        "set [ find interface=ether2 ] hw=yes"
+    both = Find(conditions=(("address", "10.0.0.1/24"),), patterns=(("comment", "^q"),))
+    assert render_command(cmd("/ip address", "remove", selector=both)) == \
+        'remove [ find where address="10.0.0.1/24" and comment~"^q" ]'
+
+
 def test_find_get():
     f = Find.by(interface_list="WAN")
     assert f.get("interface-list") == "WAN"

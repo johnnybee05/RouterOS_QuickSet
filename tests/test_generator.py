@@ -449,7 +449,8 @@ def test_lan_gateway_is_omitted_without_a_static_address():
 
 def test_services_extensions_and_robust_logging():
     result = generate(custom_hardening(), target("7.15.3"))
-    assert "set [ find topics=info ] action=disk" in result.text
+    # A bare `find topics=info` matches nothing on 7.20.7: topics is an array.
+    assert 'set [ find where topics~"^info\\$" ] action=disk' in result.text
     assert "set ssh address=10.10.0.0/24" in result.text
     assert "access.address_restricted" in codes(result.issues)
 

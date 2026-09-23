@@ -79,10 +79,10 @@ set enabled=yes trap-community=PVIP trap-version=2
 /system clock
 set time-zone-name=Europe/Prague
 /system logging
-set [ find topics=info ] action=disk
-set [ find topics=error ] action=disk
-set [ find topics=warning ] action=disk
-set [ find topics=critical ] action=disk
+set [ find where topics~"^info\$" ] action=disk
+set [ find where topics~"^error\$" ] action=disk
+set [ find where topics~"^warning\$" ] action=disk
+set [ find where topics~"^critical\$" ] action=disk
 /system ntp client
 set enabled=yes
 /system ntp client servers

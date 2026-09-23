@@ -54,6 +54,12 @@ def build(
 
 
 def _robust_logging(command: Command, issues: list[Issue]) -> Command | RawLine:
+    """`set 0 …` → `set [ find where topics~"^info$" ] …`.
+
+    `topics` is an array. On 7.20.7 `find topics=info` matched no rule at all, so the
+    `set` did nothing and said nothing, while `find topics="info"` and the regex matched
+    the one rule (verified 2026-09-23). The regex is what the API transport can evaluate.
+    """
     if command.verb != "set" or not isinstance(command.selector, int):
         return command
     topics = LOGGING_INDEX_TOPICS.get(command.selector)
@@ -63,7 +69,8 @@ def _robust_logging(command: Command, issues: list[Issue]) -> Command | RawLine:
                   {"index": command.selector})
         )
         return command
-    return Command(command.path, command.verb, command.args, Find.by(topics=topics))
+    return Command(command.path, command.verb, command.args,
+                   Find.matching("topics", f"^{topics}$"))
 
 
 def _service_extensions(profile: DeviceProfile, script: Script) -> None:

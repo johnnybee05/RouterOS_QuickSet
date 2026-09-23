@@ -204,6 +204,9 @@ se po uplynutí času samo vrátí na zálohu.
 ## Omezení a známé nejistoty
 
 - Konfigurace Wi-Fi, VPN, VLAN trunků a routovacích protokolů není součástí aplikace.
+- **Aplikace na běžící konfiguraci volby jen zapíná, nevypíná.** Když profil něco vypne
+  (VLAN filtering na bridge, MSS clamping, management podsíť), zůstane na zařízení stav
+  z dřívějška. Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
 - **Připojení přes MAC adresu** je ověřené na RouterOS 7.20.7 (16. 9. 2026), včetně
   přidání dočasné adresy a připojení přes ni. Pro RouterOS starší než 6.43 (přihlášení
   MD5) není MAC-Telnet implementovaný vůbec.
