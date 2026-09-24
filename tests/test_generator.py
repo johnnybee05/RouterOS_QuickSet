@@ -13,6 +13,7 @@ from mqs.generator.ir import Command, SectionKey
 from mqs.issues import codes
 from mqs.model.bridge import HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.inventory import Ipv6PackageState, PackageInfo, ServiceInfo
+from mqs.model.ports import adopt_device_names, rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import PppoeWan, StaticWan
@@ -505,3 +506,43 @@ def test_commands_have_no_empty_values():
             assert isinstance(command, Command)
             for key, value in command.args:
                 assert key and value != "", (command, key)
+
+
+def test_port_names_are_set_before_anything_refers_to_them():
+    profile = rename_port(rename_port(router_dhcp(), "ether5", "wan"), "ether1", "lan 1")
+    for target in ("7.15.3", "6.49.10"):
+        result = generate(profile, TargetContext.offline(target))
+        interfaces = result.text.split("BRIDGE / INTERFACE LISTS ----\n")[1]
+        # The form /export writes on 7.20.7; quoted like any other value.
+        assert interfaces.startswith(
+            "# Port names\n/interface ethernet\n"
+            "set [ find default-name=ether1 ] name=\"lan 1\"\n"
+            "set [ find default-name=ether5 ] name=wan\n"), target
+        assert 'add bridge=bridge interface="lan 1"' in interfaces
+        assert "add interface=wan list=WAN" in interfaces
+        assert "default-name" not in generate(router_dhcp(), TargetContext.offline(target)).text
+
+
+def test_a_renamed_device_keeps_its_offload_and_its_names():
+    # The screenshot of 2026-09-23: ports renamed in Winbox, the table said "Rozhraní typu
+    # se neoffloaduje" for every port, because the profile named ports the device lacks.
+    names = {"ether1-uplink": "ether1", "ether2-zakaznik1": "ether2", "sfp1-optika": "sfp1"}
+    inventory = make_inventory("7.20.7", list(names), default_names=names,
+                               switches={"switch1": "EN7523"},
+                               port_switch={"ether1-uplink": "switch1",
+                                            "ether2-zakaznik1": "switch1"})
+    profile = apply_preset(DeviceProfile(), Mode.BRIDGE_AP, ["ether1", "ether2", "sfp1"])
+    profile = adopt_device_names(profile, inventory)
+    result = generate(profile, TargetContext.from_inventory(inventory))
+    offload = {p.port: (p.status.value, p.switch) for p in result.offload.ports}
+    assert offload == {"ether1-uplink": ("yes", "switch1"), "ether2-zakaznik1": ("yes", "switch1"),
+                       "sfp1-optika": ("no", None)}
+    # Already so on the device, still in the script: a reset brings the factory names back.
+    assert "set [ find default-name=sfp1 ] name=sfp1-optika" in result.text
+    assert result.renames == {}
+
+    # A name the profile changes is known by both names until the script has run.
+    renamed = rename_port(profile, "ether1", "uplink")
+    result = generate(renamed, TargetContext.from_inventory(inventory))
+    assert result.renames == {"ether1-uplink": "uplink"}
+    assert result.offload.for_port("uplink").switch == "switch1"

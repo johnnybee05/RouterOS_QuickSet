@@ -656,3 +656,51 @@ def test_closing_the_window_gives_the_lent_address_back(window, qtbot):
     connect_by_mac(window, qtbot)
     window.close()
     assert removals(window) and not window.test_transport.connected
+
+
+def test_ports_are_renamed_on_the_basic_page(window):
+    page, table = window.basic_page, window.basic_page.port_names
+    assert table.rowCount() == 5 and table.item(0, 0).text() == "ether1"
+    table.item(0, 1).setText("internet")  # ether1, the WAN port of the router preset
+    profile = window.controller.profile
+    assert profile.interface_names == {"ether1": "internet"}
+    assert profile.wan.interface == "internet"
+    assert page.wan_interface.currentData() == "internet"
+    lan = window.lan_page.ports
+    assert lan.item(0).text() == "internet (ether1) – WAN port"
+    assert window.controller.recompute().primary.text.count(
+        "set [ find default-name=ether1 ] name=internet") == 1
+
+    # A name another port has is refused, and the cell shows the name it keeps.
+    table.item(1, 1).setText("internet")
+    assert page.port_name_error.isVisibleTo(page) and "ether1" in page.port_name_error.text()
+    assert table.item(1, 1).text() == "ether2"
+    table.item(1, 1).setText("  ")
+    assert "prázdný" in page.port_name_error.text()
+    assert window.controller.profile.interface_names == {"ether1": "internet"}
+    table.item(1, 1).setText(" lan2 ")
+    assert not page.port_name_error.isVisibleTo(page)
+    assert window.controller.profile.bridge.ports[0] == "lan2"
+    assert table.item(1, 1).text() == "lan2"
+
+
+def test_a_renamed_device_shows_its_names_everywhere(window, qtbot):
+    names = {"ether1-uplink": "ether1", "ether2-zakaznik1": "ether2"}
+    ports = [*names, *TEN_PORTS[2:]]
+    inventory = make_inventory("7.20.7", ports, default_names=names)
+    window.device_page.discover_fn = lambda transport, on_step: inventory
+    connect(window, qtbot)
+    profile = window.controller.profile
+    # The router preset of the start named the factory ports; now they follow the device.
+    assert profile.wan.interface == "ether1-uplink"
+    assert profile.bridge.ports[0] == "ether2-zakaznik1"
+    assert profile.interface_names == {"ether1": "ether1-uplink", "ether2": "ether2-zakaznik1"}
+    device = window.device_page.ports_table
+    assert (device.item(0, 0).text(), device.item(0, 1).text()) == ("ether1-uplink", "ether1")
+    table = window.basic_page.port_names
+    assert [table.item(0, c).text() for c in range(3)] == ["ether1", "ether1-uplink",
+                                                           "ether1-uplink"]
+    assert window.lan_page.ports.item(1).text() == "ether2-zakaznik1 (ether2)"
+    analysis = window.controller.recompute()
+    assert not {"bridge.port_unknown", "wan.interface_unknown"} & {
+        i.code for i in analysis.all_issues}

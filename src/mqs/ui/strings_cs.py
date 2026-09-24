@@ -73,7 +73,7 @@ MAC_NO_ADDRESS = "V síti této karty není volná adresa, kterou by šlo dočas
 DEVICE_INFO_GROUP = "Detekce"
 DEVICE_NOTES = "Poznámky k modelu (z dokumentace MikroTiku, neověřeno na zařízení):"
 DEVICE_PORTS_GROUP = "Porty"
-DEVICE_PORT_COLUMNS = ["Port", "Typ", "Switch čip", "Stav", "MAC"]
+DEVICE_PORT_COLUMNS = ["Port", "default-name", "Typ", "Switch čip", "Stav", "MAC"]
 DEVICE_OFFLINE_GROUP = "Offline (bez zařízení)"
 DEVICE_OFFLINE_VERSION = "Cílová verze RouterOS"
 DEVICE_OFFLINE_PORTS = "Porty (oddělené čárkou)"
@@ -91,6 +91,15 @@ BASIC_IDENTITY = "Identity zařízení"
 BASIC_MODE = "Režim (předvyplní formulář)"
 MODES = {"router": "Router", "bridge-ap": "Bridge / AP", "custom": "Vlastní"}
 MODE_APPLY = "Předvyplnit"
+PORT_NAMES_GROUP = "Názvy portů"
+PORT_NAMES_COLUMNS = ["Port (default-name)", "Název", "Teď na zařízení"]
+PORT_NAMES_HELP = (
+    "Název portu upravíte dvojklikem. Skript porty přejmenuje jako první "
+    "(/interface ethernet set [ find default-name=… ] name=…), takže název platí i po resetu. "
+    "Názvy z připojeného zařízení se do profilu převezmou samy."
+)
+PORT_NAME_EMPTY = "Název portu nesmí být prázdný."
+PORT_NAME_TAKEN = "Název {name} už má port {port}."
 WAN_GROUP = "WAN"
 WAN_ENABLED = "Použít WAN"
 WAN_INTERFACE = "Rozhraní"

@@ -33,6 +33,7 @@ from mqs.issues import Severity, codes, has_errors
 from mqs.messages_cs import MESSAGES
 from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import ServiceInfo
+from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.validation import validate_profile
@@ -534,3 +535,33 @@ def test_apply_messages_format():
     assert {"apply.adopted", "apply.bridge_port_moved"} <= codes(issues)
     for issue in issues:
         assert issue.code in MESSAGES and "{" not in issue.message, issue.code
+
+
+def test_what_the_device_has_is_matched_under_the_names_the_script_gives():
+    # ether1 becomes "internet" and ether2 "lan2"; the device still calls them ether1/2.
+    profile = rename_port(rename_port(router_profile(FIVE_PORTS, identity="R1"),
+                                      "ether1", "internet"), "ether2", "lan2")
+    inventory = make_inventory("7.15.3", FIVE_PORTS)
+    result = generate(profile, TargetContext.from_inventory(inventory))
+    assert result.renames == {"ether1": "internet", "ether2": "lan2"}
+    existing = ExistingObjects({"/interface bridge port": frozenset({("ether2",)}),
+                                "/interface list member": frozenset({("WAN", "ether1")}),
+                                "/ip dhcp-client": frozenset({("ether1",)})},
+                               {"ether2": "bridge"})
+    options = ApplyOptions(ApplyMode.IMPORT)
+    text = prepare_import(result, options, existing).text
+    # The renames run first, so the finds after them use the new names.
+    assert text.index("name=internet") < text.index("set [ find interface=lan2 ] bridge=bridge")
+    assert "add bridge=bridge interface=lan2" not in text
+    assert "add interface=internet list=WAN" not in text
+    assert "set [ find interface=internet ] use-peer-dns=yes" in text
+
+    # The session comes in on ether1, which is the WAN port once renamed.
+    issues = preflight(profile, result, [], options, inventory, session_port="ether1")
+    assert "apply.session_on_wan" in codes(issues)
+    # A bridge port the device has under the old name blocks it as the WAN port.
+    bridged = ExistingObjects(bridge_ports={"ether1": "br-ap"})
+    blocked = next(i for i in preflight(profile, result, [], options, inventory,
+                                        existing=bridged)
+                   if i.code == "apply.import_wan_port_bridged")
+    assert blocked.params == {"port": "internet", "bridge": "br-ap"}

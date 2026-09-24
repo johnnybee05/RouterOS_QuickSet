@@ -1,4 +1,4 @@
-"""Section 2: bridge, bridge ports, HW offload and interface lists."""
+"""Section 2: port names, bridge, bridge ports, HW offload and interface lists."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from mqs.generator.context import TargetContext
 from mqs.generator.ir import ArgValue, Comment, Find, Script, SectionKey, cmd
 from mqs.issues import Issue, Severity
 from mqs.model.bridge import ProtocolMode
+from mqs.model.ports import renames_to_emit
 from mqs.model.profile import DeviceProfile
 
 
@@ -25,6 +26,14 @@ def build(
     section = script.section(SectionKey.INTERFACES)
     issues: list[Issue] = []
     bridge = profile.bridge
+
+    # First: every later command refers to a port by the name it gets here.
+    renames = renames_to_emit(profile.interface_names, ctx.inventory)
+    if renames:
+        section.add(Comment("Port names"), *(
+            cmd("/interface ethernet", "set", selector=Find.by({"default-name": default}),
+                name=name)
+            for default, name in renames))
 
     if bridge_enabled(profile):
         if bridge.protocol_mode == ProtocolMode.MSTP and not ctx.has("bridge_mstp"):

@@ -35,6 +35,7 @@ from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.generator.ir import KeepOwnFirst, RawLine, SectionKey
 from mqs.issues import codes
 from mqs.model.inventory import ServiceInfo
+from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import StaticWan
@@ -794,3 +795,19 @@ def test_a_reset_by_mac_that_comes_back_by_address_lends_nothing():
     orchestrator, _, _ = _mac_reset_build(_router_session)
     report = orchestrator.run()
     assert report.temp_address is None and report.mac_method is None
+
+
+def test_a_renamed_session_port_is_followed_after_the_apply():
+    """MNDP and the session port name the port as it was; the profile renames it."""
+    orchestrator, _, targets = _mac_reset_build(_router_session)
+    profile = rename_port(_static_wan_profile(), "ether1", "internet")
+    orchestrator.ctx.profile = profile
+    orchestrator.ctx.result = generate(profile,
+                                       TargetContext.from_inventory(make_inventory("7.15.3",
+                                                                                   PORTS)))
+    assert orchestrator.ctx.result.renames == {"ether1": "internet"}
+    orchestrator.run()
+    assert targets[0].mac_interface == "internet"
+    assert targets[0].params.host == "192.168.55.68", "the WAN address of the session port"
+    lan3 = rename_port(profile, "ether3", "lan3")
+    assert mac_interface_after_apply(lan3, "bridge/ether3", {"ether3": "lan3"}) == "bridge"

@@ -64,6 +64,28 @@ class ExistingObjects:
     def has(self, path: str, key: tuple[str, ...]) -> bool:
         return key in self.items.get(path, frozenset())
 
+    def renamed(self, renames: Mapping[str, str]) -> ExistingObjects:
+        """The same objects under the port names the script gives (name now -> new name).
+
+        RouterOS refers to an interface itself, not to its name: after
+        `/interface ethernet set ... name=` a bridge port shows the new name (7.20.7), so
+        the `find` of an adopted item, which runs after the renames, must use it too.
+        """
+        if not renames:
+            return self
+        items = {}
+        for path, keys in self.items.items():
+            names = ADOPT_KEYS.get(path, ())
+            if "interface" not in names:
+                items[path] = keys
+                continue
+            at = names.index("interface")
+            items[path] = frozenset((*k[:at], renames.get(k[at], k[at]), *k[at + 1:])
+                                    for k in keys)
+        bridge_ports = {renames.get(port, port): bridge
+                        for port, bridge in self.bridge_ports.items()}
+        return replace(self, items=items, bridge_ports=bridge_ports)
+
 
 def _normalise(name: str, value: str) -> str:
     if name in _ADDRESS_KEYS:
@@ -179,6 +201,7 @@ def adopt_existing(
     """``result`` rewritten to change the objects the device already has, not add them."""
     if existing is None:
         return result, []
+    existing = existing.renamed(result.renames)
     adopted: list[str] = []
     issues: list[Issue] = []
     sections = []

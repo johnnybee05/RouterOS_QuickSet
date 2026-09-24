@@ -29,10 +29,13 @@ def make_inventory(
     packages: Sequence[PackageInfo] = (),
     board_name: str = "test-board",
     services: Sequence[ServiceInfo] = (),
+    default_names: Mapping[str, str] | None = None,
 ) -> DeviceInventory:
-    """``switches`` maps chip name → type, ``port_switch`` maps port → chip name."""
+    """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
+    ``default_names`` a renamed port → its default-name (others are not renamed)."""
     port_types = port_types or {}
     port_switch = port_switch or {}
+    default_names = default_names or {}
     return DeviceInventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name),
         identity="MikroTik",
@@ -40,7 +43,7 @@ def make_inventory(
             InterfaceInfo(
                 name=p,
                 type=port_types.get(p, "ether"),
-                default_name=p,
+                default_name=default_names.get(p, p),
                 switch=port_switch.get(p),
             )
             for p in ports

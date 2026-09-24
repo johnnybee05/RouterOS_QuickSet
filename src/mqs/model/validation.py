@@ -15,6 +15,7 @@ from mqs.issues import Issue, Severity
 from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import DeviceInventory
 from mqs.model.network import usable_host
+from mqs.model.ports import device_names, final_port_names, natural_key, renames_to_emit
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import PppoeWan, StaticWan
 
@@ -30,9 +31,11 @@ def validate_profile(
     profile: DeviceProfile, inventory: DeviceInventory | None = None
 ) -> list[Issue]:
     issues: list[Issue] = []
+    ports = final_port_names(profile, inventory) if inventory is not None else None
     issues += _identity(profile)
-    issues += _wan(profile, inventory)
-    issues += _bridge(profile, inventory)
+    issues += _interface_names(profile, inventory)
+    issues += _wan(profile, ports)
+    issues += _bridge(profile, ports)
     issues += _lan(profile)
     issues += _firewall(profile)
     issues += _mode(profile)
@@ -51,7 +54,56 @@ def _identity(profile: DeviceProfile) -> list[Issue]:
     return issues
 
 
-def _wan(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[Issue]:
+def _interface_names(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[Issue]:
+    """Names the profile gives ports: each must be free when its `set` runs.
+
+    The renames run one after another, so a name another port has, or gets back from a
+    reset, is taken at that moment even when that port is renamed later in the script.
+    """
+    names = profile.interface_names
+    current = device_names(inventory) if inventory is not None else {}
+    finals = {default: names.get(default, name) for default, name in current.items()}
+    finals.update(names)
+    emitted = {default for default, _ in renames_to_emit(names, inventory)}
+    # Everything else on the device keeps its name: the bridge, VLANs, loopback, wireless.
+    others = ({i.name for i in inventory.interfaces} - set(current.values())
+              if inventory is not None else set())
+    others.add(profile.bridge.name)
+    if profile.wan.enabled and isinstance(profile.wan.settings, PppoeWan):
+        others.add(profile.wan.settings.interface_name)
+
+    def held(port: str, before: str) -> set[str]:
+        """Names ``port`` can have when the `set` of ``before`` runs, reset or not."""
+        if port in emitted and natural_key(port) < natural_key(before):
+            return {finals[port]}
+        return {port, current.get(port, port)}
+
+    issues: list[Issue] = []
+    for default, name in names.items():
+        params = {"default": default, "name": name}
+        if inventory is not None and default not in current:
+            issues.append(Issue("ports.unknown", W, "interface_names", params))
+            continue
+        if not name:
+            issues.append(Issue("ports.name_empty", E, "interface_names", params))
+            continue
+        if not NAME_RE.match(name) and current.get(default) != name:
+            issues.append(Issue("ports.name_unusual", W, "interface_names", params))
+        ports = sorted((d for d in finals if d != default), key=natural_key)
+        same = [d for d in ports if finals[d] == name]
+        busy = [d for d in ports if name in held(d, default)] if default in emitted else []
+        if same:
+            issues.append(Issue("ports.name_duplicate", E, "interface_names",
+                                {**params, "other": same[0]}))
+        elif busy:
+            issues.append(Issue("ports.name_in_use", E, "interface_names",
+                                {**params, "other": busy[0]}))
+        elif name in others:
+            issues.append(Issue("ports.name_taken", E, "interface_names", params))
+    return issues
+
+
+def _wan(profile: DeviceProfile, ports: list[str] | None) -> list[Issue]:
     wan = profile.wan
     if not wan.enabled:
         return []
@@ -62,7 +114,7 @@ def _wan(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[Issu
         params = {"interface": wan.interface}
         if wan.interface in profile.bridge.ports:
             issues.append(Issue("wan.interface_in_bridge", E, "wan.interface", params))
-        if inventory is not None and wan.interface not in inventory.port_names:
+        if ports is not None and wan.interface not in ports:
             issues.append(Issue("wan.interface_unknown", E, "wan.interface", params))
 
     settings = wan.settings
@@ -92,7 +144,7 @@ def _wan(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[Issu
     return issues
 
 
-def _bridge(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[Issue]:
+def _bridge(profile: DeviceProfile, ports: list[str] | None) -> list[Issue]:
     bridge = profile.bridge
     issues: list[Issue] = []
     if not NAME_RE.match(bridge.name):
@@ -100,10 +152,9 @@ def _bridge(profile: DeviceProfile, inventory: DeviceInventory | None) -> list[I
     for port, count in Counter(bridge.ports).items():
         if count > 1:
             issues.append(Issue("bridge.port_duplicate", E, "bridge.ports", {"interface": port}))
-    if inventory is not None:
-        known = set(inventory.port_names)
+    if ports is not None:
         for port in dict.fromkeys(bridge.ports):
-            if port not in known:
+            if port not in ports:
                 issues.append(
                     Issue("bridge.port_unknown", E, "bridge.ports", {"interface": port})
                 )

@@ -373,8 +373,13 @@ class ApplyOrchestrator:
             # A reset takes every address with it, including the temporary one that
             # connect-by-MAC added to reach the device - the very one we are talking to.
             expiring = (self.ctx.temp_address,) if self.ctx.temp_address else ()
+        # The session port and the MNDP port carry the names from before the apply.
+        renames = self.result.renames
+        session_port = self.ctx.session_port
+        if session_port is not None:
+            session_port = renames.get(session_port, session_port)
         hosts = reconnect_hosts(self.ctx.profile, current_host=params.host,
-                                session_port=self.ctx.session_port, expiring=expiring)
+                                session_port=session_port, expiring=expiring)
         # A device reached by MAC is reached by MAC again: after a reset it has no
         # address this PC knows of, the lent one included.
         route = self.ctx.mac_route
@@ -383,7 +388,7 @@ class ApplyOrchestrator:
             api_port=access.api_ssl_port, ssh_port=access.ssh_port,
             alternatives=tuple(hosts[1:]), mac=route,
             mac_interface=mac_interface_after_apply(self.ctx.profile,
-                                                    route.device.interface_name)
+                                                    route.device.interface_name, renames)
             if route is not None else None,
         )
         if self.ctx.options.mode == ApplyMode.IMPORT and self.transport.connected:

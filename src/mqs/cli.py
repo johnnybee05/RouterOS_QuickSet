@@ -43,6 +43,7 @@ from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import STEP_PREFIX
+from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
 from mqs.paths import profiles_dir
@@ -108,7 +109,10 @@ def describe_session(session: DeviceSession, out: Any) -> None:
           f"board-name {inventory.resource.board_name or '?'}, "
           f"arch {inventory.resource.architecture or '?'}", file=out)
     print(f"flash dir   : {'yes' if inventory.has_flash_dir else 'no'}", file=out)
-    print(f"ports       : {', '.join(inventory.port_names)}", file=out)
+    defaults = {i.name: i.default_name for i in inventory.interfaces
+                if i.default_name and i.default_name != i.name}
+    print("ports       : " + ", ".join(f"{p} ({defaults[p]})" if p in defaults else p
+                                       for p in inventory.port_names), file=out)
     print(f"switches    : {', '.join(s.type for s in inventory.switches) or '-'}", file=out)
     print(f"services    : {', '.join(f'{s.name}:{s.port}' for s in inventory.services)}", file=out)
     print(f"session port: {session.session_port or '?'}", file=out)
@@ -304,6 +308,13 @@ def _apply_to(
     mode = options.mode
     describe_session(session, out)
 
+    # What the window does on connect: the device's port names go into the profile.
+    adopted = adopt_device_names(profile, session.inventory)
+    if adopted is not profile:
+        renamed = ", ".join(f"{d}={n}" for d, n in adopted.interface_names.items()
+                            if profile.interface_names.get(d) != n)
+        print(f"port names  : taken over from the device: {renamed or '-'}", file=out)
+        profile = adopted
     result = generate(profile, TargetContext.from_inventory(session.inventory, session.probes))
     existing = collect_existing_fn(session.transport) if mode != ApplyMode.GENERATE_ONLY else None
     issues = preflight(profile, result, validate_profile(profile, session.inventory), options,

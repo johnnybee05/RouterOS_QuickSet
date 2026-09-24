@@ -11,6 +11,7 @@ from mqs.generator.base import GenerationResult, generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, has_errors
 from mqs.model.inventory import DeviceInventory, Ipv6PackageState
+from mqs.model.ports import RENAMEABLE_TYPES, adopt_device_names, final_port_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
 from mqs.model.version import RosVersion
@@ -67,6 +68,10 @@ class ProfileController(QObject):
         return self._profile
 
     def set_profile(self, profile: DeviceProfile, source: object | None = None) -> None:
+        if self._inventory is not None:
+            adopted = adopt_device_names(profile, self._inventory)
+            if adopted is not profile:
+                profile, source = adopted, None  # changed beyond the edit: reload everywhere
         self._profile = profile
         self.profileChanged.emit(profile, source)
         self._timer.start()
@@ -89,7 +94,12 @@ class ProfileController(QObject):
                       probes: Mapping[str, bool] | None = None) -> None:
         self._inventory = inventory
         self._probes = dict(probes or {})
+        profile = self._profile
+        if inventory is not None:
+            self._profile = adopt_device_names(profile, inventory)
         self.inventoryChanged.emit(inventory)
+        if self._profile is not profile:  # the device's port names taken over
+            self.profileChanged.emit(self._profile, None)
         self._timer.start()
 
     def set_offline_target(self, version: str | None = None, ports: list[str] | None = None,
@@ -103,8 +113,30 @@ class ProfileController(QObject):
         self.inventoryChanged.emit(self._inventory)
         self._timer.start()
 
-    def ports(self) -> list[str]:
-        return self._inventory.port_names if self._inventory else list(self.offline_ports)
+    def ports(self, profile: DeviceProfile | None = None) -> list[str]:
+        """Ports selectable as WAN or bridge member, by their names in ``profile``."""
+        if profile is None:
+            profile = self._profile
+        if self._inventory is not None:
+            return final_port_names(profile, self._inventory)
+        return [profile.interface_names.get(p, p) for p in self.offline_ports]
+
+    def port_rows(self) -> list[tuple[str, str, str | None]]:
+        """(default-name, name in the profile, name on the device) of the ports that can
+        be renamed, then those the profile names but the target does not have."""
+        names = self._profile.interface_names
+        if self._inventory is not None:
+            rows = [(i.default_name, names.get(i.default_name, i.name), i.name)
+                    for i in self._inventory.interfaces
+                    if i.type in RENAMEABLE_TYPES and i.default_name]
+        else:
+            rows = [(p, names.get(p, p), None) for p in self.offline_ports]
+        known = {default for default, _, _ in rows}
+        return rows + [(d, n, None) for d, n in names.items() if d not in known]
+
+    def default_names(self) -> dict[str, str]:
+        """Port name in the profile -> its default-name, where the two differ."""
+        return {name: default for default, name, _ in self.port_rows() if name != default}
 
     @property
     def primary_major(self) -> int:

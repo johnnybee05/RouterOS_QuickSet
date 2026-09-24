@@ -5,6 +5,8 @@ RouterOS **v6 i v7** a umí ji rovnou aplikovat na zařízení po síti. Nahrazu
 QuickSet bez jeho omezení:
 
 - WAN může být **libovolný port**, ne jen ether1,
+- **přejmenované porty** (ether1-uplink …) pozná podle `default-name` a názvy portů umí
+  i nastavit,
 - plnohodnotná volba **protocol-mode** bridge (none / stp / rstp / mstp),
 - změna **system identity**,
 - firemní **hardening blok**, který jde v aplikaci upravit a uložit do profilu,
@@ -44,6 +46,12 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
    - Vyplňte identity.
    - Vyberte režim *Router*, *Bridge / AP* nebo *Vlastní* a klikněte na *Předvyplnit*.
      Režim jen vyplní formulář, všechno jde dál upravit.
+   - *Názvy portů*: dvojklikem do sloupce *Název* port přejmenujete. Skript porty
+     přejmenuje jako první (`/interface ethernet set [ find default-name=ether1 ]
+     name=…`, stejně jako `/export`), takže název platí i po resetu. Po připojení se názvy,
+     které porty na zařízení už mají, převezmou do profilu samy a profil, který porty
+     jmenuje továrními názvy (ether1 …), se na ně přemapuje. Přejmenovat jde jen
+     ethernetové porty.
    - Nastavte WAN: libovolný port a typ DHCP, statická IP nebo PPPoE.
 3. **LAN / Bridge**
    - Nastavte bridge, protocol-mode, členské porty (WAN port je vyloučený automaticky),

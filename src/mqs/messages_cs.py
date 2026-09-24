@@ -11,6 +11,18 @@ MESSAGES: dict[str, str] = {
     "identity.too_long": "Identity může mít nejvýše {max} znaků.",
     "identity.invalid_chars": "Identity smí obsahovat jen písmena bez diakritiky, číslice, tečku, "
     "pomlčku a podtržítko.",
+    # port names
+    "ports.unknown": "Port {default} na zařízení není (nebo není ethernetový), název {name} se "
+    "mu nenastaví.",
+    "ports.name_empty": "Port {default} nemá název.",
+    "ports.name_unusual": "Název {name} (port {default}) obsahuje i jiné znaky než písmena bez "
+    "diakritiky, číslice, tečku, pomlčku a podtržítko – RouterOS ho nemusí přijmout.",
+    "ports.name_duplicate": "Název {name} mají porty {default} i {other}.",
+    "ports.name_in_use": "Port {default} nelze přejmenovat na {name}: ten název má v tu chvíli "
+    "ještě port {other} (po resetu je to jeho tovární název). Zvolte jiný název, nebo "
+    "přejmenujte ve dvou krocích.",
+    "ports.name_taken": "Název {name} (port {default}) už má jiné rozhraní – bridge, PPPoE nebo "
+    "rozhraní na zařízení.",
     # WAN
     "wan.no_interface": "Vyberte rozhraní pro WAN.",
     "wan.interface_in_bridge": "Rozhraní {interface} je zvolené jako WAN, nemůže být zároveň "

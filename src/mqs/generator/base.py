@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from mqs import __version__
@@ -21,6 +22,7 @@ from mqs.generator.ros6 import Dialect6
 from mqs.generator.ros7 import Dialect7
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.bridge import LanAddressing
+from mqs.model.ports import port_renames
 from mqs.model.profile import DeviceProfile
 from mqs.model.version import RosVersion
 from mqs.model.wan import StaticWan
@@ -34,6 +36,9 @@ class GenerationResult:
     target: RosVersion
     offload: OffloadPlan
     access: AccessReport
+    # Device interface name now -> name once the script has run, for the ports it renames.
+    # What is read from the device before the apply is in the old names.
+    renames: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def dialect(self) -> int:
@@ -78,8 +83,10 @@ def generate(
         issues.append(Issue("target.unsupported_version", Severity.ERROR, "",
                             {"version": str(ctx.version)}))
 
-    if capabilities is None and ctx.inventory is not None:
-        capabilities = Capabilities.from_inventory(ctx.inventory)
+    inventory = ctx.inventory
+    renames = port_renames(profile.interface_names, inventory) if inventory is not None else {}
+    if capabilities is None and inventory is not None:
+        capabilities = Capabilities.from_inventory(inventory.renamed(renames))
     if capabilities is not None:
         offload = plan_offload(profile.bridge, capabilities)
     else:
@@ -123,4 +130,5 @@ def generate(
         target=ctx.version,
         offload=offload,
         access=access,
+        renames=renames,
     )

@@ -7,6 +7,7 @@ from factories import FIVE_PORTS, make_inventory, router_profile
 from mqs.issues import Severity, codes, has_errors
 from mqs.model.bridge import LanAddressing
 from mqs.model.network import Ipv4Range
+from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.validation import validate_profile
@@ -239,3 +240,57 @@ def test_router_mode_without_wan_warns():
     profile = router_profile()
     profile = _update(profile, wan=_update(profile.wan, enabled=False), mode=Mode.ROUTER)
     assert "mode.router_without_wan" in codes(validate_profile(profile))
+
+
+def _named(profile, **names):
+    return _update(profile, interface_names=names)
+
+
+def test_ports_are_known_by_the_names_the_profile_gives_them():
+    profile = rename_port(router_profile(), "ether2", "lan2")
+    issues = validate_profile(profile, make_inventory())
+    assert not has_errors(issues), [str(i) for i in issues]
+    # Without the rename, the device has no port called lan2.
+    assert "bridge.port_unknown" in codes(validate_profile(_named(profile), make_inventory()))
+
+
+def test_port_name_collisions():
+    profile = router_profile()
+    duplicate = validate_profile(_named(profile, ether2="lan", ether3="lan"))
+    assert "ports.name_duplicate" in codes(duplicate)
+    # A swap: when ether1 is renamed, ether2 still has that name (and gets it after a reset).
+    swap = [i for i in validate_profile(_named(profile, ether1="ether2", ether2="ether1"))
+            if i.code == "ports.name_in_use"]
+    assert [i.params for i in swap] == [{"default": "ether1", "name": "ether2",
+                                         "other": "ether2"}]
+    assert "ports.name_taken" in codes(validate_profile(_named(profile, ether2="bridge")))
+    assert "ports.name_empty" in codes(validate_profile(_named(profile, ether2="")))
+
+
+def test_port_name_taken_on_the_device():
+    profile = router_profile(["ether1", "ether2"])
+    inventory = make_inventory("7.20.7", ["uplink", "ether2"], default_names={"uplink": "ether1"})
+    # ether1 keeps "uplink", so ether2 cannot have it too.
+    assert "ports.name_duplicate" in codes(validate_profile(_named(profile, ether2="uplink"),
+                                                            inventory))
+    # ether1 gives it up first (renames run in port order), so ether2 can have it.
+    issues = validate_profile(_named(profile, ether1="wan", ether2="uplink"), inventory)
+    assert not {"ports.name_in_use", "ports.name_duplicate"} & codes(issues)
+    # The other way round, ether1's rename runs while ether2 still has the name.
+    inventory = make_inventory("7.20.7", ["ether1", "uplink"], default_names={"uplink": "ether2"})
+    issues = validate_profile(_named(profile, ether1="uplink", ether2="lan"), inventory)
+    assert next(i for i in issues if i.code == "ports.name_in_use").params["other"] == "ether2"
+
+
+def test_port_names_against_the_device():
+    inventory = make_inventory("7.20.7", ["ether1", "ether2", "port 3"],
+                               default_names={"port 3": "ether3"})
+    profile = _named(router_profile(["ether1", "ether2", "port 3"]), ether3="port 3",
+                     ether9="spare")
+    issues = validate_profile(profile, inventory)
+    # A name the device already uses is fine whatever its characters.
+    assert "ports.name_unusual" not in codes(issues)
+    unknown = next(i for i in issues if i.code == "ports.unknown")
+    assert unknown.severity == Severity.WARNING and unknown.params["default"] == "ether9"
+    unusual = validate_profile(_named(router_profile(), ether2="klient 2"))
+    assert next(i for i in unusual if i.code == "ports.name_unusual").severity == Severity.WARNING

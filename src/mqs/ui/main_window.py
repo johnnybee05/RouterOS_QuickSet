@@ -122,8 +122,7 @@ class MainWindow(QMainWindow):
         self.controller.inventoryChanged.connect(lambda _: self._update_badge())
 
         self.current_profile_name = ""
-        self.controller.set_profile(
-            apply_preset(DeviceProfile(), Mode.ROUTER, self.controller.ports()))
+        self.new_profile()
         self.controller.recompute()
         self.nav.setCurrentRow(0)
 
@@ -151,8 +150,9 @@ class MainWindow(QMainWindow):
 
     def new_profile(self) -> None:
         self.current_profile_name = ""
+        profile = DeviceProfile()  # its ports by the names it has, not the old profile's
         self.controller.set_profile(
-            apply_preset(DeviceProfile(), Mode.ROUTER, self.controller.ports()))
+            apply_preset(profile, Mode.ROUTER, self.controller.ports(profile)))
 
     def open_profile(self) -> None:
         name = self.dialogs.ask_item(self, S.PROFILE_OPEN, S.PROFILE_NAME_PROMPT, self.store.list())

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -42,7 +42,8 @@ class ReconnectTarget:
         return ", ".join((*mac, *self.hosts))
 
 
-def mac_interface_after_apply(profile: DeviceProfile, reported: str | None) -> str:
+def mac_interface_after_apply(profile: DeviceProfile, reported: str | None,
+                              renames: Mapping[str, str] | None = None) -> str:
     """Device interface to lend the address on once ``profile`` is on the device.
 
     MNDP names the port the device answered on, as "<bridge>/<port>" while it is bridged
@@ -51,6 +52,7 @@ def mac_interface_after_apply(profile: DeviceProfile, reported: str | None) -> s
     it the WAN port, and an address left on the bridge no longer reaches this PC.
     """
     port = (reported or "ether1").rsplit("/", 1)[-1]
+    port = (renames or {}).get(port, port)  # MNDP gives the name the port had before
     if port == profile.bridge.name or port in profile.bridge.ports:
         return profile.bridge.name
     return port

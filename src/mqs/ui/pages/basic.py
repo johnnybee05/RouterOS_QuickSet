@@ -1,21 +1,27 @@
-"""Základ: identity, scenario presets, WAN."""
+"""Základ: identity, scenario presets, port names, WAN."""
 
 from __future__ import annotations
 
 from pydantic import SecretStr
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
     QLineEdit,
     QPushButton,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import DhcpWan, PppoeWan, StaticWan, WanType
@@ -44,6 +50,7 @@ class BasicPage(Page):
         mode_row.addWidget(self.apply_mode)
         top.addRow(S.BASIC_MODE, mode_row)
         layout.addLayout(top)
+        layout.addWidget(self._names_group())
 
         wan_box = QGroupBox(S.WAN_GROUP)
         form = QFormLayout(wan_box)
@@ -79,6 +86,7 @@ class BasicPage(Page):
         self.fields = {
             "identity": self.identity,
             "mode": self.mode,
+            "interface_names": self.port_names,
             "wan.interface": self.wan_interface,
             "wan.settings.address": self.static_address,
             "wan.settings.gateway": self.static_gateway,
@@ -91,6 +99,26 @@ class BasicPage(Page):
         self.reload()
 
     # ------------------------------------------------------------ panels
+
+    def _names_group(self) -> QGroupBox:
+        box = QGroupBox(S.PORT_NAMES_GROUP)
+        layout = QVBoxLayout(box)
+        help_label = QLabel(S.PORT_NAMES_HELP)
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+        self.port_names = QTableWidget(0, len(S.PORT_NAMES_COLUMNS))
+        self.port_names.setHorizontalHeaderLabels(S.PORT_NAMES_COLUMNS)
+        self.port_names.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.port_names.verticalHeader().hide()
+        self.port_names.setMaximumHeight(300)
+        self.port_names.itemChanged.connect(self._port_renamed)
+        layout.addWidget(self.port_names)
+        self.port_name_error = QLabel()
+        self.port_name_error.setProperty("role", "danger")
+        self.port_name_error.setWordWrap(True)
+        self.port_name_error.hide()
+        layout.addWidget(self.port_name_error)
+        return box
 
     def _dhcp_panel(self) -> QWidget:
         panel = QWidget()
@@ -148,6 +176,45 @@ class BasicPage(Page):
         ports = self.controller.ports()
         self.controller.edit(lambda profile: apply_preset(profile, mode, ports))
 
+    def _port_renamed(self, item: QTableWidgetItem) -> None:
+        if self._loading or item.column() != 1:
+            return
+        default = item.data(Qt.ItemDataRole.UserRole)
+        rows = {d: name for d, name, _ in self.controller.port_rows()}
+        old, name = rows[default], item.text().strip()
+        other = next((d for d, n in rows.items() if n == name and d != default), None)
+        error = (S.PORT_NAME_EMPTY if not name
+                 else S.PORT_NAME_TAKEN.format(name=name, port=other) if other else "")
+        self.port_name_error.setText(error)
+        self.port_name_error.setVisible(bool(error))
+        keep = old if error or name == old else name
+        if keep != item.text():
+            self._loading = True  # setText fires itemChanged again
+            try:
+                item.setText(keep)
+            finally:
+                self._loading = False
+        if keep == old:
+            return
+        self.push(lambda profile: rename_port(profile, default, name))
+        self._loading = True  # own edits do not come back through load()
+        try:
+            self._fill_wan_ports()
+        finally:
+            self._loading = False
+
+    def _fill_port_names(self) -> None:
+        rows = self.controller.port_rows()
+        self.port_names.setRowCount(len(rows))
+        for row, (default, name, device) in enumerate(rows):
+            cells = [default, name, device or "—"]
+            for column, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                item.setData(Qt.ItemDataRole.UserRole, default)
+                if column != 1:
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                self.port_names.setItem(row, column, item)
+
     def _interface_changed(self, _index: int) -> None:
         self.push_value("wan.interface", self.wan_interface.currentData())
 
@@ -158,6 +225,11 @@ class BasicPage(Page):
             update={"wan": profile.wan.with_type(wan_type)}))
 
     def on_inventory(self, inventory) -> None:
+        self.port_name_error.hide()
+        self._fill_port_names()
+        self._fill_wan_ports()
+
+    def _fill_wan_ports(self) -> None:
         current = self.controller.profile.wan.interface
         self.wan_interface.clear()
         self.wan_interface.addItem("—", None)
@@ -170,6 +242,7 @@ class BasicPage(Page):
     def load(self, profile: DeviceProfile) -> None:
         self.identity.setText(profile.identity)
         self.mode.setCurrentIndex(self.mode.findData(profile.mode.value))
+        self._fill_port_names()
         wan = profile.wan
         self.wan_enabled.setChecked(wan.enabled)
         index = self.wan_interface.findData(wan.interface)

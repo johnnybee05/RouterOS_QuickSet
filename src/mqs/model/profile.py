@@ -26,6 +26,8 @@ class DeviceProfile(BaseModel):
     name: str = ""
     identity: str = "MikroTik"
     mode: Mode = Mode.CUSTOM
+    # Port names keyed by default-name; see mqs.model.ports.
+    interface_names: dict[str, str] = Field(default_factory=dict)
     wan: WanConfig = Field(default_factory=WanConfig)
     bridge: BridgeConfig = Field(default_factory=BridgeConfig)
     lan: LanConfig = Field(default_factory=LanConfig)

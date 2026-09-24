@@ -29,6 +29,10 @@ def preflight(
 ) -> list[Issue]:
     issues: list[Issue] = []
     result = result_for_mode(result, options.mode)
+    # Both were read from the device before the apply; the profile uses the names after it.
+    if session_port is not None:
+        session_port = result.renames.get(session_port, session_port)
+    renamed = existing.renamed(result.renames) if existing is not None else None
     if has_errors([*validation, *result.issues]):
         issues.append(Issue("apply.blocked_by_errors", E))
     if options.mode == ApplyMode.GENERATE_ONLY:
@@ -72,9 +76,9 @@ def preflight(
 
     if options.mode == ApplyMode.IMPORT:
         issues.extend(adopt_existing(result, existing)[1])
-        if existing is not None:
-            issues.extend(_mode_change(profile, existing))
-            issues.extend(_session_port_to_bridge(profile, existing, session_port))
+        if renamed is not None:
+            issues.extend(_mode_change(profile, renamed))
+            issues.extend(_session_port_to_bridge(profile, renamed, session_port))
 
     issues.extend(_notices(result))
     return issues

@@ -267,3 +267,19 @@ def test_apply_by_mac_gives_the_lent_address_back(router, profile_file, monkeypa
     assert ("temporary address 192.168.55.254/24 removed" in out) == given_back
     if given_back:
         assert router.log[-1] == "/ip/address/remove"  # after everything else
+
+
+def test_apply_takes_over_the_port_names_of_the_device(router, profile_file):
+    # The profile names ether1 the WAN port; on this device it is called ether1-uplink.
+    inventory = make_inventory("7.15.3", ["ether1-uplink", *PORTS[1:]],
+                               default_names={"ether1-uplink": "ether1"})
+    session = DeviceSession(ConnectionParams(host="10.0.0.1", username="admin"),
+                            router.session(), inventory, {}, "ether9")
+    code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "generate", "--show-script"], connect=lambda *a, **k: session)
+    assert code == cli.OK, out
+    assert "ports       : ether1-uplink (ether1), ether2," in out
+    assert "port names  : taken over from the device: ether1=ether1-uplink" in out
+    assert "set [ find default-name=ether1 ] name=ether1-uplink" in out
+    assert "add interface=ether1-uplink list=WAN" in out
+    assert "wan.interface_unknown" not in out

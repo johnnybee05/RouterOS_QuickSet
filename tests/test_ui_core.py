@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QLineEdit
 
 from factories import FIVE_PORTS, make_inventory, router_profile
 from mqs.issues import Issue, Severity
+from mqs.model.ports import rename_port
 from mqs.model.profile import DeviceProfile
 from mqs.model.wan import PppoeWan
 from mqs.ui.controller import ProfileController
@@ -195,3 +196,34 @@ def test_log_view_and_handler(qtbot):
     logger.info("připojeno")
     logger.removeHandler(handler)
     qtbot.waitUntil(lambda: "INFO připojeno" in view.toPlainText(), timeout=2000)
+
+
+def test_controller_takes_over_the_device_port_names():
+    controller = ProfileController(debounce_ms=10)
+    controller.set_profile(router_profile(FIVE_PORTS))  # WAN ether1, bridge ether2..5
+    sources = []
+    controller.profileChanged.connect(lambda profile, source: sources.append(source))
+    ports = ["uplink", *FIVE_PORTS[1:]]
+    controller.set_inventory(make_inventory("7.20.7", ports, default_names={"uplink": "ether1"}))
+    assert sources == [None], "every page reloads the adopted profile"
+    assert controller.profile.wan.interface == "uplink"
+    assert controller.profile.interface_names == {"ether1": "uplink"}
+    assert controller.ports() == ports
+    assert controller.default_names() == {"uplink": "ether1"}
+    assert controller.port_rows()[:2] == [("ether1", "uplink", "uplink"),
+                                          ("ether2", "ether2", "ether2")]
+    # A profile opened while connected is fitted to the device as well.
+    controller.set_profile(router_profile(FIVE_PORTS), source="page")
+    assert controller.profile.wan.interface == "uplink" and sources[-1] is None
+    # A fresh profile gets the device's names for its ports, not the old profile's.
+    assert controller.ports(DeviceProfile()) == ports
+
+
+def test_controller_offline_port_names():
+    controller = ProfileController()
+    controller.set_profile(rename_port(router_profile(FIVE_PORTS), "ether2", "lan2"))
+    assert controller.ports() == ["ether1", "lan2", "ether3", "ether4", "ether5"]
+    assert controller.port_rows()[1] == ("ether2", "lan2", None)
+    controller.set_offline_target(ports=["ether1"])
+    # A port the target lacks is still listed, so its name can be seen and changed.
+    assert controller.port_rows() == [("ether1", "ether1", None), ("ether2", "lan2", None)]

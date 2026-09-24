@@ -549,8 +549,8 @@ class DevicePage(Page):
         for row, iface in enumerate(rows):
             chip = inventory.switch_type(iface.switch)
             state = "disabled" if iface.disabled else ("running" if iface.running else "down")
-            cells = [iface.name, iface.type, f"{iface.switch} ({chip})" if iface.switch else "—",
-                     state, iface.mac_address]
+            cells = [iface.name, iface.default_name or "—", iface.type,
+                     f"{iface.switch} ({chip})" if iface.switch else "—", state, iface.mac_address]
             for column, text in enumerate(cells):
                 self.ports_table.setItem(row, column, QTableWidgetItem(text))
 

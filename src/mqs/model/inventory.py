@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -119,6 +120,18 @@ class DeviceInventory(BaseModel):
         """Physical-ish ports selectable as WAN or bridge member."""
         selectable = {"ether", "wlan", "wifi", "bond"}
         return [i.name for i in self.interfaces if i.type in selectable]
+
+    def renamed(self, renames: Mapping[str, str]) -> DeviceInventory:
+        """The device as it will be once its interfaces are renamed (name now -> new name)."""
+        if not renames:
+            return self
+        return self.model_copy(update={
+            "interfaces": [i.model_copy(update={"name": renames.get(i.name, i.name)})
+                           for i in self.interfaces],
+            "bridge_ports": [p.model_copy(update={"interface": renames.get(p.interface,
+                                                                            p.interface)})
+                             for p in self.bridge_ports],
+        })
 
     def interface(self, name: str) -> InterfaceInfo | None:
         return next((i for i in self.interfaces if i.name == name), None)

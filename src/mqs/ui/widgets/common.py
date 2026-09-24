@@ -109,18 +109,22 @@ class PortSelector(QListWidget):
         self.itemChanged.connect(self._changed)
 
     def set_ports(self, ports: Iterable[str], checked: Iterable[str],
-                  locked: Mapping[str, str] | None = None) -> None:
+                  locked: Mapping[str, str] | None = None,
+                  default_names: Mapping[str, str] | None = None) -> None:
+        """``default_names`` maps a renamed port to its default-name, shown next to it."""
         self._updating = True
         locked = locked or {}
+        default_names = default_names or {}
         checked_set = set(checked)
         self.clear()
         for port in ports:
-            item = QListWidgetItem(port)
+            label = f"{port} ({default_names[port]})" if port in default_names else port
+            item = QListWidgetItem(label)
             flags = Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
             if port in locked:
                 flags = Qt.ItemFlag.ItemIsUserCheckable  # visible but disabled
                 item.setToolTip(locked[port])
-                item.setText(f"{port} – {locked[port]}")
+                item.setText(f"{label} – {locked[port]}")
             item.setFlags(flags)
             item.setData(Qt.ItemDataRole.UserRole, port)
             state = port in checked_set and port not in locked

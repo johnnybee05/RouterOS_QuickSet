@@ -264,7 +264,8 @@ class LanBridgePage(Page):
             if port not in ports:
                 ports.append(port)
         locked = {wan: S.WAN_PORT_LOCKED} if wan else {}
-        self.ports.set_ports(ports, profile.bridge.ports, locked)
+        self.ports.set_ports(ports, profile.bridge.ports, locked,
+                             self.controller.default_names())
 
     def refresh_state(self, profile: DeviceProfile) -> None:
         bridge, lan = profile.bridge, profile.lan
