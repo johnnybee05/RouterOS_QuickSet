@@ -24,6 +24,10 @@ class ServicesConfig(BaseModel):
     hardening_text: str = DEFAULT_HARDENING_V7
     # Use `find` by topics instead of numeric indexes in /system logging.
     robust_logging: bool = False
+    # /ip dns allow-remote-requests: the router answers DNS for the LAN, and the DHCP server
+    # hands out the bridge address instead of the DNS servers above. Takes effect only with
+    # the basic filter, which keeps the resolver closed to WAN.
+    dns_remote_requests: bool = False
     # Optional extensions (default off, so the company standard never changes silently).
     api_ssl_certificate: str | None = None
     management_subnet: IPv4Network | None = None

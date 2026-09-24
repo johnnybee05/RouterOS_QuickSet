@@ -438,6 +438,19 @@ def test_firewall_fasttrack_asks_about_shaping(window):
     assert page.fasttrack_hw.isEnabled()
 
 
+def test_remote_dns_follows_basic_filter(window):
+    services, firewall = window.services_page, window.firewall_page
+    firewall.basic_filter.setChecked(True)
+    assert services.dns_remote.isEnabled() and not services.dns_remote.isChecked()
+    services.dns_remote.setChecked(True)
+    assert window.controller.profile.router_is_dns
+    firewall.basic_filter.setChecked(False)
+    assert not window.controller.profile.services.dns_remote_requests
+    assert not services.dns_remote.isChecked() and not services.dns_remote.isEnabled()
+    firewall.basic_filter.setChecked(True)
+    assert services.dns_remote.isEnabled() and not services.dns_remote.isChecked()
+
+
 def test_services_page_two_way_binding_and_reset(window):
     page = window.services_page
     page.ssh_port.setValue(2222)

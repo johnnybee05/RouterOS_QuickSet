@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address, IPv4Interface
+
 from mqs.generator.blocks.common import (
     MASKED_SECRET,
     WAN_LIST,
@@ -11,8 +13,9 @@ from mqs.generator.blocks.common import (
     wan_port,
 )
 from mqs.generator.context import TargetContext
+from mqs.generator.hardening.binding import read_fields
 from mqs.generator.ir import ArgValue, Comment, Script, SectionKey, cmd
-from mqs.issues import Issue
+from mqs.issues import Issue, Severity
 from mqs.model.bridge import LanAddressing
 from mqs.model.profile import DeviceProfile
 from mqs.model.wan import DhcpWan, PppoeWan, StaticWan
@@ -23,6 +26,7 @@ def build(
 ) -> list[Issue]:
     section = script.section(SectionKey.ADDRESSING)
     lan, bridge = profile.lan, profile.bridge
+    issues: list[Issue] = []
 
     if bridge_enabled(profile):
         if lan.addressing == LanAddressing.STATIC and lan.address is not None:
@@ -53,12 +57,16 @@ def build(
         and lan.address is not None
     ):
         gateway = dhcp.gateway or lan.address.ip
-        dns = dhcp.dns_servers or [gateway]
         network_args: dict[str, ArgValue] = {
             "address": str(lan.address.network),
             "gateway": str(gateway),
-            "dns-server": [str(d) for d in dns],
         }
+        dns = dhcp_dns_servers(profile, lan.address)
+        if dns:
+            network_args["dns-server"] = dns
+        else:
+            issues.append(Issue("dhcp.no_dns_servers", Severity.WARNING,
+                                "lan.dhcp_server.dns_servers"))
         if dhcp.comment:
             network_args["comment"] = dhcp.comment
         section.add(
@@ -75,7 +83,35 @@ def build(
             ),
             cmd("/ip dhcp-server network", "add", args=network_args),
         )
-    return []
+    return issues
+
+
+def dhcp_dns_servers(profile: DeviceProfile, address: IPv4Interface) -> list[str]:
+    """DNS servers the DHCP server hands out.
+
+    A list given on the LAN page wins. Otherwise the bridge address when the router answers
+    DNS itself (allow-remote-requests), else the servers the router asks: those of the
+    hardening block, which runs last, or those of a static WAN. DHCP carries IPv4 only.
+    """
+    dhcp = profile.lan.dhcp_server
+    if dhcp.dns_servers:
+        return [str(d) for d in dhcp.dns_servers]
+    if profile.router_is_dns:
+        return [str(address.ip)]
+    servers = read_fields(profile.services.hardening_text).dns_servers
+    if servers is None:
+        settings, servers = profile.wan.settings, ()
+        if wan_port(profile) is not None and isinstance(settings, StaticWan):
+            servers = tuple(str(s) for s in settings.dns_servers)
+    return [s for s in servers if _is_ipv4(s)]
+
+
+def _is_ipv4(text: str) -> bool:
+    try:
+        IPv4Address(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _wan(

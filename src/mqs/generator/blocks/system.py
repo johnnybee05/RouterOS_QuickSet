@@ -13,26 +13,26 @@ from mqs.issues import Issue, Severity
 from mqs.model.profile import DeviceProfile
 
 SERVICE_MENU = "/ip service"
+DNS_MENU = "/ip dns"
+REMOTE_REQUESTS = "allow-remote-requests"
 LOGGING_MENU = "/system logging"
 # Default /system logging rule order on a fresh device; NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 LOGGING_INDEX_TOPICS = {0: "info", 1: "error", 2: "warning", 3: "critical"}
 
 
-def build(
-    profile: DeviceProfile, script: Script, block: ParsedBlock, *, router_is_dns: bool
-) -> list[Issue]:
+def build(profile: DeviceProfile, script: Script, block: ParsedBlock) -> list[Issue]:
     issues: list[Issue] = [p.to_issue() for p in block.problems]
     system = script.section(SectionKey.SYSTEM)
     services = script.section(SectionKey.SERVICES)
 
-    if router_is_dns:
-        system.add(
-            Comment("LAN clients use the router as DNS server"),
-            cmd("/ip dns", "set", allow_remote_requests=True),
-        )
-        issues.append(Issue("dns.remote_requests_enabled", Severity.INFO, "lan.dhcp_server"))
-        if not profile.firewall.basic_filter:
-            issues.append(Issue("dns.open_resolver", Severity.WARNING, "firewall.basic_filter"))
+    # Always explicit: an import onto a router would otherwise keep a resolver left on.
+    remote = profile.router_is_dns
+    system.add(
+        Comment("DNS: the router answers LAN clients" if remote
+                else "DNS: the router answers no remote requests"),
+        cmd(DNS_MENU, "set", args={REMOTE_REQUESTS: remote}),
+    )
+    issues += _remote_requests_in_block(block, remote)
 
     system_items: list[Item] = []
     service_items: list[Item] = []
@@ -50,6 +50,20 @@ def build(
     if service_items:
         services.add(*service_items)
     _service_extensions(profile, script)
+    return issues
+
+
+def _remote_requests_in_block(block: ParsedBlock, remote: bool) -> list[Issue]:
+    """The block runs after the line above, so its own allow-remote-requests wins."""
+    issues = []
+    for line in block.lines:
+        item = line.item
+        if not (isinstance(item, Command) and item.path == DNS_MENU and item.verb == "set"):
+            continue
+        value = item.arg(REMOTE_REQUESTS)
+        if value is not None and (value in ("yes", "true")) != remote:
+            issues.append(Issue("dns.remote_requests_in_hardening", Severity.WARNING,
+                                "services.hardening_text", {"value": value}))
     return issues
 
 

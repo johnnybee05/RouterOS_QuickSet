@@ -24,6 +24,9 @@ add interface=bridge list=LAN
 /ip dhcp-client
 add interface=bridge disabled=no
 # ---- DNS / NTP / CLOCK / SNMP / DISCOVERY / IPV6 / LOGGING ----
+# DNS: the router answers no remote requests
+/ip dns
+set allow-remote-requests=no
 # Hardening block
 /snmp community
 set [ find default=yes ] disabled=yes

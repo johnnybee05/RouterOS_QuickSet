@@ -6,7 +6,7 @@ from pydantic import SecretStr
 from factories import FIVE_PORTS, make_inventory, router_profile
 from mqs.capabilities.matrix import Capabilities
 from mqs.generator import features
-from mqs.generator.base import generate, router_is_dns
+from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
 from mqs.generator.ir import Command, SectionKey
@@ -293,7 +293,8 @@ def test_acceptance_router_v7_contents():
             "out-interface-list=WAN") in text
     assert "add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no" \
         in text
-    assert "allow-remote-requests=yes" in text
+    assert "/ip dns\nset allow-remote-requests=no\n" in text
+    assert "dns-server=192.168.200.200,8.8.8.8" in text
     assert not result.has_errors, [str(i) for i in result.issues]
 
 
@@ -421,15 +422,88 @@ def test_unsupported_version():
     assert "target.unsupported_version" in codes(result.issues)
 
 
-def test_bridge_ap_and_open_resolver():
+def test_bridge_ap():
     result = generate(bridge_ap(), target("7.15.3"))
     assert "/ip dhcp-client\nadd interface=bridge disabled=no" in result.text
     assert "/ip firewall" not in result.text
-    assert not router_is_dns(bridge_ap())
+    # Explicit, so an import onto a router turns its resolver off.
+    assert "/ip dns\nset allow-remote-requests=no\n" in result.text
 
-    profile = router_dhcp()
+
+# ---------------------------------------------------------------- DNS for the LAN
+
+
+def _remote_dns(profile: DeviceProfile, on: bool = True) -> DeviceProfile:
+    return _u(profile, services=_u(profile.services, dns_remote_requests=on))
+
+
+def _dhcp_dns(profile: DeviceProfile, servers: list[str]) -> DeviceProfile:
+    dhcp = _u(profile.lan.dhcp_server, dns_servers=[IPv4Address(s) for s in servers])
+    return _u(profile, lan=_u(profile.lan, dhcp_server=dhcp))
+
+
+def _hardening_dns(profile: DeviceProfile, servers: list[str] | None) -> DeviceProfile:
+    text = profile.services.hardening_text.replace(
+        "/ip dns\nset servers=192.168.200.200,8.8.8.8\n", "")
+    if servers is not None:
+        text = binding.set_dns_servers(text, servers)
+    return _u(profile, services=_u(profile.services, hardening_text=text))
+
+
+def test_remote_requests_hand_out_the_bridge():
+    for version in TARGETS:
+        result = generate(_remote_dns(router_dhcp()), target(version))
+        assert "/ip dns\nset allow-remote-requests=yes\n" in result.text
+        assert "add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.88.1" \
+            in result.text
+        assert not result.has_errors
+
+
+def test_remote_requests_need_the_basic_filter():
+    profile = _remote_dns(router_dhcp())
     profile = _u(profile, firewall=_u(profile.firewall, basic_filter=False))
-    assert "dns.open_resolver" in codes(generate(profile, target("7.15.3")).issues)
+    assert not profile.router_is_dns
+    result = generate(profile, target("7.15.3"))
+    assert "set allow-remote-requests=no" in result.text
+    assert "dns-server=192.168.200.200,8.8.8.8" in result.text
+
+    assert not _remote_dns(router_dhcp()).with_basic_filter(False).services.dns_remote_requests
+    assert _remote_dns(router_dhcp()).with_basic_filter(True).router_is_dns
+
+
+def test_dhcp_dns_given_on_the_lan_page_wins():
+    for on in (False, True):
+        profile = _dhcp_dns(_remote_dns(router_dhcp(), on), ["10.0.0.53"])
+        assert "dns-server=10.0.0.53" in generate(profile, target("7.15.3")).text
+
+
+def test_dhcp_dns_falls_back_to_static_wan_then_warns():
+    result = generate(_hardening_dns(router_static(), None), target("7.15.3"))
+    assert "dns-server=1.1.1.1" in result.text
+    assert "wan.static.dns_overridden" not in codes(result.issues)
+
+    result = generate(_hardening_dns(router_dhcp(), None), target("7.15.3"))
+    assert "dns-server" not in result.text
+    assert "add address=192.168.88.0/24 gateway=192.168.88.1\n" in result.text
+    assert "dhcp.no_dns_servers" in codes(result.issues)
+    remote = generate(_remote_dns(_hardening_dns(router_dhcp(), None)), target("7.15.3"))
+    assert "dhcp.no_dns_servers" not in codes(remote.issues)
+
+
+def test_dhcp_dns_skips_what_dhcp_cannot_carry():
+    profile = _hardening_dns(router_dhcp(), ["2001:4860:4860::8888", "9.9.9.9"])
+    assert "dns-server=9.9.9.9\n" in generate(profile, target("7.15.3")).text
+    profile = _hardening_dns(router_dhcp(), ["2001:4860:4860::8888"])
+    assert "dhcp.no_dns_servers" in codes(generate(profile, target("7.15.3")).issues)
+
+
+def test_remote_requests_in_hardening_block_warn():
+    profile = router_dhcp()
+    text = profile.services.hardening_text + "/ip dns\nset allow-remote-requests=yes\n"
+    profile = _u(profile, services=_u(profile.services, hardening_text=text))
+    assert "dns.remote_requests_in_hardening" in codes(generate(profile, target("7.15.3")).issues)
+    assert "dns.remote_requests_in_hardening" not in codes(
+        generate(_remote_dns(profile), target("7.15.3")).issues)
 
 
 def test_bridge_ap_static_address_and_default_route():

@@ -59,9 +59,10 @@ def apply_preset(profile: DeviceProfile, mode: Mode, ports: Sequence[str]) -> De
         )
         firewall = FirewallConfig(basic_filter=False)
 
-    return profile.model_copy(
+    profile = profile.model_copy(
         update={"mode": mode, "wan": wan, "bridge": bridge, "lan": lan, "firewall": firewall}
     )
+    return profile.with_basic_filter(firewall.basic_filter)
 
 
 def _disabled_wan() -> WanConfig:

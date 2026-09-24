@@ -55,6 +55,16 @@ MESSAGES: dict[str, str] = {
     "dhcp.pool_contains_address": "Rozsah {pool} obsahuje adresu bridge {address}.",
     "dhcp.pool_contains_reserved": "Rozsah {pool} obsahuje adresu sítě nebo broadcast.",
     "dhcp.gateway_outside_subnet": "Brána DHCP {gateway} neleží v síti {network}.",
+    "dhcp.dns_router_not_answering": "DHCP přiděluje jako DNS adresu routeru {address}, ale "
+    "vzdálené DNS dotazy jsou vypnuté, takže router klientům neodpoví. Povolte je ve Službách "
+    "a hardeningu, nebo pole DNS nechte prázdné.",
+    "dhcp.no_dns_servers": "DHCP server nemá jaké DNS přidělit: vzdálené DNS dotazy jsou "
+    "vypnuté a hardening blok ani statická WAN nemají DNS server s IPv4 adresou. Doplňte DNS "
+    "ve Službách a hardeningu, zadejte ho u DHCP serveru, nebo povolte vzdálené DNS dotazy.",
+    # DNS
+    "dns.remote_requests_need_filter": "Vzdálené DNS dotazy (allow-remote-requests) jdou "
+    "zapnout jen se základním filtrem, bez něj by router odpovídal na DNS i z WAN. Zůstanou "
+    "vypnuté a DHCP server přidělí DNS servery ze Služeb a hardeningu.",
     # firewall
     "firewall.fasttrack_shaping_unconfirmed": "FastTrack obchází simple queues a HTB. "
     "Potvrďte, že tvarování provozu nepoužíváte.",
@@ -122,10 +132,9 @@ MESSAGES: dict[str, str] = {
     "Použijte rstp.",
     "fasttrack.hw_offload_skipped": "hw-offload na FastTrack pravidle se nevygeneruje – verze "
     "nebo hardware ho nepodporuje, případně to nebylo ověřeno na zařízení.",
-    "dns.remote_requests_enabled": "DHCP server předává jako DNS router, proto se zapne "
-    "/ip dns allow-remote-requests=yes.",
-    "dns.open_resolver": "allow-remote-requests=yes bez základního filtru – DNS bude dostupné "
-    "i z WAN.",
+    "dns.remote_requests_in_hardening": "Hardening blok nastavuje allow-remote-requests="
+    "{value}. Běží až po volbě „Povolit vzdálené DNS dotazy“, takže ji přepíše – řádek "
+    "z bloku odstraňte a použijte volbu.",
     "wan.static.dns_overridden": "DNS servery ze statické WAN přepíše nastavení /ip dns "
     "v hardening bloku.",
     "feature.unverified": "Použité neověřené rozdíly verzí (NUTNO OVĚŘIT): {features}",
@@ -181,8 +190,8 @@ MESSAGES: dict[str, str] = {
     "{bridge}. Import ho z bridge nevyjme, takže WAN adresa na něm nebude platit a spojení "
     "přes něj se ztratí. Změnu režimu bridge → router proveďte resetem (Reset + aplikovat).",
     "apply.import_router_to_bridge": "Na zařízení je konfigurace routeru (WAN: {ports}), "
-    "profil WAN nemá. Import ji neodstraní: zůstane seznam WAN, původní bridge s adresou a "
-    "DHCP serverem i DNS pro LAN. Změnu režimu router → bridge proveďte raději resetem.",
+    "profil WAN nemá. Import ji neodstraní: zůstane seznam WAN a původní bridge s adresou "
+    "a DHCP serverem. Změnu režimu router → bridge proveďte raději resetem.",
     "apply.session_port_to_bridge": "Aplikace je připojená přes port {port}, který import "
     "přidá do bridge {bridge}. Adresa na portu tím přestane platit, na bridge ji skript "
     "přesune ({address}) až o krok později, takže se spojení na chvíli přeruší.",

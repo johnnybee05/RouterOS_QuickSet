@@ -29,6 +29,15 @@ def test_bridge_ap_preset():
     assert not has_errors(validate_profile(profile, make_inventory()))
 
 
+def test_preset_without_basic_filter_turns_remote_dns_off():
+    profile = DeviceProfile(identity="AP1")
+    profile = profile.model_copy(update={
+        "services": profile.services.model_copy(update={"dns_remote_requests": True})})
+    assert apply_preset(profile, Mode.ROUTER, FIVE_PORTS).router_is_dns
+    bridge = apply_preset(profile, Mode.BRIDGE_AP, FIVE_PORTS)
+    assert not bridge.services.dns_remote_requests
+
+
 def test_custom_preset_is_empty():
     profile = apply_preset(DeviceProfile(identity="X"), Mode.CUSTOM, FIVE_PORTS)
     assert not profile.wan.enabled

@@ -151,7 +151,11 @@ DHCP_ENABLED = "Zapnout DHCP server"
 DHCP_POOL_START = "Pool od"
 DHCP_POOL_END = "Pool do"
 DHCP_GATEWAY = "Brána (prázdné = adresa bridge)"
-DHCP_DNS = "DNS (prázdné = brána)"
+DHCP_DNS = "DNS (prázdné = automaticky)"
+DHCP_DNS_HELP = (
+    "Prázdné: s povolenými vzdálenými DNS dotazy adresa bridge, jinak DNS servery ze Služeb "
+    "a hardeningu."
+)
 DHCP_LEASE = "Lease time [s]"
 DHCP_NAME = "Název serveru"
 DHCP_COMMENT = "Název sítě (komentář)"
@@ -191,6 +195,12 @@ FASTTRACK_SHAPING_TITLE = "FastTrack a tvarování provozu"
 # services page
 SERVICES_FIELDS_GROUP = "Nejčastěji měněné hodnoty"
 SERVICES_DNS = "DNS servery"
+SERVICES_DNS_REMOTE = "Povolit vzdálené DNS dotazy (allow-remote-requests)"
+SERVICES_DNS_REMOTE_HELP = (
+    "Zapnuto: router odpovídá na DNS dotazy z LAN a DHCP server přiděluje jako DNS adresu "
+    "bridge. Vypnuto: DHCP server přiděluje DNS servery výše. Zapnout jde jen se základním "
+    "filtrem firewallu."
+)
 SERVICES_SSH_PORT = "SSH port"
 SERVICES_SNMP = "SNMP community"
 SERVICES_NTP = "NTP servery"

@@ -39,7 +39,7 @@ Legend:
 | Robust logging | `blocks/system.py:LOGGING_INDEX_TOPICS` | index 0..3 → `set [ find where topics~"^info\$" ] action=disk` (and error, warning, critical) | **OVĚŘENO on 7.20.7** (2026-09-23, see log): the default order, and that the bare `find topics=info` used before matched nothing; v6 NUTNO OVĚŘIT |
 | v6 IPv6 disable | `ros6.py` | package enabled → `/system package disable ipv6` (reboot); missing/disabled → omitted | decision Q3; NUTNO OVĚŘIT |
 | DHCP client / server `disabled=no` | `blocks/addressing.py` | always explicit (v6 adds disabled entries by default) | NUTNO OVĚŘIT |
-| Router as DNS | `blocks/system.py` | DHCP server hands out the router → `/ip dns set allow-remote-requests=yes` (needed for LAN clients; not in spec) | design decision |
+| Router as DNS | `blocks/system.py`, `blocks/addressing.py:dhcp_dns_servers` | `/ip dns set allow-remote-requests=yes\|no` always explicit, from the services option (default no), yes only with the basic filter; the DHCP network hands out the bridge address when yes, else the IPv4 servers of the hardening block (or of a static WAN), unless the LAN page lists its own | design decision (2026-09-24) |
 | PPPoE in WAN list | `blocks/addressing.py` | `pppoe-out1` added to WAN list right after the client is created (section 3), the physical port in section 2 | design decision |
 
 ### Switch chip database (`src/mqs/data/switch_chips.yaml`)

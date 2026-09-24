@@ -236,6 +236,28 @@ def test_fasttrack_warnings():
     assert "firewall.fasttrack_pppoe_no_hw" in issues
 
 
+def _remote_dns(profile, on=True):
+    return _update(profile, services=_update(profile.services, dns_remote_requests=on))
+
+
+def test_remote_dns_without_basic_filter_warns():
+    profile = _remote_dns(router_profile())
+    assert "dns.remote_requests_need_filter" not in codes(validate_profile(profile))
+    profile = _update(profile, firewall=_update(profile.firewall, basic_filter=False))
+    issues = validate_profile(profile)
+    assert "dns.remote_requests_need_filter" in codes(issues)
+    assert not has_errors(issues)
+
+
+def test_dhcp_hands_out_router_that_does_not_answer():
+    profile = _with_dhcp(router_profile(), dns_servers=[IPv4Address("192.168.88.1")])
+    issue = next(i for i in validate_profile(profile)
+                 if i.code == "dhcp.dns_router_not_answering")
+    assert issue.field == "lan.dhcp_server.dns_servers"
+    assert issue.params == {"address": "192.168.88.1"}
+    assert "dhcp.dns_router_not_answering" not in codes(validate_profile(_remote_dns(profile)))
+
+
 def test_router_mode_without_wan_warns():
     profile = router_profile()
     profile = _update(profile, wan=_update(profile.wan, enabled=False), mode=Mode.ROUTER)

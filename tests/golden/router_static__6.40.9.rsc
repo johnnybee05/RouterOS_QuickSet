@@ -27,7 +27,7 @@ add name=dhcp_pool ranges=192.168.88.10-192.168.88.254
 /ip dhcp-server
 add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no
 /ip dhcp-server network
-add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.88.1
+add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.200.200,8.8.8.8
 # ---- FIREWALL / NAT ----
 # Firewall: replace the rules of an earlier QuickSet run
 /ip firewall filter
@@ -58,8 +58,8 @@ add chain=srcnat action=masquerade comment="quickset: masquerade to WAN" out-int
 # DNS servers from static WAN
 /ip dns
 set servers=1.1.1.1
-# LAN clients use the router as DNS server
-set allow-remote-requests=yes
+# DNS: the router answers no remote requests
+set allow-remote-requests=no
 # Hardening block
 /snmp community
 set [ find default=yes ] disabled=yes

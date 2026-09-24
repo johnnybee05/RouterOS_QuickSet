@@ -38,6 +38,7 @@ def validate_profile(
     issues += _bridge(profile, ports)
     issues += _lan(profile)
     issues += _firewall(profile)
+    issues += _dns(profile)
     issues += _mode(profile)
     return issues
 
@@ -258,6 +259,19 @@ def _firewall(profile: DeviceProfile) -> list[Issue]:
         )
     if profile.wan.enabled and isinstance(profile.wan.settings, PppoeWan):
         issues.append(Issue("firewall.fasttrack_pppoe_no_hw", INFO, "firewall.fasttrack.enabled"))
+    return issues
+
+
+def _dns(profile: DeviceProfile) -> list[Issue]:
+    """allow-remote-requests, and the router's own address handed out as DNS."""
+    issues: list[Issue] = []
+    if profile.services.dns_remote_requests and not profile.firewall.basic_filter:
+        issues.append(Issue("dns.remote_requests_need_filter", W, "services.dns_remote_requests"))
+    lan, dhcp = profile.lan, profile.lan.dhcp_server
+    if (dhcp.enabled and not profile.router_is_dns and lan.addressing == LanAddressing.STATIC
+            and lan.address is not None and lan.address.ip in dhcp.dns_servers):
+        issues.append(Issue("dhcp.dns_router_not_answering", W, "lan.dhcp_server.dns_servers",
+                            {"address": str(lan.address.ip)}))
     return issues
 
 

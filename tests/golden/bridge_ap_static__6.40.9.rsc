@@ -22,6 +22,9 @@ add address=192.168.88.10/24 interface=bridge
 /ip route
 add dst-address=0.0.0.0/0 gateway=192.168.88.1
 # ---- DNS / NTP / CLOCK / SNMP / DISCOVERY / IPV6 / LOGGING ----
+# DNS: the router answers no remote requests
+/ip dns
+set allow-remote-requests=no
 # Hardening block
 /snmp community
 set [ find default=yes ] disabled=yes

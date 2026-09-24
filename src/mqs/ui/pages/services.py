@@ -61,7 +61,14 @@ class ServicesPage(Page):
         self.tz.addItems(TIME_ZONES)
         self.tz.currentTextChanged.connect(
             lambda t: self._bind(binding.set_time_zone, t.strip()) if t.strip() else None)
+        self.dns_remote = QCheckBox(S.SERVICES_DNS_REMOTE)
+        self.dns_remote.toggled.connect(
+            lambda on: self.push_value("services.dns_remote_requests", on))
+        dns_remote_help = QLabel(S.SERVICES_DNS_REMOTE_HELP)
+        dns_remote_help.setWordWrap(True)
         form.addRow(S.SERVICES_DNS, self.dns)
+        form.addRow("", self.dns_remote)
+        form.addRow("", dns_remote_help)
         form.addRow(S.SERVICES_SSH_PORT, self.ssh_port)
         form.addRow(S.SERVICES_SNMP, self.snmp)
         form.addRow(S.SERVICES_NTP, self.ntp)
@@ -108,6 +115,7 @@ class ServicesPage(Page):
         layout.addWidget(ext_box)
 
         self.fields = {"services.hardening_text": self.editor,
+                       "services.dns_remote_requests": self.dns_remote,
                        "services.management_subnet": self.subnet}
         self.reload()
 
@@ -197,6 +205,7 @@ class ServicesPage(Page):
         services = profile.services
         self._set_editor_text(services.hardening_text)
         self._load_fields(services.hardening_text)
+        self.dns_remote.setChecked(services.dns_remote_requests)
         self.robust_logging.setChecked(services.robust_logging)
         self.cert_enabled.setChecked(services.api_ssl_certificate is not None)
         self.certificate.setCurrentText(services.api_ssl_certificate or "")
@@ -204,6 +213,11 @@ class ServicesPage(Page):
         self.subnet_enabled.setChecked(services.management_subnet is not None)
         self.subnet.setText(str(services.management_subnet or ""))
         self.subnet.setEnabled(services.management_subnet is not None)
+
+    def refresh_state(self, profile: DeviceProfile) -> None:
+        # Cannot be switched on without the basic filter, but can always be switched off.
+        self.dns_remote.setEnabled(
+            profile.firewall.basic_filter or profile.services.dns_remote_requests)
 
     def on_analysis(self, analysis: Analysis) -> None:
         access = analysis.primary.access

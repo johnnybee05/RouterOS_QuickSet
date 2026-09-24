@@ -71,6 +71,11 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
    Při zapnutí FastTracku se aplikace zeptá na tvarování provozu.
 5. **Služby a hardening**: DNS, SSH port, SNMP, NTP a časové pásmo ve formuláři, pod nimi
    celý blok jako text.
+   - *Povolit vzdálené DNS dotazy* (`/ip dns allow-remote-requests`, výchozí vypnuto) určuje,
+     jaké DNS dostanou klienti z DHCP serveru: zapnuté adresu bridge (router jim DNS
+     překládá), vypnuté DNS servery vyplněné v tomto formuláři. Zapnout jde jen se
+     základním filtrem, aby DNS neodpovídalo z WAN; vypnutím filtru se vypne i tahle volba.
+     DNS zadané přímo u DHCP serveru na stránce LAN má přednost.
 6. **Náhled**: skript pro v6, v7 nebo obě vedle sebe. Tlačítko *Kopírovat* vloží skript do
    schránky (lze ho vložit rovnou do terminálu Winboxu), *Uložit .rsc* ho uloží do souboru.
 7. **Aplikovat**: vyberte režim, zkontrolujte upozornění, projděte dry-run a potvrďte.
@@ -220,8 +225,7 @@ se po uplynutí času samo vrátí na zálohu.
   Reset + aplikovat začíná od výchozího stavu a tohle omezení nemá.
 - **Změnu režimu (router ↔ bridge) dělejte resetem.** Import bridge profilu na routeru
   funguje, ale nechá po routeru prázdný původní bridge s LAN adresou, DHCP serverem a
-  poolem, seznam WAN a zapnuté `allow-remote-requests` (DNS resolver pro celou LAN);
-  kontrola před aplikací na to upozorní. Import router profilu na zařízení, kde je WAN port
+  poolem a seznam WAN; kontrola před aplikací na to upozorní. Import router profilu na zařízení, kde je WAN port
   v bridge, je zablokovaný: import port z bridge nevyjme a WAN by nefungoval.
 - Když import přidá do bridge port, přes který je aplikace připojená, spojení se na chvíli
   přeruší, než skript přesune adresu na bridge; kontrola před aplikací na to upozorní, a

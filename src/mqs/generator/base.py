@@ -10,7 +10,6 @@ from mqs import __version__
 from mqs.capabilities.matrix import Capabilities
 from mqs.capabilities.offload import OffloadPlan, plan_offload, plan_offload_without_hardware
 from mqs.generator.blocks import addressing, bridge, firewall, identity, system
-from mqs.generator.blocks.common import bridge_enabled
 from mqs.generator.context import TargetContext
 from mqs.generator.features import is_supported_version
 from mqs.generator.hardening.access import AccessReport, analyze_access
@@ -21,7 +20,6 @@ from mqs.generator.render import render_script
 from mqs.generator.ros6 import Dialect6
 from mqs.generator.ros7 import Dialect7
 from mqs.issues import Issue, Severity, has_errors
-from mqs.model.bridge import LanAddressing
 from mqs.model.ports import port_renames
 from mqs.model.profile import DeviceProfile
 from mqs.model.version import RosVersion
@@ -47,15 +45,6 @@ class GenerationResult:
     @property
     def has_errors(self) -> bool:
         return has_errors(self.issues)
-
-
-def router_is_dns(profile: DeviceProfile) -> bool:
-    lan, dhcp = profile.lan, profile.lan.dhcp_server
-    if not (dhcp.enabled and bridge_enabled(profile) and lan.addressing == LanAddressing.STATIC
-            and lan.address is not None):
-        return False
-    gateway = dhcp.gateway or lan.address.ip
-    return lan.address.ip in (dhcp.dns_servers or [gateway])
 
 
 def _header(profile: DeviceProfile, ctx: TargetContext, now: datetime | None) -> str:
@@ -100,7 +89,7 @@ def generate(
     issues += bridge.build(profile, ctx, script, offload)
     issues += addressing.build(profile, ctx, script, mask_secrets=mask_secrets)
     block = parse(profile.services.hardening_text)
-    issues += system.build(profile, script, block, router_is_dns=router_is_dns(profile))
+    issues += system.build(profile, script, block)
 
     dialect = Dialect6() if ctx.major == 6 else Dialect7()
     issues += dialect.translate(script, ctx)

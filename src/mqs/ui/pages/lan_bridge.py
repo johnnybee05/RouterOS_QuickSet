@@ -229,6 +229,7 @@ class LanBridgePage(Page):
             "lan.dhcp_server.gateway", lambda: parse_optional_ip(t)))
         form.addRow(S.DHCP_GATEWAY, self.dhcp_gateway)
         self.dhcp_dns = QLineEdit()
+        self.dhcp_dns.setToolTip(S.DHCP_DNS_HELP)
         self.dhcp_dns.textEdited.connect(lambda t: self.push_parsed(
             "lan.dhcp_server.dns_servers", lambda: parse_ip_list(t)))
         form.addRow(S.DHCP_DNS, self.dhcp_dns)

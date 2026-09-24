@@ -25,7 +25,8 @@ class FirewallPage(Page):
         layout = QVBoxLayout(self)
 
         self.basic_filter = QCheckBox(S.FIREWALL_BASIC)
-        self.basic_filter.toggled.connect(lambda on: self.push_value("firewall.basic_filter", on))
+        self.basic_filter.toggled.connect(
+            lambda on: self.push(lambda profile: profile.with_basic_filter(on)))
         layout.addWidget(self.basic_filter)
         basic_help = QLabel(S.FIREWALL_BASIC_HELP)
         basic_help.setWordWrap(True)
