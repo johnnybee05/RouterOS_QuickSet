@@ -14,6 +14,7 @@ from fake_transport import FakeTransport
 from mqs.apply.orchestrator import (
     RESET_ARM_ATTEMPTS,
     RESET_SETTLE_S,
+    ROUTERBOOT_REBOOT_WAIT_S,
     ApplyAborted,
     ApplyContext,
     ApplyOrchestrator,
@@ -979,3 +980,96 @@ def test_an_update_generates_for_the_new_version_without_old_probes():
     assert "hw-offload" not in result.text  # 7.23.7: "bad parameter hw-offload"
     assert str(result.target) == "7.23.7" and after.inventory is inventory
     assert context.probes == {"fasttrack_hw_offload": True}  # the original is untouched
+
+
+# ------------------------------------------------------------ RouterBOOT
+
+
+def _routerboot_build(current="7.20.7", available="7.23.7"):
+    router, orchestrator, events, reconnects = build(
+        ApplyMode.RESET_AND_IMPORT, admin_password="N3w", confirmed_identity="MikroTik",
+        upgrade_routerboot=True)
+    router.firmware.update({"current-firmware": current, "upgrade-firmware": available})
+    orchestrator.ctx.sleep = lambda seconds: router.log.append(f"slept {seconds}")
+    return router, orchestrator, events, reconnects
+
+
+def test_routerboot_is_upgraded_last_and_checked_after_its_reboot():
+    router, orchestrator, events, reconnects = _routerboot_build()
+    report = orchestrator.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert router.reboots == 2  # the reset, then the one that starts the new RouterBOOT
+    log = router.log
+    assert log.index("/system/routerboard/upgrade") < log.index("/system/reboot")
+    assert log.index(f"slept {ROUTERBOOT_REBOOT_WAIT_S}") > log.index("/system/reboot")
+    check = report.checks[-1]
+    assert check.code == "verify.routerboot" and check.ok
+    assert check.message == "RouterBOOT 7.23.7 (na zařízení 7.23.7)"
+    # Back where the session answered after the reset, with the same credentials.
+    assert len(reconnects) == 2 and reconnects[1].params.host == reconnects[0].params.host
+    assert reconnects[1].params.password == "N3w" and reconnects[1].mac is None
+    steps = [(e.step, e.status) for e in events]
+    assert ("apply.step.routerboot", StepStatus.OK) in steps
+    assert steps.index(("apply.step.routerboot", StepStatus.OK)) > steps.index(
+        ("apply.step.verify", StepStatus.OK))
+
+
+@pytest.mark.parametrize(("current", "available"), [("7.23.7", "7.23.7"),
+                                                    ("7.23.7", "7.20.7"),
+                                                    ("7.20.7", "")])
+def test_routerboot_that_is_current_is_left_alone(current, available):
+    router, orchestrator, events, _ = _routerboot_build(current, available)
+    report = orchestrator.run()
+    assert report.succeeded and router.reboots == 1
+    assert "/system/routerboard/upgrade" not in router.log
+    assert "verify.routerboot" not in {c.code for c in report.checks}
+    skipped = next(e for e in events if e.step == "apply.step.routerboot_current")
+    assert skipped.status == StepStatus.SKIPPED
+
+
+def test_a_device_without_routerboot_is_left_alone():
+    router, orchestrator, _, _ = _routerboot_build()
+    router.fail["/system/routerboard/print"] = "bad command name"  # CHR, x86
+    assert orchestrator.run().succeeded and router.reboots == 1
+
+
+def test_a_refused_routerboot_upgrade_is_a_failed_check_not_a_reboot():
+    router, orchestrator, _, _ = _routerboot_build()
+    router.fail["/system/routerboard/upgrade"] = "failure: not allowed"
+    report = orchestrator.run()
+    assert not report.succeeded and router.reboots == 1
+    assert "apply.warning.routerboot" in codes(report.issues)
+    assert not report.checks[-1].ok and report.checks[-1].code == "verify.routerboot"
+
+
+def test_a_device_that_does_not_come_back_from_the_routerboot_reboot_is_reported():
+    router, orchestrator, _, _ = _routerboot_build()
+    calls = []
+
+    def reconnect(target):
+        calls.append(target)
+        if len(calls) == 2:
+            raise ReconnectFailed(target, 9, "timed out")
+        return router.session(port=target.api_port, username=target.params.username,
+                              password=target.params.password)
+
+    orchestrator.ctx.reconnect = reconnect
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    assert err.value.issue.code == "apply.failed.reconnect"
+    # What the configuration check found before the reboot is still reported.
+    assert err.value.report.checks and all(c.ok for c in err.value.report.checks)
+
+
+def test_routerboot_follows_an_update_in_the_same_apply(tmp_path):
+    router, orchestrator, _, _ = _update_build(tmp_path)
+    orchestrator.ctx.options = replace(orchestrator.ctx.options, upgrade_routerboot=True)
+    router.firmware.update({"current-firmware": "7.15.3", "upgrade-firmware": "7.15.3"})
+    report = orchestrator.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert router.firmware["current-firmware"] == "7.23.7" and router.reboots == 2
+
+
+def test_routerboot_belongs_to_a_reset_only():
+    assert not ApplyOptions(ApplyMode.IMPORT, upgrade_routerboot=True).upgrades_routerboot
+    assert ApplyOptions(ApplyMode.RESET_AND_IMPORT, upgrade_routerboot=True).upgrades_routerboot

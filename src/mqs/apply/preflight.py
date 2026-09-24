@@ -5,6 +5,7 @@ from __future__ import annotations
 from mqs.apply.adopt import ExistingObjects, adopt_existing, collect_existing
 from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result_for_mode
 from mqs.apply.reconnect import address_after_apply
+from mqs.apply.update import routerboot_note
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import WAN_LIST, wan_l3_interface, wan_port
 from mqs.issues import Issue, Severity, has_errors
@@ -64,6 +65,10 @@ def preflight(
             issues.append(Issue("apply.rollback_ignored_reset", W))
         if options.update is not None:
             issues.extend(options.update.issues)
+        if options.upgrade_routerboot:
+            note = routerboot_note(inventory, options.update)
+            if note is not None:
+                issues.append(note)
     elif options.rollback_minutes is not None and options.rollback_minutes < MIN_ROLLBACK_MINUTES:
         issues.append(Issue("apply.rollback_too_short", E, "",
                             {"minimum": MIN_ROLLBACK_MINUTES}))

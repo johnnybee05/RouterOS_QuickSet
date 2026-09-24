@@ -11,13 +11,15 @@ from mqs.apply.update import (
     ARCHITECTURES,
     NpkError,
     UpdateDir,
+    firmware_newer,
     leftover_packages,
     plan_update,
     read_npk,
+    routerboot_note,
     scan_update_dir,
 )
 from mqs.issues import Severity, codes
-from mqs.model.inventory import PackageInfo
+from mqs.model.inventory import PackageInfo, RouterboardInfo
 from mqs.model.version import RosVersion
 from mqs.paths import update_dir
 
@@ -201,3 +203,32 @@ def test_the_update_directory_is_next_to_the_exe(tmp_path):
     assert update_dir(str(exe), frozen=True) == tmp_path.resolve() / "Update"
     # From the sources: where build.ps1 puts the exe.
     assert update_dir(frozen=False).parts[-2:] == ("dist", "Update")
+
+
+def board(current: str, available: str, routerboard: bool = True):
+    inventory = device()
+    return inventory.model_copy(update={"routerboard": RouterboardInfo(
+        routerboard=routerboard, model="E60iUGS", current_firmware=current,
+        upgrade_firmware=available)})
+
+
+def test_the_routerboot_note_before_the_apply(tmp_path):
+    installs = plan_update(device(), found_in(tmp_path, ("a.npk", npk())))
+    nothing = plan_update(device("7.23.7"), found_in(tmp_path))
+    # An update brings its own RouterBOOT, whatever the board says now.
+    note = routerboot_note(board("7.20.7", "7.20.7"), installs)
+    assert note is not None and note.code == "update.routerboot_after"
+    assert "7.23.7" in note.message and "7.20.7" in note.message
+    # No update, the RouterOS already on the device brings a newer one (the hEX S now).
+    note = routerboot_note(board("7.20.7", "7.23.7"), nothing)
+    assert note is not None and note.code == "update.routerboot"
+    assert routerboot_note(board("7.23.7", "7.23.7"), nothing) is None
+    assert routerboot_note(board("7.20.7", "7.23.7", routerboard=False), installs) is None
+    assert routerboot_note(device(), installs) is None  # no /system routerboard at all
+
+
+@pytest.mark.parametrize(("available", "current", "newer"), [
+    ("7.23.7", "7.20.7", True), ("7.20.7", "7.20.7", False), ("7.19", "7.20.7", False),
+    ("", "7.20.7", False), ("7.23.7", "", False)])
+def test_firmware_newer(available, current, newer):
+    assert firmware_newer(available, current) is newer

@@ -98,8 +98,8 @@ v pořádku, nejde aplikovat.
 
 Vedle `MikrotikQuickSetPlus.exe` může ležet adresář **`Update`** s balíčky RouterOS tak, jak
 je stahujete od MikroTiku (`routeros-7.23.7-arm.npk`, `routeros-7.23.7-mmips.npk` …). Když
-je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresáře Update*
-(výchozí stav), aplikace:
+je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresáře Update a
+RouterBOOT* (výchozí stav), aplikace:
 
 1. podle `architecture-name` zařízení (`/system resource`) vybere balíček s odpovídající
    architekturou. Architekturu, jméno i verzi čte z hlavičky `.npk`, ne z názvu souboru,
@@ -111,7 +111,12 @@ je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresář
    FastTracku, 7.23.7 už ne). Po aktualizaci ho můžete zapnout importem;
 4. po připojení checklist ověří řádkem *RouterOS 7.23.7 (na zařízení …)*, že zařízení
    opravdu běží na nové verzi. Balíček, který by po restartu na zařízení zůstal, aplikace
-   smaže, aby se nenainstaloval při některém pozdějším restartu.
+   smaže, aby se nenainstaloval při některém pozdějším restartu;
+5. nakonec, po ověření konfigurace, aktualizuje **RouterBOOT**, pokud RouterOS na zařízení
+   nese novější firmware, než jaký běží (`upgrade-firmware` > `current-firmware`). To platí
+   i bez aktualizace RouterOS. Provede `/system routerboard upgrade`, zařízení restartuje,
+   znovu se připojí a checklist ukáže *RouterBOOT 7.23.7 (na zařízení …)*. Stojí to jeden
+   restart navíc; na zařízení bez RouterBOOT (CHR, x86) se krok přeskočí.
 
 Co se nainstaluje, ukážou kontroly před aplikací i dry-run, např. *Po resetu se nainstaluje
 RouterOS 7.23.7 (zařízení má 7.20.7): routeros-7.23.7-arm.npk.* Aktualizace se přeskočí

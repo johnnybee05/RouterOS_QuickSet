@@ -58,6 +58,13 @@ class ApplyOptions:
     # RESET: RouterOS packages from the Update directory, uploaded before the reset so its
     # reboot installs them. None = switched off; a plan without packages = nothing to do.
     update: UpdatePlan | None = None
+    # RESET: upgrade RouterBOOT to the firmware of the RouterOS on the device afterwards,
+    # when that is newer, which takes one more reboot.
+    upgrade_routerboot: bool = False
+
+    @property
+    def upgrades_routerboot(self) -> bool:
+        return self.mode == ApplyMode.RESET_AND_IMPORT and self.upgrade_routerboot
 
     @property
     def installs_update(self) -> bool:

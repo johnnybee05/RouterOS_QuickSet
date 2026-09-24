@@ -226,6 +226,8 @@ class ApplyPage(Page):
             confirmed_identity=confirmed_identity,
             keep_backups=self.keep_backups.value(),
             update=self.update_plan(),
+            upgrade_routerboot=mode == ApplyMode.RESET_AND_IMPORT
+            and self.update_check.isChecked(),
         )
 
     def update_plan(self) -> UpdatePlan | None:

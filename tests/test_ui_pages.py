@@ -633,9 +633,13 @@ def test_update_is_on_by_default_and_belongs_to_a_reset(window, qtbot):
     assert str(page.update_dir) in page.update_dir_label.text()
     assert page.options().update is None  # no device: its architecture is not known yet
     connect(window, qtbot)
-    assert page.options().update is not None
+    assert page.options().update is not None and page.options().upgrade_routerboot
+    page.update_check.setChecked(False)
+    assert not page.options().upgrade_routerboot  # one switch for RouterOS and RouterBOOT
+    page.update_check.setChecked(True)
     page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
     assert not page.update_check.isEnabled() and page.options().update is None
+    assert not page.options().upgrade_routerboot
 
 
 def test_the_update_is_shown_before_the_apply_and_handed_to_it(window, qtbot, tmp_path):

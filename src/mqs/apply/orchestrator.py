@@ -29,7 +29,7 @@ from mqs.apply.reconnect import (
     reconnect_hosts,
 )
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
-from mqs.apply.update import leftover_packages
+from mqs.apply.update import firmware_newer, leftover_packages
 from mqs.apply.verify import (
     CheckResult,
     check_reset_script,
@@ -47,6 +47,7 @@ from mqs.model.profile import DeviceProfile
 from mqs.transport.base import (
     Cancelled,
     CommandError,
+    CommandTimeout,
     ConnectionLost,
     ConnectionParams,
     Transport,
@@ -61,6 +62,10 @@ from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, Uploa
 RESET_SETTLE_S = 3.0
 RESET_ARM_ATTEMPTS = 5
 FILE_NOT_READY = "cannot use file"
+# After `/system reboot`: how long to wait for an answer that cannot come, and before
+# reconnecting, so the device is down and not caught still shutting down (NUTNO OVĚŘIT).
+REBOOT_REPLY_S = 10.0
+ROUTERBOOT_REBOOT_WAIT_S = 20.0
 
 
 class StepStatus(StrEnum):
@@ -240,6 +245,7 @@ class ApplyOrchestrator:
                     and self.report.upload.remote_path:
                 self._cleanup()
             self._prune_backups()
+            self._upgrade_routerboot()
             if self.report.rollback_pending:
                 self._event("apply.rollback_pending", StepStatus.WARNING,
                             at=self.report.rollback_at.strftime("%H:%M:%S"))
@@ -545,6 +551,75 @@ class ApplyOrchestrator:
             return
         if doomed:
             self._event("apply.step.prune", StepStatus.OK, count=len(doomed), keep=keep)
+
+    def _upgrade_routerboot(self) -> None:
+        """RouterBOOT to the firmware the RouterOS on the device brings, when it is newer.
+
+        Last, after the configuration is verified: `/system routerboard upgrade` writes
+        the firmware and only a reboot starts it, so the device goes down once more and
+        comes back where it answered, with the configuration it has. Both commands ask
+        for a yes in the console; over the API and SSH exec that is NUTNO OVĚŘIT, as the
+        reset was (it runs without one there).
+        """
+        if not self.ctx.options.upgrades_routerboot:
+            return
+        try:
+            rows = self.transport.execute("/system/routerboard/print")
+        except CommandError:
+            rows = []  # CHR and x86 have no RouterBOOT
+        board = rows[0] if rows else {}
+        current = board.get("current-firmware", "")
+        available = board.get("upgrade-firmware", "")
+        if not to_bool(board, "routerboard") or not firmware_newer(available, current):
+            self._event("apply.step.routerboot_current", StepStatus.SKIPPED,
+                        current=current or "-")
+            return
+        params = {"current": current, "version": available}
+        self._event("apply.step.routerboot", StepStatus.RUNNING, **params)
+        try:
+            self.transport.execute("/system/routerboard/upgrade")
+            with self.transport.reply_timeout(REBOOT_REPLY_S):
+                self.transport.execute("/system/reboot")
+        except (ConnectionLost, CommandTimeout):
+            pass  # the reboot takes the session along
+        except TransportError as exc:
+            # The configuration is in place; the old RouterBOOT keeps running.
+            self._warn("apply.warning.routerboot", error=str(exc))
+            self.report.checks.append(CheckResult(
+                "verify.routerboot", False, {"expected": available, "actual": current}))
+            return
+        self.transport.close()
+        self._event("apply.step.routerboot", StepStatus.OK, **params)
+        self.ctx.sleep(ROUTERBOOT_REBOOT_WAIT_S)
+        self._reconnect_after_reboot()
+        try:
+            actual = self.transport.execute("/system/routerboard/print")[0].get(
+                "current-firmware", "")
+        except (TransportError, IndexError) as exc:
+            raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
+        self.report.checks.append(CheckResult(
+            "verify.routerboot", actual == available,
+            {"expected": available, "actual": actual or "-"}))
+
+    def _reconnect_after_reboot(self) -> None:
+        """Back to where the session answered: a reboot keeps the configuration, and with
+        it a lent address or the link-local one."""
+        access = self.result.access
+        target = ReconnectTarget(params=replace(self.transport.params, port=None),
+                                 api_port=access.api_ssl_port, ssh_port=access.ssh_port)
+        self._event("apply.step.reconnect", StepStatus.RUNNING, hosts=target.describe(),
+                    api_port=target.api_port, ssh_port=target.ssh_port)
+        try:
+            reached = self.ctx.reconnect(target)
+        except (ReconnectFailed, TransportError) as exc:
+            raise self._abort("apply.failed.reconnect", repr(exc),
+                              attempts=getattr(exc, "attempts", 1), api_port=target.api_port,
+                              ssh_port=target.ssh_port, error=str(exc)) from exc
+        self.report.transport = (reached.transport if isinstance(reached, MacConnectResult)
+                                 else reached)
+        self._event("apply.step.reconnect", StepStatus.OK,
+                    hosts=self.report.transport.params.host,
+                    api_port=target.api_port, ssh_port=target.ssh_port)
 
     # ---------------------------------------------------------------- after apply
 

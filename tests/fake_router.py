@@ -65,6 +65,11 @@ class FakeRouter:
         self.installs_packages = True
         self.refused_parameter: str | None = None  # "bad parameter" to a script line
         self.device_log: list[dict[str, str]] = []
+        # RouterBOOT: the RouterOS installed brings `upgrade`; `/system routerboard upgrade`
+        # writes it and the next reboot runs it (hEX S, 2026-09-24: 7.20.7 / 7.23.7).
+        self.firmware = {"routerboard": "yes", "current-firmware": "7.15.3",
+                         "upgrade-firmware": "7.15.3"}
+        self.firmware_written: str | None = None
 
     # ------------------------------------------------------------ simulation helpers
 
@@ -154,6 +159,17 @@ class FakeRouter:
             return [{"version": self.version, "architecture-name": "arm"}]
         if word == "/log/print":
             return [dict(row) for row in self.device_log]
+        if word == "/system/routerboard/print":
+            return [dict(self.firmware)]
+        if word == "/system/routerboard/upgrade":
+            self.firmware_written = self.firmware["upgrade-firmware"]
+            return []
+        if word == "/system/reboot":
+            session.alive = False
+            self.reboots += 1
+            if self.firmware_written:
+                self.firmware["current-firmware"] = self.firmware_written
+            raise ConnectionLost("rebooting")
         if word == "/ip/service/print":
             ports = {"telnet": 23, "ftp": 21, "www": 80, "ssh": s.ssh_port, "www-ssl": 443,
                      "api": 8728, "winbox": 8291, "api-ssl": 8729}
@@ -180,6 +196,7 @@ class FakeRouter:
             return
         for name in [n for n in self.files if n in self.installable]:
             self.version = f"{self.installable[name]} (long-term)"
+            self.firmware["upgrade-firmware"] = self.installable[name]
             self.files.pop(name)
             self.log.append(f"installed {name}")
 

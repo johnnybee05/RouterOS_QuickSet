@@ -230,6 +230,32 @@ def _extra_packages(inventory: DeviceInventory) -> list[PackageInfo]:
     return [p for p in inventory.packages if p.name not in DEVICE_MAIN_PACKAGES]
 
 
+def firmware_newer(available: str, current: str) -> bool:
+    """RouterBOOT ``available`` (upgrade-firmware) is newer than ``current``."""
+    try:
+        return RosVersion.parse(available) > RosVersion.parse(current)
+    except ValueError:
+        return False
+
+
+def routerboot_note(inventory: DeviceInventory, plan: UpdatePlan | None) -> Issue | None:
+    """What the RouterBOOT upgrade after the apply will do, for the checks before it.
+
+    The firmware comes with RouterOS: after an update `upgrade-firmware` is the new
+    version (7.23.7 on the hEX S while `current-firmware` stayed 7.20.7, 2026-09-24).
+    """
+    board = inventory.routerboard
+    if board is None or not board.routerboard:
+        return None
+    if plan is not None and plan.installs:
+        return _issue("update.routerboot_after", Severity.INFO,
+                      current=board.current_firmware or "?", version=str(plan.target))
+    if firmware_newer(board.upgrade_firmware, board.current_firmware):
+        return _issue("update.routerboot", Severity.INFO, current=board.current_firmware,
+                      version=board.upgrade_firmware)
+    return None
+
+
 def plan_from_dir(directory: Path, inventory: DeviceInventory) -> UpdatePlan:
     return plan_update(inventory, scan_update_dir(directory))
 

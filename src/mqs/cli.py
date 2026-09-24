@@ -146,6 +146,7 @@ def build_options(args: argparse.Namespace, mode: ApplyMode) -> ApplyOptions:
         confirm_dialect_mismatch=args.allow_dialect_mismatch,
         confirmed_identity=args.confirm_identity or "",
         keep_backups=args.keep_backups,
+        upgrade_routerboot=reset and args.update,
     )
 
 
@@ -435,7 +436,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--update", action="store_true",
                            help="reset only: upload the RouterOS package for the device's "
                            "architecture from the Update directory, so the reset's reboot "
-                           "installs it")
+                           "installs it; afterwards upgrade RouterBOOT when RouterOS brings "
+                           "a newer one (one more reboot)")
     apply_cmd.add_argument("--update-dir", metavar="DIR",
                            help=f"with --update: where the packages are (default "
                            f"{update_dir()})")

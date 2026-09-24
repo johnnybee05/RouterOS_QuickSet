@@ -287,7 +287,16 @@ MESSAGES: dict[str, str] = {
     "příštím restartu. Smažte ji ve Files: {error}",
     "apply.warning.update_leftover": "Balíček {files} zůstal po restartu na zařízení "
     "(nenainstaloval se), aplikace ho smazala.",
+    "update.routerboot": "Po aplikaci se aktualizuje RouterBOOT z {current} na {version} a "
+    "zařízení se ještě jednou restartuje.",
+    "update.routerboot_after": "Po aktualizaci RouterOS se aktualizuje i RouterBOOT (teď "
+    "{current}) na {version} a zařízení se ještě jednou restartuje.",
+    "apply.step.routerboot": "Aktualizace RouterBOOT {current} → {version} a restart",
+    "apply.step.routerboot_current": "RouterBOOT {current} je aktuální",
+    "apply.warning.routerboot": "RouterBOOT se nepodařilo aktualizovat, konfigurace zůstává: "
+    "{error}",
     "verify.routeros_version": "RouterOS {expected} (na zařízení {actual})",
+    "verify.routerboot": "RouterBOOT {expected} (na zařízení {actual})",
     "verify.reset_script": "Skript po resetu doběhl do konce (chyba: {error})",
     # UI input syntax
     "ui.syntax": "{message}",
