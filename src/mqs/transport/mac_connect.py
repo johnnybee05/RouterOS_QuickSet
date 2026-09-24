@@ -5,8 +5,9 @@ Two strategies, tried in order:
 1. **IPv6 link-local** — cheap, works only when IPv6 is up on the device (usually not on v6):
    connect API-SSL / SSH straight to ``fe80::…%<ifindex>``.
 2. **MAC-Telnet bootstrap** — log in over MAC-Telnet (EC-SRP5), add a temporary management IP
-   on the interface the device announced itself on, then connect over that IPv4 address. The
-   temporary address is removed again by the caller (or wiped by a reset).
+   on the interface the device announced itself on (under the name the device gives it now,
+   see `device_interface_name`), then connect over that IPv4 address. The temporary address
+   is removed again by the caller (or wiped by a reset).
 
 Verified end to end on 2026-09-16 against a hEX S running RouterOS 7.20.7; the
 findings and the remaining unknowns are in docs/DIALECT_NOTES.md.
@@ -20,6 +21,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from ipaddress import IPv4Address
 
+from mqs.generator.render import quote_find
 from mqs.transport.base import (
     AuthError,
     CommandTimeout,
@@ -98,6 +100,40 @@ def bootstrap_interface(reported: str | None) -> str:
     return reported.split("/", 1)[0]
 
 
+def _count(session: MacTelnetSession, condition: str) -> int:
+    reply = session.run(f":put [:len [/interface find {condition}]]", confirm=False).strip()
+    return int(reply) if reply.isdigit() else 0
+
+
+def device_interface_name(session: MacTelnetSession, name: str, *, bridge: bool,
+                          mac: str) -> str:
+    """The name the device gives now to the interface MNDP announced as ``name``.
+
+    MNDP keeps announcing an interface under the name it had when the announcing began
+    (hEX S, 2026-09-24: "bridge1/ether1" 13 hours after ether1 had become ether1-uplink),
+    and the device refuses an address on a name it no longer has. So it is asked: the name
+    itself, then a port by its default-name, then the interface the announcement came from
+    by its MAC address - the bridge for a bridged port, the port itself otherwise (a bridge
+    takes the MAC address of a port). The query forms are verified on 7.20.7. Whatever the
+    console will not answer leaves ``name`` as it is, which is how it was used before.
+    """
+    try:
+        if _count(session, f"name={quote_find(name)}") == 1:
+            return name
+        conditions = [] if bridge else [f"default-name={quote_find(name)}"]
+        if mac:
+            kind = "type=bridge" if bridge else "type!=bridge"
+            conditions.append(f"mac-address={quote_find(mac)} {kind}")
+        for condition in conditions:
+            if _count(session, condition) == 1:
+                found = session.run(f":put [/interface get [find {condition}] name]",
+                                    confirm=False).strip()
+                return found or name
+    except MacTelnetError:
+        pass
+    return name
+
+
 def local_interface_for(device: DiscoveredDevice,
                         interfaces: Sequence[LocalInterface]) -> LocalInterface | None:
     """The PC's network card the device was heard on, to reach it by MAC through."""
@@ -168,10 +204,14 @@ def connect_by_mac(
     on_step(MacConnectMethod.MAC_TELNET.value)
     prefix = interface.network.prefixlen
     address = f"{proposed_address}/{prefix}"
+    # MNDP names a bridged port "<bridge>/<port>"; a name the caller gives is meant as is.
+    bridged = device_interface is None and "/" in (device.interface_name or "")
     device_interface = device_interface or bootstrap_interface(device.interface_name)
     session = session_factory(device, params, str(interface.address))
     try:
         session.authenticate()
+        device_interface = device_interface_name(session, device_interface, bridge=bridged,
+                                                 mac=device.mac)
         # Drop leftovers from an earlier attempt first: a command we could not confirm
         # may still have run, and a stale address makes the add fail with
         # "already have such address".
@@ -249,6 +289,7 @@ __all__ = [
     "bootstrap_interface",
     "connect_by_mac",
     "default_session_factory",
+    "device_interface_name",
     "link_local_host",
     "local_interface_for",
     "remove_temp_address",

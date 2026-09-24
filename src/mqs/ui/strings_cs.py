@@ -56,8 +56,9 @@ MAC_CONFIRM_TITLE = "Připojit přes MAC adresu"
 MAC_CONFIRM_TEXT = (
     "Zařízení {identity} (MAC {mac}) nemá použitelnou IP. Zkusí se IPv6 link-local; pokud "
     "neodpoví, přihlásím se přes MAC-Telnet a na rozhraní {interface} přidám dočasnou adresu "
-    "{address} (komentář mqs-temp), přes kterou se pak připojím. Při odpojení ji zase "
-    "odeberu. Po aplikaci konfigurace se připojím znovu stejnou cestou přes MAC, i "
+    "{address} (komentář mqs-temp), přes kterou se pak připojím. Název rozhraní hlásí MNDP a "
+    "po přejmenování může být starý, proto ho po přihlášení ověřím na zařízení. Při odpojení "
+    "adresu zase odeberu. Po aplikaci konfigurace se připojím znovu stejnou cestou přes MAC, i "
     "s dočasnou adresou.\n\nOvěřeno na RouterOS 7.20.7. Pokračovat?"
 )
 CONNECTED_BY_MAC = "Připojeno: {mac} (přes {method}; {transport} na {host})"

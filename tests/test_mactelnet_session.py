@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from ipaddress import IPv4Address, IPv4Network, IPv6Address
 
 import pytest
@@ -168,6 +169,45 @@ def fake_connect_factory(fail_hosts=(), auth_fail_hosts=()):
     return connect, calls
 
 
+PROMPT = "[admin@MikroTik] > "
+_CONDITION_RE = re.compile(r'([\w-]+)(!?=)("[^"]*"|\S+)')
+
+
+def console_with(interfaces: list[dict[str, str]]):
+    """A console that answers the bootstrap's queries about ``interfaces`` as 7.20.7 does:
+    `:put [:len [/interface find …]]` and `:put [/interface get [find …] name]`."""
+
+    def matching(conditions: str) -> list[dict[str, str]]:
+        found = interfaces
+        for key, op, value in _CONDITION_RE.findall(conditions):
+            value = value.strip('"')
+            found = [i for i in found if (i.get(key, "") == value) == (op == "=")]
+        return found
+
+    def reply(line: str) -> str:
+        if match := re.fullmatch(r":put \[:len \[/interface find (.*)\]\]", line):
+            answer = str(len(matching(match[1])))
+        elif match := re.fullmatch(r":put \[/interface get \[find (.*)\] name\]", line):
+            answer = matching(match[1])[0]["name"]
+        elif line.startswith(":put [:len [/ip address find"):
+            answer = "1"
+        else:
+            answer = "ok"
+        return (line + "\n" + answer + "\n" if line else "") + PROMPT
+
+    return reply
+
+
+# The hEX S of 2026-09-24: ports renamed after MNDP began announcing them.
+MAC = "DC:2C:6E:00:11:22"
+RENAMED = [
+    {"name": "ether1-uplink", "default-name": "ether1", "type": "ether", "mac-address": MAC},
+    {"name": "ether5", "default-name": "ether5", "type": "ether",
+     "mac-address": "DC:2C:6E:00:11:26"},
+    {"name": "br-lan", "type": "bridge", "mac-address": MAC},
+]
+
+
 def bootstrap_session_factory(device: FakeDevice):
     created = {}
 
@@ -197,7 +237,7 @@ def test_link_local_auth_error_is_not_retried():
 
 
 def test_link_local_unreachable_falls_back_to_bootstrap():
-    device = FakeDevice(password="pw")
+    device = FakeDevice(password="pw", command_reply=console_with(RENAMED))
     factory, created = bootstrap_session_factory(device)
     connect, calls = fake_connect_factory(fail_hosts={"fe80::1%12"})
     steps: list[str] = []
@@ -208,6 +248,7 @@ def test_link_local_unreachable_falls_back_to_bootstrap():
     assert result.temp_address == "192.168.88.253/24"
     assert result.device_interface == "ether5"
     assert device.commands == [
+        ":put [:len [/interface find name=ether5]]",  # the device still calls it so
         '/ip address remove [find comment="mqs-temp"]',  # leftovers from earlier attempts
         "/ip address add address=192.168.88.253/24 interface=ether5 comment=mqs-temp",
         ':put [:len [/ip address find comment="mqs-temp"]]',  # the bootstrap is confirmed
@@ -535,3 +576,49 @@ def test_temp_address_is_taken_back_when_the_device_is_unreachable_on_it():
         connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
                        LOCAL, connect=connect, session_factory=factory)
     assert any("remove" in command for command in device.commands)
+
+
+@pytest.mark.parametrize(("reported", "expected", "queries"), [
+    # MNDP kept the factory name of a port renamed since (hEX S, 2026-09-24).
+    ("ether1", "ether1-uplink", [
+        ":put [:len [/interface find name=ether1]]",
+        ":put [:len [/interface find default-name=ether1]]",
+        ":put [/interface get [find default-name=ether1] name]"]),
+    # A bridge renamed since: found by the MAC address the announcement came from.
+    ("bridge/ether1", "br-lan", [
+        ":put [:len [/interface find name=bridge]]",
+        f':put [:len [/interface find mac-address="{MAC}" type=bridge]]',
+        f':put [/interface get [find mac-address="{MAC}" type=bridge] name]']),
+    # An earlier name of its own, not a default-name: the port with that MAC address.
+    ("wan-old", "ether1-uplink", [
+        ":put [:len [/interface find name=wan-old]]",
+        ":put [:len [/interface find default-name=wan-old]]",
+        f':put [:len [/interface find mac-address="{MAC}" type!=bridge]]',
+        f':put [/interface get [find mac-address="{MAC}" type!=bridge] name]']),
+])
+def test_the_address_goes_on_the_name_the_device_uses_now(reported, expected, queries):
+    device = FakeDevice(password="pw", command_reply=console_with(RENAMED))
+    factory, _ = bootstrap_session_factory(device)
+    connect, _ = fake_connect_factory()
+    announced = DiscoveredDevice(mac=MAC, identity="R1", interface_name=reported)
+    result = connect_by_mac(announced, PARAMS, IPv4Address("192.168.88.253"), LOCAL,
+                            connect=connect, session_factory=factory)
+    assert result.device_interface == expected
+    assert device.commands[:len(queries)] == queries
+    assert (f"/ip address add address=192.168.88.253/24 interface={expected} "
+            f"comment=mqs-temp") in device.commands
+
+
+def test_a_console_that_cannot_say_leaves_the_reported_name():
+    def reply(line: str) -> str:
+        if line.startswith(":put [:len [/interface"):
+            return line + "\nsyntax error (line 1 column 7)\n" + PROMPT
+        return console_with(RENAMED)(line)
+
+    device = FakeDevice(password="pw", command_reply=reply)
+    factory, _ = bootstrap_session_factory(device)
+    connect, _ = fake_connect_factory()
+    result = connect_by_mac(DiscoveredDevice(mac=MAC, interface_name="ether1"), PARAMS,
+                            IPv4Address("192.168.88.253"), LOCAL, connect=connect,
+                            session_factory=factory)
+    assert result.device_interface == "ether1", "used as it was before the lookup existed"
