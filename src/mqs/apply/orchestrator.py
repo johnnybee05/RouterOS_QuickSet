@@ -29,7 +29,8 @@ from mqs.apply.reconnect import (
     reconnect_hosts,
 )
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
-from mqs.apply.verify import CheckResult, verify_configuration
+from mqs.apply.update import leftover_packages
+from mqs.apply.verify import CheckResult, check_routeros_version, verify_configuration
 from mqs.generator.base import GenerationResult
 from mqs.generator.ir import Command, Find, KeepOwnFirst, RawLine, cmd
 from mqs.generator.render import render_inline
@@ -163,6 +164,7 @@ class ApplyOrchestrator:
         self.ctx = ctx
         self.names = make_names(ctx.now(), ctx.inventory.has_flash_dir)
         self.report = ApplyReport(names=self.names, transport=ctx.transport)
+        self._staged: list[str] = []  # packages uploaded for a reset not yet accepted
 
     # ---------------------------------------------------------------- helpers
 
@@ -207,18 +209,28 @@ class ApplyOrchestrator:
             self._backup()
             self._download_backups(uploader)
             self._check_cancel()
-            self._upload(uploader)
-            self._check_cancel()
-            if self.ctx.options.mode == ApplyMode.IMPORT and self.ctx.options.rollback_minutes:
-                self._schedule_rollback()
-            self._check_cancel()
-            # No cancellation beyond this point: the device is being changed.
-            if self.ctx.options.mode == ApplyMode.IMPORT:
-                self._execute_import()
-            else:
-                self._execute_reset()
+            self._upload_update(uploader)
+            try:
+                self._check_cancel()
+                self._upload(uploader)
+                self._check_cancel()
+                if self.ctx.options.mode == ApplyMode.IMPORT and \
+                        self.ctx.options.rollback_minutes:
+                    self._schedule_rollback()
+                self._check_cancel()
+                # No cancellation beyond this point: the device is being changed.
+                if self.ctx.options.mode == ApplyMode.IMPORT:
+                    self._execute_import()
+                else:
+                    self._execute_reset()
+            except ApplyAborted:
+                # The reset never came: a package left in the file root would be
+                # installed by whatever reboot comes next, weeks later perhaps.
+                self._withdraw_update()
+                raise
             self._reconnect()
             self._verify()
+            self._verify_update()
             if self.ctx.options.mode == ApplyMode.IMPORT and self.report.upload \
                     and self.report.upload.remote_path:
                 self._cleanup()
@@ -258,6 +270,46 @@ class ApplyOrchestrator:
             self.report.downloaded.append(local)
         if self.report.downloaded:
             self._event("apply.step.download", StepStatus.OK, dir=str(target_dir))
+
+    def _upload_update(self, uploader: FileUploader) -> None:
+        """Put the RouterOS packages in the device's file root for the reset's reboot.
+
+        Always the root, even where scripts go to flash/: that is where RouterOS looks
+        for packages to install (NUTNO OVĚŘIT on a device with a flash/ directory).
+        """
+        if not self.ctx.options.installs_update:
+            return
+        plan = self.ctx.options.update
+        assert plan is not None  # installs_update says so
+        for package in plan.packages:
+            file = package.file_name
+            size = f"{package.size / 1_000_000:.1f}"
+            self._event("apply.step.update_upload", StepStatus.RUNNING, file=file, size=size,
+                        strategy="-")
+            try:
+                result = uploader.upload(package.path.read_bytes(), file)
+            except (OSError, UploadFailed) as exc:
+                self._withdraw_update(file)  # a partly written package included
+                raise self._abort("apply.failed.update_upload", repr(exc), file=file,
+                                  error=str(exc)) from exc
+            self._staged.append(file)
+            self._event("apply.step.update_upload", StepStatus.OK, file=file, size=size,
+                        strategy=result.strategy.value)
+
+    def _withdraw_update(self, *also: str) -> None:
+        """Remove the packages uploaded for a reset that is not going to happen."""
+        files = [*self._staged, *also]
+        self._staged = []
+        if not files:
+            return
+        try:
+            for name in files:
+                self.transport.execute_command(cmd("/file", "remove",
+                                                   selector=Find.by(name=name)))
+        except TransportError as exc:
+            self._warn("apply.warning.update_left", files=", ".join(files), error=str(exc))
+            return
+        self._event("apply.step.update_withdrawn", StepStatus.OK, files=", ".join(files))
 
     def _upload(self, uploader: FileUploader) -> None:
         file = self.names.remote_script
@@ -361,6 +413,7 @@ class ApplyOrchestrator:
             raise self._abort("apply.failed.execute", repr(exc), error=str(exc)) from exc
         self.report.connection_lost_during = "reset"
         self.report.temp_address = None  # the reset takes every address with it
+        self._staged = []  # the packages are the reboot's to install now
         self.transport.close()
         self._event("apply.step.execute_reset", StepStatus.OK, file=file)
         self.ctx.sleep(float(self.ctx.options.reset_delay_s))
@@ -434,6 +487,30 @@ class ApplyOrchestrator:
         self.report.issues.extend(issues)
         status = StepStatus.OK if all(c.ok for c in checks) else StepStatus.WARNING
         self._event("apply.step.verify", status)
+
+    def _verify_update(self) -> None:
+        """The device runs the version the packages were, and no package is left over.
+
+        A package that did not install stays in the file root and would install on the
+        next reboot, whenever that is; it is removed, so nothing happens behind anyone's
+        back, and the failed check says the update did not take.
+        """
+        if not self.ctx.options.installs_update:
+            return
+        plan = self.ctx.options.update
+        assert plan is not None and plan.target is not None
+        try:
+            check = check_routeros_version(self.transport, plan.target)
+            left = leftover_packages(
+                [f.get("name", "") for f in self.transport.execute("/file/print")], plan)
+            for name in left:
+                self.transport.execute_command(cmd("/file", "remove",
+                                                   selector=Find.by(name=name)))
+        except TransportError as exc:
+            raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
+        self.report.checks.append(check)
+        if left:
+            self._warn("apply.warning.update_leftover", files=", ".join(left))
 
     def _cleanup(self) -> None:
         file = self.names.remote_script

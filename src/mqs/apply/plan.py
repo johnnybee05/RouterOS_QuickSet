@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from mqs.apply.update import UpdatePlan
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import MASKED_SECRET
 from mqs.generator.hardening.access import analyze_access
@@ -22,6 +23,7 @@ ROLLBACK_JOB = "mqs-rollback"
 DEFAULT_RESET_DELAY_S = 15
 MIN_ROLLBACK_MINUTES = 2
 DEFAULT_KEEP_BACKUPS = 3
+UPDATE_RECONNECT_EXTRA_S = 300.0
 # Prefilled in the GUI for logging in and as admin's new password after a reset, so a
 # device reset by one apply is reached with the same password by the next connect.
 DEFAULT_PASSWORD = ""
@@ -52,6 +54,20 @@ class ApplyOptions:
     confirmed_identity: str = ""  # RESET: identity typed by the user in the confirm dialog
     # Pre-apply backups kept on the device, the new one included; 0 keeps them all.
     keep_backups: int = DEFAULT_KEEP_BACKUPS
+    # RESET: RouterOS packages from the Update directory, uploaded before the reset so its
+    # reboot installs them. None = switched off; a plan without packages = nothing to do.
+    update: UpdatePlan | None = None
+
+    @property
+    def installs_update(self) -> bool:
+        return (self.mode == ApplyMode.RESET_AND_IMPORT and self.update is not None
+                and self.update.installs)
+
+    @property
+    def reconnect_budget_s(self) -> float:
+        """Installing packages makes the reboot longer; how much is NUTNO OVĚŘIT."""
+        return self.reconnect_timeout_s + (UPDATE_RECONNECT_EXTRA_S if self.installs_update
+                                           else 0.0)
 
 
 @dataclass(frozen=True)

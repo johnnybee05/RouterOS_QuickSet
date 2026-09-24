@@ -43,6 +43,10 @@ _PLAIN = frozenset(
 LINE_BUDGET = 800
 # Bytes per /file read. Base64 makes the console output a third larger than this.
 READ_CHUNK = 16384
+# Largest upload: meant for scripts of a few KiB. The bytes go through one variable a
+# line at a time, and the device logs the whole `/file add contents=` (2026-09-23), so a
+# RouterOS package (~10 MB) must take another way.
+MAX_UPLOAD = 64 * 1024
 # Markers around downloaded data. The command writes them in two halves ("MQ" . "S<"),
 # so the echo of the command never contains the joined marker and cannot be mistaken
 # for its output.
@@ -181,6 +185,9 @@ class MacTelnetStrategy:
         return ConsoleFileTransfer(self.console(), **self.transfer_options)  # type: ignore[arg-type]
 
     def upload(self, data: bytes, remote_path: str) -> None:
+        if len(data) > MAX_UPLOAD:
+            raise ConsoleTransferError(f"{len(data)} bytes is more than the console moves "
+                                       f"(at most {MAX_UPLOAD})")
         self._transfer().upload(data, remote_path)
 
     def download(self, remote_path: str, local_path: Path) -> None:
@@ -189,6 +196,7 @@ class MacTelnetStrategy:
 
 __all__ = [
     "LINE_BUDGET",
+    "MAX_UPLOAD",
     "READ_CHUNK",
     "Console",
     "ConsoleFileTransfer",

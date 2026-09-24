@@ -11,6 +11,7 @@ import pytest
 from mqs.transport.mactelnet.client import MacTelnetError
 from mqs.transport.mactelnet.files import (
     LINE_BUDGET,
+    MAX_UPLOAD,
     READ_CHUNK,
     ConsoleFileTransfer,
     ConsoleTransferError,
@@ -225,3 +226,12 @@ def test_the_strategy_asks_for_the_console_only_when_it_moves_a_file(tmp_path: P
     assert result.strategy == UploadStrategy.MAC_TELNET
     assert uploader.download("quickset-x.rsc", tmp_path / "q.rsc") == UploadStrategy.MAC_TELNET
     assert (tmp_path / "q.rsc").read_bytes() == b"/system identity set name=R1\n"
+
+
+def test_a_package_is_not_pushed_through_the_console():
+    """~10 MB a line at a time, and every byte in the device log: never."""
+    opened = []
+    strategy = MacTelnetStrategy(lambda: opened.append(1) or FakeConsole())
+    with pytest.raises(ConsoleTransferError, match="more than the console moves"):
+        strategy.upload(bytes(MAX_UPLOAD + 1), "routeros-7.23.7-arm.npk")
+    assert opened == [], "the console is not even opened"

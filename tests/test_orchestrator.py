@@ -8,7 +8,7 @@ from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 
 import pytest
 
-from factories import make_inventory
+from factories import make_inventory, make_npk
 from fake_router import FakeRouter, RouterUploader
 from fake_transport import FakeTransport
 from mqs.apply.orchestrator import (
@@ -21,7 +21,7 @@ from mqs.apply.orchestrator import (
     keep_own_first,
     reset_credentials,
 )
-from mqs.apply.plan import ROLLBACK_JOB, ApplyMode, ApplyOptions
+from mqs.apply.plan import ROLLBACK_JOB, UPDATE_RECONNECT_EXTRA_S, ApplyMode, ApplyOptions
 from mqs.apply.reconnect import (
     ReconnectFailed,
     ReconnectTarget,
@@ -29,12 +29,13 @@ from mqs.apply.reconnect import (
     reconnect_hosts,
     reconnect_with_retry,
 )
+from mqs.apply.update import plan_update, scan_update_dir
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.generator.ir import KeepOwnFirst, RawLine, SectionKey
 from mqs.issues import codes
-from mqs.model.inventory import ServiceInfo
+from mqs.model.inventory import PackageInfo, ServiceInfo
 from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
@@ -826,3 +827,117 @@ def test_the_lent_address_follows_a_port_mndp_announces_by_an_earlier_name():
     assert ROUTE.device.interface_name == "bridge/ether1"  # the factory name, not "uplink"
     orchestrator.run()
     assert targets[0].mac_interface == "internet"
+
+
+# ------------------------------------------------------------ RouterOS update
+
+PACKAGE = "routeros-7.23.7-arm.npk"
+SCRIPT = "quickset-20260915-100000.rsc"
+
+
+def _update_plan(tmp_path, *files):
+    folder = tmp_path / "Update"
+    folder.mkdir(exist_ok=True)
+    for name, data in files or ((PACKAGE, make_npk()),):
+        (folder / name).write_bytes(data)
+    inventory = make_inventory("7.15.3", PORTS, architecture="arm",
+                               packages=[PackageInfo(name="routeros", version="7.15.3")])
+    return plan_update(inventory, scan_update_dir(folder))
+
+
+def _update_build(tmp_path, mode=ApplyMode.RESET_AND_IMPORT, **uploader_options):
+    plan = _update_plan(tmp_path)
+    assert plan.installs
+    router, orchestrator, events, _ = build(
+        mode, admin_password="N3w", confirmed_identity="MikroTik", update=plan)
+    router.installable = {PACKAGE: "7.23.7"}
+    uploader = RouterUploader(router, **uploader_options)
+    orchestrator.ctx.uploader_factory = lambda transport: uploader
+    return router, orchestrator, events, uploader
+
+
+def test_a_reset_installs_the_update_before_the_script_runs(tmp_path):
+    router, orchestrator, events, uploader = _update_build(tmp_path)
+    report = orchestrator.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    # The package goes up first, next to the script, and the reset's reboot installs it.
+    assert uploader.uploaded == [PACKAGE, SCRIPT]
+    assert router.log.index(f"installed {PACKAGE}") > router.log.index(
+        "/system/reset-configuration")
+    assert router.version.startswith("7.23.7") and PACKAGE not in router.files
+    version = next(c for c in report.checks if c.code == "verify.routeros_version")
+    assert version.ok and version.params["expected"] == "7.23.7"
+    upload = [e for e in events if e.step == "apply.step.update_upload"]
+    assert [e.status for e in upload] == [StepStatus.RUNNING, StepStatus.OK]
+    assert upload[-1].params["strategy"] == "sftp" and "MB" in upload[-1].message
+    assert not [e for e in events if e.step == "apply.warning.update_leftover"]
+
+
+def test_a_package_the_reboot_did_not_install_fails_the_check_and_is_removed(tmp_path):
+    """Left in the file root, it would install on whatever reboot comes next."""
+    router, orchestrator, _, _ = _update_build(tmp_path)
+    router.installs_packages = False
+    report = orchestrator.run()
+    assert not report.succeeded
+    version = next(c for c in report.checks if c.code == "verify.routeros_version")
+    assert not version.ok and version.params["actual"] == "7.15.3 (stable)"
+    assert PACKAGE not in router.files
+    assert "apply.warning.update_leftover" in codes(report.issues)
+
+
+def test_a_package_that_does_not_upload_stops_before_anything_changes(tmp_path):
+    router, orchestrator, _, uploader = _update_build(tmp_path, fail_partway={PACKAGE})
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    assert err.value.issue.code == "apply.failed.update_upload"
+    assert "/system/reset-configuration" not in router.log
+    assert uploader.uploaded == []  # no script either
+    assert PACKAGE not in router.files, "the part that was written is removed"
+    assert "nezměnila" in err.value.issue.message
+
+
+@pytest.mark.parametrize("breaks", ["script upload", "reset refused", "cancelled"])
+def test_a_reset_that_does_not_happen_takes_the_package_back(tmp_path, breaks):
+    router, orchestrator, events, uploader = _update_build(
+        tmp_path, fail_partway={SCRIPT} if breaks == "script upload" else None)
+    if breaks == "reset refused":
+        router.fail["/system/reset-configuration"] = "failure: not allowed by device-mode"
+    if breaks == "cancelled":
+        asked = []
+        orchestrator.ctx.cancelled = lambda: asked.append(1) or len(asked) >= 3
+    with pytest.raises(ApplyAborted):
+        orchestrator.run()
+    assert PACKAGE in uploader.uploaded and PACKAGE not in router.files
+    assert router.reboots == 0
+    withdrawn = next(e for e in events if e.step == "apply.step.update_withdrawn")
+    assert withdrawn.status == StepStatus.OK and PACKAGE in withdrawn.message
+
+
+def test_a_package_that_cannot_be_taken_back_is_reported(tmp_path):
+    router, orchestrator, _, _ = _update_build(tmp_path, fail_partway={SCRIPT})
+    router.fail["/file/remove"] = "failure: busy"
+    with pytest.raises(ApplyAborted) as err:
+        orchestrator.run()
+    assert "apply.warning.update_left" in codes(err.value.report.issues)
+    assert PACKAGE in router.files
+
+
+def test_the_update_belongs_to_a_reset_only(tmp_path):
+    _, orchestrator, _, uploader = _update_build(tmp_path, mode=ApplyMode.IMPORT)
+    report = orchestrator.run()
+    assert report.succeeded
+    assert uploader.uploaded == [SCRIPT]
+    assert "verify.routeros_version" not in {c.code for c in report.checks}
+
+
+def test_an_update_gives_the_reconnect_more_time(tmp_path):
+    plan = _update_plan(tmp_path)
+    reset = ApplyOptions(ApplyMode.RESET_AND_IMPORT, update=plan)
+    assert reset.installs_update
+    assert reset.reconnect_budget_s == reset.reconnect_timeout_s + UPDATE_RECONNECT_EXTRA_S
+    for options in (ApplyOptions(ApplyMode.RESET_AND_IMPORT),
+                    ApplyOptions(ApplyMode.IMPORT, update=plan),
+                    ApplyOptions(ApplyMode.RESET_AND_IMPORT,
+                                 update=replace(plan, packages=()))):
+        assert not options.installs_update
+        assert options.reconnect_budget_s == options.reconnect_timeout_s

@@ -261,6 +261,32 @@ MESSAGES: dict[str, str] = {
     "{error}",
     "apply.warning.cleanup": "Nahraný skript se nepodařilo smazat: {error}",
     "apply.warning.prune": "Staré zálohy se ze zařízení nepodařilo smazat: {error}",
+    # RouterOS update from the Update directory
+    "update.planned": "Po resetu se nainstaluje RouterOS {version} (zařízení má {current}): "
+    "{files}.",
+    "update.no_dir": "Adresář s aktualizacemi {dir} neexistuje, RouterOS se nebude aktualizovat.",
+    "update.v7_only": "Aktualizace z adresáře Update je jen pro RouterOS 7, zařízení má "
+    "{current}. RouterOS se nebude aktualizovat.",
+    "update.unknown_arch": "Architekturu zařízení „{arch}“ aplikace nezná, RouterOS se nebude "
+    "aktualizovat.",
+    "update.no_package": "V adresáři {dir} není balíček RouterOS pro architekturu {arch}, "
+    "RouterOS se nebude aktualizovat.",
+    "update.up_to_date": "Zařízení už má RouterOS {current}, nejnovější balíček v adresáři "
+    "Update je {version}. Aktualizace není potřeba.",
+    "update.other_major": "Balíček RouterOS {version} je pro jinou hlavní verzi, než má zařízení "
+    "({current}). Přechod mezi v6 a v7 aplikace nedělá, RouterOS se nebude aktualizovat.",
+    "update.extra_missing": "Na zařízení je balíček {name} {installed}, ale v adresáři Update "
+    "pro něj chybí verze {version} ({arch}). Po aktualizaci nemusí fungovat.",
+    "update.unreadable": "Soubor {file} v adresáři Update se nedá použít: {error}",
+    "apply.step.update_upload": "Nahrání aktualizace {file} ({size} MB, způsob: {strategy})",
+    "apply.step.update_withdrawn": "Nahraná aktualizace smazána ze zařízení: {files}",
+    "apply.failed.update_upload": "Aktualizaci {file} se nepodařilo nahrát, konfigurace "
+    "zařízení se nezměnila: {error}",
+    "apply.warning.update_left": "Aktualizace {files} zůstala na zařízení a nainstaluje se při "
+    "příštím restartu. Smažte ji ve Files: {error}",
+    "apply.warning.update_leftover": "Balíček {files} zůstal po restartu na zařízení "
+    "(nenainstaloval se), aplikace ho smazala.",
+    "verify.routeros_version": "RouterOS {expected} (na zařízení {actual})",
     # UI input syntax
     "ui.syntax": "{message}",
     # profiles

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Mapping, Sequence
 
 from mqs.model.inventory import (
@@ -30,6 +31,7 @@ def make_inventory(
     board_name: str = "test-board",
     services: Sequence[ServiceInfo] = (),
     default_names: Mapping[str, str] | None = None,
+    architecture: str = "",
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
     ``default_names`` a renamed port → its default-name (others are not renamed)."""
@@ -37,7 +39,8 @@ def make_inventory(
     port_switch = port_switch or {}
     default_names = default_names or {}
     return DeviceInventory(
-        resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name),
+        resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
+                              architecture=architecture),
         identity="MikroTik",
         interfaces=[
             InterfaceInfo(
@@ -56,3 +59,19 @@ def make_inventory(
 
 def router_profile(ports: Sequence[str] = FIVE_PORTS, identity: str = "R1") -> DeviceProfile:
     return apply_preset(DeviceProfile(identity=identity), Mode.ROUTER, ports)
+
+
+def make_npk(name: str = "system", version: tuple[int, int, int] = (7, 23, 7),
+             arch: str = "arm", *, kind: bytes = b"f", channel: str = "long-term") -> bytes:
+    """A RouterOS package header laid out like MikroTik's own (test_update.REAL_ARM_HEADER
+    checks the two against each other), for any name, version and architecture."""
+    major, minor, revision = version
+    info = name.encode().ljust(16, b"\0") + bytes([revision]) + kind + bytes([minor, major])
+    info += struct.pack("<I", 0x6AAA8943) + b"\0" * 12
+
+    def part(kind_id: int, data: bytes) -> bytes:
+        return struct.pack("<HI", kind_id, len(data)) + data
+
+    parts = (part(25, b"") + part(1, info) + part(24, channel.encode())
+             + part(16, arch.encode()) + part(2, b"Main package") + part(4, b"\0" * 64))
+    return struct.pack("<II", 0xBAD0F11E, len(parts)) + parts

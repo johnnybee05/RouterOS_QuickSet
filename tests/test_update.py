@@ -1,0 +1,203 @@
+"""RouterOS packages in the Update directory: reading them and picking one for a device."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from factories import make_inventory, make_npk
+from mqs.apply.update import (
+    ARCHITECTURES,
+    NpkError,
+    UpdateDir,
+    leftover_packages,
+    plan_update,
+    read_npk,
+    scan_update_dir,
+)
+from mqs.issues import Severity, codes
+from mqs.model.inventory import PackageInfo
+from mqs.model.version import RosVersion
+from mqs.paths import update_dir
+
+# The first bytes of MikroTik's own packages, as downloaded (2026-09-17). A header built
+# by this test from what the parser expects would only prove the two agree.
+REAL_ARM_HEADER = bytes.fromhex(
+    "1ef1d0baae7bbb0019000000000001002400000073797374656d000000000000000000000766"
+    "17074389aa6a0000000000000000030000001800090000006c6f6e672d7465726d10000300000061726d")
+REAL_MIPSBE_HEADER = bytes.fromhex(
+    "1ef1d0ba8c5cae0019000000000001002400000073797374656d000000000000000000000766"
+    "17074389aa6a0000000000000000030000001800090000006c6f6e672d7465726d1000040000006d697073")
+
+
+npk = make_npk
+
+
+def write(directory: Path, file: str, data: bytes) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / file
+    path.write_bytes(data)
+    return path
+
+
+def test_the_header_of_a_real_package_is_read(tmp_path):
+    package = read_npk(write(tmp_path, "routeros-7.23.7-arm.npk", REAL_ARM_HEADER))
+    assert (package.name, str(package.version), package.architecture, package.channel) == (
+        "system", "7.23.7", "arm", "long-term")
+    assert package.display_name == "routeros"
+    assert package.size == len(REAL_ARM_HEADER)
+    # The mipsbe package calls its architecture "mips".
+    mips = read_npk(write(tmp_path, "routeros-7.23.7-mipsbe.npk", REAL_MIPSBE_HEADER))
+    assert mips.architecture == "mips"
+
+
+def test_the_builder_matches_the_real_layout(tmp_path):
+    built = read_npk(write(tmp_path, "a.npk", npk()))
+    real = read_npk(write(tmp_path, "b.npk", REAL_ARM_HEADER))
+    assert (built.name, built.version, built.architecture, built.channel) == (
+        real.name, real.version, real.architecture, real.channel)
+
+
+def test_the_file_name_does_not_matter(tmp_path):
+    package = read_npk(write(tmp_path, "renamed.npk", npk(arch="mmips")))
+    assert package.architecture == "mmips" and package.file_name == "renamed.npk"
+
+
+@pytest.mark.parametrize(("data", "message"), [
+    (b"PK\x03\x04" + b"\0" * 60, "not a RouterOS package"),
+    (npk(kind=b"b"), "not a final release"),
+    (npk()[:20], "ends inside its header"),
+    (npk(arch=""), "no architecture"),
+])
+def test_what_is_not_a_usable_package_is_refused(tmp_path, data, message):
+    with pytest.raises(NpkError, match=message):
+        read_npk(write(tmp_path, "x.npk", data))
+
+
+def test_a_version_without_a_patch_number(tmp_path):
+    assert str(read_npk(write(tmp_path, "x.npk", npk(version=(7, 20, 0)))).version) == "7.20"
+
+
+def test_scan_takes_npk_files_newest_first_and_names_the_unusable(tmp_path):
+    folder = tmp_path / "Update"
+    write(folder, "routeros-7.22.1-arm.npk", npk(version=(7, 22, 1)))
+    write(folder, "routeros-7.23.7-arm.npk", npk())
+    write(folder, "broken.NPK", b"garbage")
+    write(folder, "readme.txt", b"not a package")
+    (folder / "old").mkdir()
+    write(folder / "old", "routeros-7.24.0-arm.npk", npk(version=(7, 24, 0)))
+    found = scan_update_dir(folder)
+    assert found.exists
+    assert [p.file_name for p in found.packages] == ["routeros-7.23.7-arm.npk",
+                                                     "routeros-7.22.1-arm.npk"]
+    assert [name for name, _ in found.unreadable] == ["broken.NPK"]
+    assert not scan_update_dir(tmp_path / "missing").exists
+
+
+def device(version: str = "7.20.7", arch: str = "arm", packages=()):
+    return make_inventory(version, architecture=arch, packages=[
+        PackageInfo(name="routeros", version=version), *packages])
+
+
+def found_in(tmp_path, *files: tuple[str, bytes]) -> UpdateDir:
+    for name, data in files:
+        write(tmp_path / "Update", name, data)
+    (tmp_path / "Update").mkdir(exist_ok=True)
+    return scan_update_dir(tmp_path / "Update")
+
+
+ALL_ARCHES = [(f"routeros-7.23.7-{a}.npk", npk(arch=a))
+              for a in ("arm", "arm64", "mips", "mmips", "smips", "tile", "powerpc", "i386")]
+
+
+@pytest.mark.parametrize(("device_arch", "expected"), [
+    ("arm", "routeros-7.23.7-arm.npk"),  # the hEX S E60iUGS, verified
+    ("mipsbe", "routeros-7.23.7-mips.npk"),
+    ("mmips", "routeros-7.23.7-mmips.npk"),
+    ("x86_64", "routeros-7.23.7-i386.npk"),
+    ("powerpc", "routeros-7.23.7-powerpc.npk"),
+])
+def test_the_package_follows_the_device_architecture(tmp_path, device_arch, expected):
+    plan = plan_update(device(arch=device_arch), found_in(tmp_path, *ALL_ARCHES))
+    assert [p.file_name for p in plan.packages] == [expected]
+    assert plan.target == RosVersion.parse("7.23.7") and plan.installs
+    assert codes(plan.issues) == {"update.planned"}
+    assert plan.issues[0].severity == Severity.INFO
+    assert expected in plan.issues[0].message and "7.20.7" in plan.issues[0].message
+
+
+def test_every_known_architecture_has_a_package_in_the_real_set():
+    assert set(ARCHITECTURES.values()) == {"arm", "arm64", "mips", "mmips", "smips", "tile",
+                                            "powerpc", "i386"}
+
+
+def test_the_newest_version_wins(tmp_path):
+    plan = plan_update(device(), found_in(
+        tmp_path, ("a.npk", npk(version=(7, 21, 3))), ("b.npk", npk()),
+        ("c.npk", npk(version=(7, 24, 1), arch="mmips"))))
+    assert [p.file_name for p in plan.packages] == ["b.npk"]
+
+
+@pytest.mark.parametrize(("current", "code", "severity"), [
+    ("7.23.7", "update.up_to_date", Severity.INFO),
+    ("7.24.1", "update.up_to_date", Severity.INFO),  # a reboot does not downgrade
+    ("6.49.10", "update.v7_only", Severity.WARNING),
+])
+def test_nothing_to_install(tmp_path, current, code, severity):
+    plan = plan_update(device(current), found_in(tmp_path, ("a.npk", npk())))
+    assert not plan.installs and plan.target is None
+    assert [(i.code, i.severity) for i in plan.issues] == [(code, severity)]
+
+
+def test_a_package_of_another_major_version_is_not_installed(tmp_path):
+    plan = plan_update(device(), found_in(tmp_path, ("a.npk", npk(version=(8, 1, 0)))))
+    assert not plan.installs and codes(plan.issues) == {"update.other_major"}
+
+
+@pytest.mark.parametrize(("arch", "code"), [("", "update.unknown_arch"),
+                                            ("sparc", "update.unknown_arch"),
+                                            ("arm64", "update.no_package")])
+def test_no_package_for_the_architecture(tmp_path, arch, code):
+    plan = plan_update(device(arch=arch), found_in(tmp_path, ("a.npk", npk())))
+    assert not plan.installs and codes(plan.issues) == {code}
+
+
+def test_no_directory(tmp_path):
+    plan = plan_update(device(), scan_update_dir(tmp_path / "nowhere"))
+    assert not plan.installs and codes(plan.issues) == {"update.no_dir"}
+    assert str(tmp_path / "nowhere") in plan.issues[0].message
+
+
+def test_an_unreadable_file_is_mentioned_but_does_not_stop_the_update(tmp_path):
+    plan = plan_update(device(), found_in(tmp_path, ("a.npk", npk()), ("bad.npk", b"x")))
+    assert plan.installs
+    assert codes(plan.issues) == {"update.planned", "update.unreadable"}
+
+
+def test_extra_packages_go_along_when_the_directory_has_them(tmp_path):
+    inventory = device(packages=[PackageInfo(name="wifi-qcom", version="7.20.7"),
+                                 PackageInfo(name="container", version="7.20.7")])
+    plan = plan_update(inventory, found_in(
+        tmp_path, ("routeros.npk", npk()), ("wifi.npk", npk("wifi-qcom")),
+        ("wifi-old.npk", npk("wifi-qcom", (7, 22, 0))),
+        ("container-mmips.npk", npk("container", arch="mmips"))))
+    assert [p.file_name for p in plan.packages] == ["routeros.npk", "wifi.npk"]
+    missing = [i for i in plan.issues if i.code == "update.extra_missing"]
+    assert [i.params["name"] for i in missing] == ["container"]
+    assert missing[0].severity == Severity.WARNING
+    assert "wifi.npk" in plan.issues[0].message
+
+
+def test_leftover_packages_are_only_the_uploaded_ones(tmp_path):
+    plan = plan_update(device(), found_in(tmp_path, ("routeros-7.23.7-arm.npk", npk())))
+    assert leftover_packages(["routeros-7.23.7-arm.npk", "other.npk", "x.rsc"], plan) == [
+        "routeros-7.23.7-arm.npk"]
+    assert leftover_packages(["x.rsc"], plan) == []
+
+
+def test_the_update_directory_is_next_to_the_exe(tmp_path):
+    exe = tmp_path / "MikrotikQuickSetPlus.exe"
+    assert update_dir(str(exe), frozen=True) == tmp_path.resolve() / "Update"
+    # From the sources: where build.ps1 puts the exe.
+    assert update_dir(frozen=False).parts[-2:] == ("dist", "Update")

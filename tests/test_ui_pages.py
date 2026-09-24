@@ -11,11 +11,12 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 
-from factories import make_inventory
+from factories import make_inventory, make_npk
 from fake_transport import FakeTransport
 from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import DEFAULT_PASSWORD, ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
+from mqs.apply.update import plan_from_dir
 from mqs.apply.verify import CheckResult
 from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.inventory import Ipv6PackageState
@@ -178,6 +179,7 @@ def window(qtbot, tmp_path):
             "orchestrator_factory": RecordingOrchestrator,
             "collect_existing_fn": lambda t: ExistingObjects(),
             "uploader_factory_builder": lambda session, options: (lambda t: None),
+            "update_dir": tmp_path / "Update",
         },
     )
     qtbot.addWidget(win)
@@ -617,6 +619,65 @@ def test_reset_keeping_users_needs_no_admin_password(window, qtbot):
     assert window.test_dialogs.reset_keep_users
     page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
     assert not page.options().keep_users  # never outside a reset
+
+
+def arm_plan(directory, inventory):
+    """The fixture's device, said to be an arm board like the hEX S E60iUGS."""
+    resource = inventory.resource.model_copy(update={"architecture": "arm"})
+    return plan_from_dir(directory, inventory.model_copy(update={"resource": resource}))
+
+
+def test_update_is_on_by_default_and_belongs_to_a_reset(window, qtbot):
+    page = window.apply_page
+    assert page.update_check.isChecked() and page.update_check.isEnabled()
+    assert str(page.update_dir) in page.update_dir_label.text()
+    assert page.options().update is None  # no device: its architecture is not known yet
+    connect(window, qtbot)
+    assert page.options().update is not None
+    page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
+    assert not page.update_check.isEnabled() and page.options().update is None
+
+
+def test_the_update_is_shown_before_the_apply_and_handed_to_it(window, qtbot, tmp_path):
+    (tmp_path / "Update").mkdir()
+    (tmp_path / "Update" / "routeros-7.23.7-arm.npk").write_bytes(make_npk())
+    (tmp_path / "Update" / "routeros-7.23.7-mmips.npk").write_bytes(make_npk(arch="mmips"))
+    page = window.apply_page
+    page.plan_update_fn = arm_plan
+    connect(window, qtbot)
+    page.refresh()
+    planned = [i for i in page.preflight_issues() if i.code == "update.planned"]
+    assert len(planned) == 1 and "routeros-7.23.7-arm.npk" in planned[0].message
+    assert page.apply_button.isEnabled()
+    page.start_apply()
+    qtbot.waitUntil(lambda: page.last_report is not None and not window.runner.busy,
+                    timeout=5000)
+    options = RecordingOrchestrator.instances[-1].ctx.options
+    assert options.installs_update
+    assert [p.file_name for p in options.update.packages] == ["routeros-7.23.7-arm.npk"]
+
+
+def test_the_update_can_be_switched_off(window, qtbot, tmp_path):
+    (tmp_path / "Update").mkdir()
+    (tmp_path / "Update" / "routeros-7.23.7-arm.npk").write_bytes(make_npk())
+    page = window.apply_page
+    page.plan_update_fn = arm_plan
+    connect(window, qtbot)
+    page.update_check.setChecked(False)
+    assert not any(i.code.startswith("update.") for i in page.preflight_issues())
+    page.start_apply()
+    qtbot.waitUntil(lambda: page.last_report is not None and not window.runner.busy,
+                    timeout=5000)
+    assert RecordingOrchestrator.instances[-1].ctx.options.update is None
+
+
+def test_without_a_package_the_reset_goes_ahead_with_a_warning(window, qtbot):
+    page = window.apply_page
+    connect(window, qtbot)  # no Update directory in this test
+    page.refresh()
+    issues = [i for i in page.preflight_issues() if i.code.startswith("update.")]
+    assert [i.code for i in issues] == ["update.no_dir"]
+    assert page.apply_button.isEnabled()
 
 
 def test_profiles_menu_roundtrip(window, tmp_path):

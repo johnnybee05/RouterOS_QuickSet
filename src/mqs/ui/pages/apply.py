@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -47,10 +48,13 @@ from mqs.apply.plan import (
 from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.reconnect import reconnect_with_retry
 from mqs.apply.session import DeviceSession, build_apply_context, build_uploader_factory
+from mqs.apply.update import UpdatePlan, plan_from_dir
 from mqs.apply.verify import CheckResult
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import STEP_PREFIX
+from mqs.model.inventory import DeviceInventory
 from mqs.paths import backups_dir
+from mqs.paths import update_dir as default_update_dir
 from mqs.transport.base import Transport
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
@@ -83,10 +87,14 @@ class ApplyPage(Page):
         uploader_factory_builder: Callable[..., Any] = build_uploader_factory,
         reconnect_fn: Callable[..., Transport] = reconnect_with_retry,
         now: Callable[[], datetime] = datetime.now,
+        update_dir: Path | None = None,
+        plan_update_fn: Callable[[Path, DeviceInventory], UpdatePlan] = plan_from_dir,
     ) -> None:
         super().__init__(controller, parent)
         self.runner, self.dialogs, self.session_provider = runner, dialogs, session_provider
         self.save_script = save_script
+        self.update_dir = update_dir if update_dir is not None else default_update_dir()
+        self.plan_update_fn = plan_update_fn
         self.orchestrator_factory = orchestrator_factory
         self.collect_existing_fn = collect_existing_fn
         self.uploader_factory_builder = uploader_factory_builder
@@ -187,6 +195,15 @@ class ApplyPage(Page):
         self.admin_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.admin_password.textChanged.connect(lambda _: self.refresh())
         form.addRow(S.APPLY_ADMIN_PASSWORD, self.admin_password)
+        self.update_check = QCheckBox(S.APPLY_UPDATE)
+        self.update_check.setChecked(True)
+        self.update_check.setToolTip(S.APPLY_UPDATE_TIP)
+        self.update_check.toggled.connect(lambda _: self.refresh())
+        form.addRow(self.update_check)
+        self.update_dir_label = QLabel(S.APPLY_UPDATE_DIR.format(dir=self.update_dir))
+        self.update_dir_label.setWordWrap(True)
+        self.update_dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("", self.update_dir_label)
         return box
 
     # ------------------------------------------------------------ state
@@ -208,7 +225,17 @@ class ApplyPage(Page):
             confirm_dialect_mismatch=self.dialect_confirm.isChecked(),
             confirmed_identity=confirmed_identity,
             keep_backups=self.keep_backups.value(),
+            update=self.update_plan(),
         )
+
+    def update_plan(self) -> UpdatePlan | None:
+        """The packages a reset would install, None while the update is off or cannot be
+        worked out yet (no device: the package depends on its architecture)."""
+        session = self.session_provider()
+        if (self.mode != ApplyMode.RESET_AND_IMPORT or not self.update_check.isChecked()
+                or session is None):
+            return None
+        return self.plan_update_fn(self.update_dir, session.inventory)
 
     def on_analysis(self, analysis: Analysis) -> None:
         self.refresh()
@@ -233,6 +260,8 @@ class ApplyPage(Page):
         reset = mode == ApplyMode.RESET_AND_IMPORT
         self.reset_delay.setEnabled(reset)
         self.keep_users.setEnabled(reset)
+        self.update_check.setEnabled(reset)
+        self.update_dir_label.setEnabled(reset and self.update_check.isChecked())
         self.admin_password.setEnabled(reset)
         self.admin_password.setPlaceholderText(
             S.APPLY_ADMIN_PASSWORD_KEEP if reset and self.keep_users.isChecked() else "")
@@ -282,7 +311,8 @@ class ApplyPage(Page):
             if typed is None:
                 self.refresh()
                 return
-            options = self.options(confirmed_identity=typed)
+            # The same packages the dry-run showed, even if the directory changed since.
+            options = replace(options, confirmed_identity=typed)
             identity_errors = [
                 i for i in preflight(self.controller.profile, result, [], options,
                                      session.inventory)

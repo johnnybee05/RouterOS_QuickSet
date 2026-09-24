@@ -62,6 +62,8 @@ def preflight(
             issues.append(Issue("apply.reset_password_required", E))
         if options.rollback_minutes is not None:
             issues.append(Issue("apply.rollback_ignored_reset", W))
+        if options.update is not None:
+            issues.extend(options.update.issues)
     elif options.rollback_minutes is not None and options.rollback_minutes < MIN_ROLLBACK_MINUTES:
         issues.append(Issue("apply.rollback_too_short", E, "",
                             {"minimum": MIN_ROLLBACK_MINUTES}))

@@ -25,7 +25,7 @@ from mqs.transport.base import (
     api_word,
     split_path,
 )
-from mqs.transport.upload import FileUploader, UploadResult, UploadStrategy
+from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, UploadStrategy
 
 
 @dataclass
@@ -45,7 +45,7 @@ class RouterState:
 class FakeRouter:
     def __init__(self, clock: datetime = datetime(2026, 9, 15, 10, 0, 0)) -> None:
         self.state = RouterState()
-        self.files: dict[str, str] = {}
+        self.files: dict[str, str | bytes] = {}
         self.backups: dict[str, RouterState] = {}
         self.clock = clock
         self.reboots = 0
@@ -57,6 +57,12 @@ class FakeRouter:
         self.reset_args: dict[str, str] = {}
         self.reset_refusals = 0  # how many times to answer "cannot use file" first
         self.offload_running = True
+        self.version = "7.15.3 (stable)"
+        # Package file name -> the version the reboot installs from it. What a real
+        # device does with a package on the reset's reboot is not known; see
+        # `installs_packages` for a device that ignores it.
+        self.installable: dict[str, str] = {}
+        self.installs_packages = True
 
     # ------------------------------------------------------------ simulation helpers
 
@@ -133,6 +139,7 @@ class FakeRouter:
             self.reset_args = dict(args)
             session.alive = False
             self.reboots += 1
+            self._install_packages()
             kept_password = self.state.admin_password
             self.state = RouterState()
             if args.get("keep-users") == "yes":
@@ -141,6 +148,8 @@ class FakeRouter:
             raise ConnectionLost("rebooting")
         if word == "/system/identity/print":
             return [{"name": s.identity}]
+        if word == "/system/resource/print":
+            return [{"version": self.version, "architecture-name": "arm"}]
         if word == "/ip/service/print":
             ports = {"telnet": 23, "ftp": 21, "www": 80, "ssh": s.ssh_port, "www-ssl": 443,
                      "api": 8728, "winbox": 8291, "api-ssl": 8729}
@@ -161,6 +170,14 @@ class FakeRouter:
             return [{"dst-address": "0.0.0.0/0", "gateway": g, "dynamic": "no"}
                     for g in s.default_gateways]
         raise CommandError(word, "bad command name")
+
+    def _install_packages(self) -> None:
+        if not self.installs_packages:
+            return
+        for name in [n for n in self.files if n in self.installable]:
+            self.version = f"{self.installable[name]} (long-term)"
+            self.files.pop(name)
+            self.log.append(f"installed {name}")
 
     def _run_after_reset(self, name: str | None) -> None:
         script = self.files.get(name or "")
@@ -245,18 +262,26 @@ class RouterSession:
 
 class RouterUploader(FileUploader):
     def __init__(self, router: FakeRouter, *, fail: bool = False, line_by_line: bool = False,
-                 download_fail: bool = False) -> None:
+                 download_fail: bool = False, fail_partway: set[str] | None = None) -> None:
         super().__init__([], allow_line_by_line=line_by_line)
         self.router, self.fail, self.download_fail = router, fail, download_fail
+        # Files whose transfer breaks off after part of them is written.
+        self.fail_partway = fail_partway or set()
+        self.uploaded: list[str] = []
 
     def upload(self, data: bytes, remote_path: str) -> UploadResult:
         if self.fail:
             return super().upload(data, remote_path)
-        self.router.files[remote_path] = data.decode("utf-8")
+        if remote_path in self.fail_partway:
+            self.router.files[remote_path] = data[:10]
+            raise UploadFailed([(UploadStrategy.SFTP, "connection reset")])
+        # Scripts are text the fake runs; a package is bytes it only installs.
+        self.router.files[remote_path] = (data.decode("utf-8") if remote_path.endswith(".rsc")
+                                          else data)
+        self.uploaded.append(remote_path)
         return UploadResult(UploadStrategy.SFTP, remote_path)
 
     def download(self, remote_path, local_path):
-        from mqs.transport.upload import UploadFailed
         if self.download_fail or remote_path not in self.router.files:
             raise UploadFailed([(UploadStrategy.SFTP, "no such file")])
         local_path.write_text(self.router.files[remote_path], encoding="utf-8")

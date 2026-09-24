@@ -19,7 +19,9 @@ Aplikace funguje i **offline**: skript jde jen vygenerovat do souboru nebo schr�
 
 ## Spuštění
 
-Stačí spustit `MikrotikQuickSetPlus.exe`. Python není potřeba, nic se neinstaluje.
+Stačí spustit `MikrotikQuickSetPlus.exe`. Python není potřeba, nic se neinstaluje. Vedle
+exe může být adresář `Update` s balíčky RouterOS (viz
+[Aktualizace RouterOS při resetu](#aktualizace-routeros-při-resetu)).
 
 Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
 
@@ -91,6 +93,39 @@ v pořádku, nejde aplikovat.
 | Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Pravidla NAT a MSS clampingu z dřívějšího běhu odstraní, i když je profil už nepřidává (vypnutý masquerade nebo MSS clamping); cizí pravidla nechá být. Má-li profil jinou výchozí bránu, změní ji na stávající statické trase místo přidání druhé; je-li takových tras víc (záloha přes jinou bránu), nechá je a varuje. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
 | Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
 | Reset + aplikovat, *Zachovat uživatele* | totéž s `keep-users=yes`: uživatelé, jejich hesla i SSH klíče reset přežijí. Nové heslo pro `admin` je nepovinné (prázdné ponechá současné) a aplikace se po resetu připojí pod stejným účtem, třeba uživatelem s klíčem. V CLI `--keep-users`. |
+
+### Aktualizace RouterOS při resetu
+
+Vedle `MikrotikQuickSetPlus.exe` může ležet adresář **`Update`** s balíčky RouterOS tak, jak
+je stahujete od MikroTiku (`routeros-7.23.7-arm.npk`, `routeros-7.23.7-mmips.npk` …). Když
+je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresáře Update*
+(výchozí stav), aplikace:
+
+1. podle `architecture-name` zařízení (`/system resource`) vybere balíček s odpovídající
+   architekturou. Architekturu, jméno i verzi čte z hlavičky `.npk`, ne z názvu souboru,
+   takže přejmenovaný soubor nevadí. Je-li jich víc, vezme nejnovější verzi;
+2. před resetem ho nahraje do kořene souborů zařízení, hned za zálohu a před skript;
+3. restart po resetu balíček nainstaluje a pak se spustí skript s konfigurací;
+4. po připojení checklist ověří řádkem *RouterOS 7.23.7 (na zařízení …)*, že zařízení
+   opravdu běží na nové verzi. Balíček, který by po restartu na zařízení zůstal, aplikace
+   smaže, aby se nenainstaloval při některém pozdějším restartu.
+
+Co se nainstaluje, ukážou kontroly před aplikací i dry-run, např. *Po resetu se nainstaluje
+RouterOS 7.23.7 (zařízení má 7.20.7): routeros-7.23.7-arm.npk.* Aktualizace se přeskočí
+(s upozorněním, reset proběhne dál), když adresář chybí, pro architekturu v něm balíček
+není, zařízení už stejnou nebo novější verzi má, nebo jde o přechod mezi v6 a v7 (ten
+aplikace nedělá). Pokud se balíček nepodaří nahrát, aplikace skončí dřív, než cokoliv
+změní; pokud se nahraje, ale reset neproběhne, balíček ze zařízení zase smaže.
+
+Nové verze stačí nahrát do `Update` (staré můžou zůstat, bere se nejnovější). Má-li
+zařízení i další balíčky (např. `wifi-qcom`), musí být v `Update` ve stejné verzi a
+architektuře, jinak aplikace upozorní, že po aktualizaci nemusí fungovat. Při spuštění ze
+zdrojů se používá `dist\Update`. V CLI `--update` (volitelně `--update-dir`).
+
+> Architektura se nedá odhadnout podle názvu modelu: hEX S E60iUGS (čip EN7562) hlásí
+> `arm`, kdežto starší hEX S s čipem MT7621 patří k `mmips`. **Ověřeno** je čtení hlaviček všech balíčků 7.23.7 a
+> architektura `arm` na hEX S; že jeden restart zvládne instalaci i spuštění skriptu,
+> se teprve ověřuje (viz `docs/DIALECT_NOTES.md`).
 
 V okně je předvolený režim *Reset + aplikovat*. Po úspěšné aplikaci (všechny kontroly
 prošly) se aplikace od zařízení sama odpojí a vrátí případnou dočasnou adresu z připojení

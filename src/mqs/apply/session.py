@@ -316,7 +316,7 @@ def build_apply_context(
         mac_route=session.mac_route,
         uploader_factory=uploader_factory_builder(session, options),
         reconnect=lambda target: reconnect_fn(
-            target, timeout_s=options.reconnect_timeout_s, cancelled=cancelled),
+            target, timeout_s=options.reconnect_budget_s, cancelled=cancelled),
         now=now,
         sleep=lambda seconds: None if cancelled() else sleep(seconds),
         cancelled=cancelled,

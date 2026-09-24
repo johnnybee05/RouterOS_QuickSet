@@ -14,6 +14,7 @@ from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import BridgePortState
 from mqs.model.profile import DeviceProfile
+from mqs.model.version import RosVersion
 from mqs.model.wan import DhcpWan, StaticWan
 from mqs.transport.base import CommandError, Transport
 from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
@@ -122,6 +123,17 @@ def verify_configuration(
             i.severity == Severity.WARNING for i in offload_issues),
             {"count": len(offload_issues)}))
     return checks, issues
+
+
+def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckResult:
+    """The device runs ``expected``: the update from the Update directory took."""
+    text = transport.execute("/system/resource/print")[0].get("version", "")
+    try:
+        ok = RosVersion.parse(text) == expected
+    except ValueError:
+        ok = False
+    return CheckResult("verify.routeros_version", ok,
+                       {"expected": str(expected), "actual": text or "-"})
 
 
 def expected_gateways(profile: DeviceProfile) -> list[str]:

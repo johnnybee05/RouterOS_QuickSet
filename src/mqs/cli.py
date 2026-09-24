@@ -15,6 +15,7 @@ import getpass
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 from ipaddress import IPv4Address
 from pathlib import Path
@@ -39,6 +40,7 @@ from mqs.apply.session import (
     probe_summary,
     session_after_apply,
 )
+from mqs.apply.update import plan_from_dir
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
@@ -46,7 +48,7 @@ from mqs.messages_cs import STEP_PREFIX
 from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
-from mqs.paths import profiles_dir
+from mqs.paths import profiles_dir, update_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import AuthError, ConnectionParams, TransportError, TransportKind
 from mqs.transport.factory import TransportChoice
@@ -307,6 +309,9 @@ def _apply_to(
 ) -> int:
     mode = options.mode
     describe_session(session, out)
+    if args.update and mode == ApplyMode.RESET_AND_IMPORT:
+        directory = Path(args.update_dir) if args.update_dir else update_dir()
+        options = replace(options, update=plan_from_dir(directory, session.inventory))
 
     # What the window does on connect: the device's port names go into the profile.
     adopted = adopt_device_names(profile, session.inventory)
@@ -424,6 +429,13 @@ def build_parser() -> argparse.ArgumentParser:
                            help="reset with keep-users=yes: users and their passwords stay, "
                            "the admin password is optional, and the apply reconnects as the "
                            "same user")
+    apply_cmd.add_argument("--update", action="store_true",
+                           help="reset only: upload the RouterOS package for the device's "
+                           "architecture from the Update directory, so the reset's reboot "
+                           "installs it")
+    apply_cmd.add_argument("--update-dir", metavar="DIR",
+                           help=f"with --update: where the packages are (default "
+                           f"{update_dir()})")
     apply_cmd.add_argument("--confirm-identity", metavar="IDENTITY",
                            help="the device identity, required by reset")
     apply_cmd.add_argument("--allow-dialect-mismatch", action="store_true")
@@ -456,6 +468,10 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
         return BLOCKED
     if mac and not args.temp_address:
         print("--mac needs --temp-address: a free address in this PC's subnet",
+              file=sys.stderr)
+        return BLOCKED
+    if getattr(args, "update", False) and args.mode != ApplyMode.RESET_AND_IMPORT.value:
+        print("--update needs --mode reset: the packages are installed by its reboot",
               file=sys.stderr)
         return BLOCKED
     try:

@@ -7,7 +7,7 @@ from ipaddress import IPv4Address, IPv4Network
 
 import pytest
 
-from factories import make_inventory
+from factories import make_inventory, make_npk
 from fake_router import FakeRouter, RouterUploader
 from fake_transport import FakeTransport
 from mqs import cli
@@ -16,6 +16,7 @@ from mqs.apply.plan import ApplyMode
 from mqs.apply.session import DeviceSession
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
+from mqs.model.inventory import PackageInfo
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.profiles.store import profile_to_json
@@ -321,3 +322,60 @@ def test_apply_takes_over_the_port_names_of_the_device(router, profile_file):
     assert "set [ find default-name=ether1 ] name=ether1-uplink" in out
     assert "add interface=ether1-uplink list=WAN" in out
     assert "wan.interface_unknown" not in out
+
+
+def test_update_needs_a_reset(profile_file, capsys):
+    code = cli.main(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "import", "--update"])
+    assert code == cli.BLOCKED
+    assert "--update needs --mode reset" in capsys.readouterr().err
+
+
+def reset_offline(router):
+    """The orchestrator of a reset that neither sleeps nor reconnects over the network."""
+
+    def factory(ctx):
+        ctx.uploader_factory = lambda transport: RouterUploader(router)
+        ctx.sleep = lambda seconds: None
+        ctx.reconnect = lambda target: router.session(
+            port=target.api_port, username=target.params.username,
+            password=target.params.password)
+        return ApplyOrchestrator(ctx)
+
+    return factory
+
+
+def test_reset_with_update_installs_the_package_for_the_device(router, profile_file, tmp_path,
+                                                               monkeypatch):
+    monkeypatch.setenv("MQS_ADMIN_PASSWORD", "N3w")
+    folder = tmp_path / "Update"
+    folder.mkdir()
+    (folder / "routeros-7.23.7-arm.npk").write_bytes(make_npk())
+    (folder / "routeros-7.23.7-mmips.npk").write_bytes(make_npk(arch="mmips"))
+    router.installable = {"routeros-7.23.7-arm.npk": "7.23.7"}
+    inventory = make_inventory("7.15.3", PORTS, architecture="arm",
+                               packages=[PackageInfo(name="routeros", version="7.15.3")])
+    session = DeviceSession(ConnectionParams(host="10.0.0.1", username="admin"),
+                            router.session(), inventory, {}, "ether9")
+    code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "reset", "--confirm-identity", "MikroTik", "--yes",
+                     "--update", "--update-dir", str(folder)],
+                    router=router, connect=lambda *a, **k: session,
+                    orchestrator_factory=reset_offline(router))
+    assert code == cli.OK, out
+    assert "update.planned" in out and "routeros-7.23.7-arm.npk" in out
+    assert "mmips" not in out.split("preflight:")[1]
+    assert router.version.startswith("7.23.7")
+    assert "OK   RouterOS 7.23.7" in out
+
+
+def test_without_update_nothing_is_installed(router, profile_file, monkeypatch):
+    monkeypatch.setenv("MQS_ADMIN_PASSWORD", "N3w")
+    router.files["routeros-7.23.7-arm.npk"] = b"left there by hand"
+    router.installable = {"routeros-7.23.7-arm.npk": "7.23.7"}
+    router.installs_packages = False  # a stray package is not the CLI's business
+    code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "reset", "--confirm-identity", "MikroTik", "--yes"],
+                    router=router, orchestrator_factory=reset_offline(router))
+    assert code == cli.OK, out
+    assert "update." not in out and "RouterOS 7.23.7" not in out
