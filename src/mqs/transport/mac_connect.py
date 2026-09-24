@@ -109,13 +109,14 @@ def device_interface_name(session: MacTelnetSession, name: str, *, bridge: bool,
                           mac: str) -> str:
     """The name the device gives now to the interface MNDP announced as ``name``.
 
-    MNDP keeps announcing an interface under the name it had when the announcing began
-    (hEX S, 2026-09-24: "bridge1/ether1" 13 hours after ether1 had become ether1-uplink),
-    and the device refuses an address on a name it no longer has. So it is asked: the name
-    itself, then a port by its default-name, then the interface the announcement came from
-    by its MAC address - the bridge for a bridged port, the port itself otherwise (a bridge
-    takes the MAC address of a port). The query forms are verified on 7.20.7. Whatever the
-    console will not answer leaves ``name`` as it is, which is how it was used before.
+    MNDP can announce an interface under an earlier name (hEX S, 2026-09-24: a bridged
+    port as "bridge1/ether1" 13 hours after it had become ether1-uplink), a scan keeps an
+    announcement for a while, and the device refuses an address on a name it no longer
+    has. So it is asked: the name itself, then a port by its default-name, then the
+    interface the announcement came from by its MAC address - the bridge for a bridged
+    port, the port itself otherwise (a bridge takes the MAC address of a port). Verified on
+    7.20.7 with the whole bootstrap (docs/DIALECT_NOTES.md). Whatever the console will not
+    answer leaves ``name`` as it is, which is how it was used before.
     """
     try:
         if _count(session, f"name={quote_find(name)}") == 1:

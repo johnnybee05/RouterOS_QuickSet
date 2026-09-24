@@ -8,8 +8,9 @@ default-name, and everything else in the profile (bridge members, the WAN port) 
 a port by the name it has once the script has run.
 
 An import keeps the device's own names, and a reset very likely brings the factory ones
-back: right after one, the hEX S announced its port as "ether1" (2026-09-24; the names were
-not read directly, NUTNO OVĚŘIT). A name therefore only survives both when the profile
+back: right after one, the hEX S announced its port as "ether1" (2026-09-24, twice; the
+names cannot be read then, the device takes no login until the run-after-reset script is
+done, NUTNO OVĚŘIT). A name therefore only survives both when the profile
 carries it, which is why the names a device already has are taken over into the profile
 when it is connected (`adopt_device_names`).
 """
@@ -49,10 +50,10 @@ def port_renames(names: Mapping[str, str], inventory: DeviceInventory) -> dict[s
 def names_after(inventory: DeviceInventory, renames: Mapping[str, str]) -> dict[str, str]:
     """Name after the script of each interface, by its name now or by its default-name.
 
-    MNDP keeps announcing a port under the name it had when the announcing began: on the
-    hEX S (2026-09-24) ports renamed in Winbox were still announced as "bridge1/ether1"
-    13 hours later, and after a reset + apply as "bridge1/ether1-uplink". A reported name
-    is therefore looked up as a present name first, then as a default-name.
+    MNDP can announce a port under an earlier name: on the hEX S (2026-09-24) a bridged
+    port renamed in Winbox was still announced as "bridge1/ether1" 13 hours later, while
+    a port outside a bridge was announced under its new name 2 s after the rename. A
+    reported name is therefore looked up as a present name first, then as a default-name.
     """
     result = {i.default_name: renames.get(i.name, i.name)
               for i in inventory.interfaces if i.default_name}
