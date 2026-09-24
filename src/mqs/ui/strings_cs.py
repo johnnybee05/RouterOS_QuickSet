@@ -294,6 +294,8 @@ SCAN_ERRORS = "Některá síťová rozhraní nelze poslouchat: {errors}"
 APPLY_NOT_CONNECTED = "Pro aplikaci konfigurace se nejdřív připojte k zařízení."
 APPLY_DONE = "Konfigurace aplikována."
 APPLY_DONE_WITH_WARNINGS = "Konfigurace aplikována, ale některé kontroly selhaly."
+APPLY_DONE_DISCONNECTED = "Konfigurace aplikována, zařízení odpojeno."
+APPLY_CONFIRMED_DISCONNECTED = "Konfigurace potvrzena, zařízení odpojeno."
 APPLY_SAVE_SCRIPT = "Uložit .rsc…"
 
 # generic

@@ -66,6 +66,8 @@ IDENTITY_CHECKED_IN_DIALOG = "apply.reset_identity_mismatch"
 
 class ApplyPage(Page):
     applied = Signal(object)  # ApplyReport, also of an aborted apply
+    # Nothing is left to do on the device: applied cleanly, or the rollback confirmed.
+    finished_with_device = Signal()
 
     def __init__(
         self,
@@ -144,7 +146,7 @@ class ApplyPage(Page):
             self.mode_group.addButton(button, index)
             self.mode_buttons[ApplyMode(value)] = button
             layout.addWidget(button)
-        self.mode_buttons[ApplyMode.IMPORT].setChecked(True)
+        self.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
         self.mode_group.idToggled.connect(lambda _i, on: on and self.refresh())
         self.dialect_confirm = QCheckBox(S.DIALECT_MISMATCH_CONFIRM)
         self.dialect_confirm.toggled.connect(lambda _: self.refresh())
@@ -327,7 +329,15 @@ class ApplyPage(Page):
 
     def _finished(self, report: ApplyReport) -> None:
         self._show_report(report)
-        self.result_label.setText(S.APPLY_DONE if report.succeeded else S.APPLY_DONE_WITH_WARNINGS)
+        # A pending rollback still needs the connection for "it works"; failed checks keep
+        # it so the device can be looked at and applied to again.
+        done = report.succeeded and not report.rollback_pending
+        if done:
+            self.result_label.setText(S.APPLY_DONE_DISCONNECTED)
+            self.finished_with_device.emit()
+        else:
+            self.result_label.setText(S.APPLY_DONE if report.succeeded
+                                      else S.APPLY_DONE_WITH_WARNINGS)
         self.refresh()
 
     def _failed(self, exc: BaseException) -> None:
@@ -353,6 +363,11 @@ class ApplyPage(Page):
         if orchestrator is None:
             return
         self.runner.start(lambda token, report: orchestrator.confirm(),
-                          on_finished=lambda _: self.confirm_button.hide(),
+                          on_finished=lambda _: self._confirmed(),
                           on_failed=self._failed)
+
+    def _confirmed(self) -> None:
+        self.confirm_button.hide()
+        self.result_label.setText(S.APPLY_CONFIRMED_DISCONNECTED)
+        self.finished_with_device.emit()
 

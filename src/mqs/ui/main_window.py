@@ -118,6 +118,9 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self.device_page.sessionChanged.connect(self._session_changed)
         self.apply_page.applied.connect(self.device_page.adopt_apply)
+        # After adopt_apply: it is the connection the apply ended on that gets closed, and
+        # the address lent on it that gets given back.
+        self.apply_page.finished_with_device.connect(self.device_page.disconnect_device)
         self.controller.analysisReady.connect(self._analysis_ready)
         self.controller.inventoryChanged.connect(lambda _: self._update_badge())
 

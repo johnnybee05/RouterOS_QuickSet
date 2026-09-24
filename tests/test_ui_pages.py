@@ -494,8 +494,13 @@ def test_apply_generate_only_saves_script(window, tmp_path):
     assert (tmp_path / "MikroTik-v7.rsc").exists()
 
 
+def test_apply_defaults_to_reset(window):
+    assert window.apply_page.mode == ApplyMode.RESET_AND_IMPORT
+
+
 def test_apply_requires_connection_then_runs_with_rollback(window, qtbot):
     page = window.apply_page
+    page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
     window.controller.recompute()
     page.refresh()
     assert not page.apply_button.isEnabled()  # not connected
@@ -511,8 +516,56 @@ def test_apply_requires_connection_then_runs_with_rollback(window, qtbot):
     assert orchestrator.ctx.options.rollback_minutes == 5
     assert page.checklist.rowCount() == 1 and page.checklist.item(0, 1).text() == "OK"
     assert page.confirm_button.isVisibleTo(page)
+    # The rollback is cancelled over this connection, so it stays until confirmed.
+    assert window.device_page.session is not None and window.test_transport.connected
     page.confirm_works()
     qtbot.waitUntil(lambda: orchestrator.confirmed and not window.runner.busy, timeout=5000)
+    assert window.device_page.session is None and not window.test_transport.connected
+    assert page.result_label.text() == "Konfigurace potvrzena, zařízení odpojeno."
+
+
+def test_a_successful_apply_disconnects(window, qtbot):
+    connect(window, qtbot)
+    page = window.apply_page
+    page.start_apply()
+    qtbot.waitUntil(lambda: page.last_report is not None and not window.runner.busy,
+                    timeout=5000)
+    assert RecordingOrchestrator.instances[-1].ctx.options.mode == ApplyMode.RESET_AND_IMPORT
+    assert window.device_page.session is None and not window.test_transport.connected
+    assert window.status_connection.text() == "Odpojeno"
+    assert page.result_label.text() == "Konfigurace aplikována, zařízení odpojeno."
+    assert not page.apply_button.isEnabled()  # not connected any more
+
+
+def test_failed_checks_keep_the_device_connected(window, qtbot):
+    class FailingChecks(RecordingOrchestrator):
+        def run(self):
+            report = super().run()
+            report.checks = [CheckResult("verify.identity", False,
+                                         {"expected": "R", "actual": "X"})]
+            report.succeeded = False
+            return report
+
+    window.apply_page.orchestrator_factory = FailingChecks
+    connect(window, qtbot)
+    page = window.apply_page
+    page.start_apply()
+    qtbot.waitUntil(lambda: page.last_report is not None and not window.runner.busy,
+                    timeout=5000)
+    assert window.device_page.session is not None and window.test_transport.connected
+    assert page.result_label.text() == "Konfigurace aplikována, ale některé kontroly selhaly."
+
+
+def test_a_successful_apply_by_mac_gives_the_lent_address_back(window, qtbot):
+    page = connect_by_mac(window, qtbot)
+    window.controller.recompute()
+    window.apply_page.start_apply()
+    qtbot.waitUntil(lambda: window.apply_page.last_report is not None
+                    and not window.runner.busy and page.connect_button.isEnabled(),
+                    timeout=5000)
+    assert page.session is None
+    assert removals(window)[0].selector.get("address") == "192.168.88.253/24"
+    assert "odebrána" in page.connect_status.text()
 
 
 def test_apply_cancelled_in_dry_run(window, qtbot):
@@ -549,7 +602,8 @@ def test_passwords_are_prefilled_with_the_default(window, qtbot):
 def test_reset_keeping_users_needs_no_admin_password(window, qtbot):
     connect(window, qtbot)
     page = window.apply_page
-    assert not page.keep_users.isEnabled()  # import mode
+    page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
+    assert not page.keep_users.isEnabled()
     page.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
     page.admin_password.clear()
     assert page.keep_users.isEnabled() and not page.apply_button.isEnabled()  # no password

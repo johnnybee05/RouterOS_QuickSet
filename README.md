@@ -92,6 +92,11 @@ v pořádku, nejde aplikovat.
 | Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
 | Reset + aplikovat, *Zachovat uživatele* | totéž s `keep-users=yes`: uživatelé, jejich hesla i SSH klíče reset přežijí. Nové heslo pro `admin` je nepovinné (prázdné ponechá současné) a aplikace se po resetu připojí pod stejným účtem, třeba uživatelem s klíčem. V CLI `--keep-users`. |
 
+V okně je předvolený režim *Reset + aplikovat*. Po úspěšné aplikaci (všechny kontroly
+prošly) se aplikace od zařízení sama odpojí a vrátí případnou dočasnou adresu z připojení
+přes MAC. S rollback pojistkou až po *Potvrdit, že konfigurace funguje*; když některá
+kontrola selže, zůstane připojená.
+
 Než aplikace cokoliv změní, vždy:
 
 - uloží na zařízení zálohu `pre-quickset-<datum-čas>.backup` a export
