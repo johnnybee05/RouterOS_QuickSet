@@ -22,6 +22,9 @@ ROLLBACK_JOB = "mqs-rollback"
 DEFAULT_RESET_DELAY_S = 15
 MIN_ROLLBACK_MINUTES = 2
 DEFAULT_KEEP_BACKUPS = 3
+# Prefilled in the GUI for logging in and as admin's new password after a reset, so a
+# device reset by one apply is reached with the same password by the next connect.
+DEFAULT_PASSWORD = ""
 # pre-quickset-20260921-234537.backup / .rsc, optionally under flash/
 BACKUP_FILE_RE = re.compile(
     rf"^(?:flash/)?{BACKUP_PREFIX}-(?P<stamp>\d{{8}}-\d{{6}})\.(?:backup|rsc)$")

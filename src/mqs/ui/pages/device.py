@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from mqs.apply.orchestrator import ApplyReport
+from mqs.apply.plan import DEFAULT_PASSWORD
 from mqs.apply.session import (
     DeviceSession,
     discover_session,
@@ -191,7 +192,7 @@ class DevicePage(Page):
         self.host = QLineEdit()
         self.host.setPlaceholderText("192.168.88.1")
         self.user = QLineEdit("admin")
-        self.password = QLineEdit()
+        self.password = QLineEdit(DEFAULT_PASSWORD)
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_file = QLineEdit()
         self.transport_choice = QComboBox()

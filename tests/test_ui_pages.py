@@ -14,7 +14,7 @@ from PySide6.QtGui import QGuiApplication
 from factories import make_inventory
 from fake_transport import FakeTransport
 from mqs.apply.orchestrator import ApplyReport
-from mqs.apply.plan import ApplyMode, make_names
+from mqs.apply.plan import DEFAULT_PASSWORD, ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.verify import CheckResult
 from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
@@ -536,11 +536,22 @@ def test_reset_identity_must_match(window, qtbot):
     assert RecordingOrchestrator.instances == []
 
 
+def test_passwords_are_prefilled_with_the_default(window, qtbot):
+    assert window.device_page.password.text() == DEFAULT_PASSWORD
+    page = window.apply_page
+    assert page.admin_password.text() == DEFAULT_PASSWORD
+    connect(window, qtbot)
+    page.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
+    assert page.options().admin_password == DEFAULT_PASSWORD
+    assert page.apply_button.isEnabled()  # the default is a password, so reset can go ahead
+
+
 def test_reset_keeping_users_needs_no_admin_password(window, qtbot):
     connect(window, qtbot)
     page = window.apply_page
     assert not page.keep_users.isEnabled()  # import mode
     page.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
+    page.admin_password.clear()
     assert page.keep_users.isEnabled() and not page.apply_button.isEnabled()  # no password
     page.keep_users.setChecked(True)
     assert page.apply_button.isEnabled() and page.admin_password.placeholderText()
