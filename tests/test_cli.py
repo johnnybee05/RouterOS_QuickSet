@@ -381,11 +381,22 @@ def test_without_update_nothing_is_installed(router, profile_file, monkeypatch):
     assert "update." not in out and "RouterOS 7.23.7" not in out
 
 
-def test_update_takes_routerboot_along_in_a_reset_only():
+def test_routerboot_has_its_own_switch():
     parse = cli.build_parser().parse_args
-    reset = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset", "--update",
-                                     "--keep-users"]), ApplyMode.RESET_AND_IMPORT)
-    assert reset.upgrades_routerboot
-    plain = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset",
-                                     "--keep-users"]), ApplyMode.RESET_AND_IMPORT)
-    assert not plain.upgrade_routerboot
+    reset = ApplyMode.RESET_AND_IMPORT
+    both = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset", "--update",
+                                    "--routerboot", "--keep-users"]), reset)
+    assert both.upgrades_routerboot
+    update = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset",
+                                      "--update", "--keep-users"]), reset)
+    assert not update.upgrade_routerboot
+    alone = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset",
+                                     "--routerboot", "--keep-users"]), reset)
+    assert alone.upgrades_routerboot
+
+
+def test_routerboot_needs_a_reset(profile_file, capsys):
+    code = cli.main(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "import", "--routerboot"])
+    assert code == cli.BLOCKED
+    assert "--routerboot needs --mode reset" in capsys.readouterr().err

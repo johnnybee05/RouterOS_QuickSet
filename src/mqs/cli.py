@@ -146,7 +146,7 @@ def build_options(args: argparse.Namespace, mode: ApplyMode) -> ApplyOptions:
         confirm_dialect_mismatch=args.allow_dialect_mismatch,
         confirmed_identity=args.confirm_identity or "",
         keep_backups=args.keep_backups,
-        upgrade_routerboot=reset and args.update,
+        upgrade_routerboot=reset and args.routerboot,
     )
 
 
@@ -436,8 +436,10 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--update", action="store_true",
                            help="reset only: upload the RouterOS package for the device's "
                            "architecture from the Update directory, so the reset's reboot "
-                           "installs it; afterwards upgrade RouterBOOT when RouterOS brings "
-                           "a newer one (one more reboot)")
+                           "installs it")
+    apply_cmd.add_argument("--routerboot", action="store_true",
+                           help="reset only: afterwards upgrade RouterBOOT when the RouterOS "
+                           "on the device brings a newer one (one more reboot)")
     apply_cmd.add_argument("--update-dir", metavar="DIR",
                            help=f"with --update: where the packages are (default "
                            f"{update_dir()})")
@@ -478,6 +480,9 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
     if getattr(args, "update", False) and args.mode != ApplyMode.RESET_AND_IMPORT.value:
         print("--update needs --mode reset: the packages are installed by its reboot",
               file=sys.stderr)
+        return BLOCKED
+    if getattr(args, "routerboot", False) and args.mode != ApplyMode.RESET_AND_IMPORT.value:
+        print("--routerboot needs --mode reset", file=sys.stderr)
         return BLOCKED
     try:
         return COMMANDS[args.command](args, out or sys.stdout, **deps)

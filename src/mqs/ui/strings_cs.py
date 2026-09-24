@@ -244,15 +244,19 @@ APPLY_KEEP_USERS_TIP = (
 )
 APPLY_ADMIN_PASSWORD = "Nové heslo uživatele admin (po resetu)"
 APPLY_ADMIN_PASSWORD_KEEP = "nepovinné – prázdné ponechá současné"
-APPLY_UPDATE = "Aktualizovat RouterOS z adresáře Update a RouterBOOT (při resetu)"
+APPLY_UPDATE = "Aktualizovat RouterOS z adresáře Update (při resetu)"
 APPLY_UPDATE_TIP = (
     "Před resetem se na zařízení nahraje balíček RouterOS pro jeho architekturu z adresáře "
     "Update a restart po resetu ho nainstaluje. Použije se nejnovější verze v adresáři, jen "
-    "pokud je novější než ta na zařízení. Po ověření konfigurace se aktualizuje i "
-    "RouterBOOT, pokud RouterOS nese novější, a zařízení se ještě jednou restartuje. Co se "
-    "stane, ukážou kontroly před aplikací."
+    "pokud je novější než ta na zařízení. Co se nainstaluje, ukážou kontroly před aplikací."
 )
 APPLY_UPDATE_DIR = "Adresář: {dir}"
+APPLY_ROUTERBOOT = "Aktualizovat RouterBOOT (při resetu, restart navíc)"
+APPLY_ROUTERBOOT_TIP = (
+    "Po ověření konfigurace se RouterBOOT aktualizuje na firmware, který nese RouterOS na "
+    "zařízení, pokud je novější než ten, který běží (i bez aktualizace RouterOS). Zařízení "
+    "se kvůli tomu ještě jednou restartuje."
+)
 APPLY_PREFLIGHT = "Kontroly před aplikací"
 APPLY_DRY_RUN = "Dry-run a aplikovat…"
 APPLY_BUTTON = "Aplikovat"

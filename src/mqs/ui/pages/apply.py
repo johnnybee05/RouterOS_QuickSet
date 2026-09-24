@@ -204,6 +204,11 @@ class ApplyPage(Page):
         self.update_dir_label.setWordWrap(True)
         self.update_dir_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("", self.update_dir_label)
+        self.routerboot_check = QCheckBox(S.APPLY_ROUTERBOOT)
+        self.routerboot_check.setChecked(True)
+        self.routerboot_check.setToolTip(S.APPLY_ROUTERBOOT_TIP)
+        self.routerboot_check.toggled.connect(lambda _: self.refresh())
+        form.addRow(self.routerboot_check)
         return box
 
     # ------------------------------------------------------------ state
@@ -227,7 +232,7 @@ class ApplyPage(Page):
             keep_backups=self.keep_backups.value(),
             update=self.update_plan(),
             upgrade_routerboot=mode == ApplyMode.RESET_AND_IMPORT
-            and self.update_check.isChecked(),
+            and self.routerboot_check.isChecked(),
         )
 
     def update_plan(self) -> UpdatePlan | None:
@@ -264,6 +269,7 @@ class ApplyPage(Page):
         self.keep_users.setEnabled(reset)
         self.update_check.setEnabled(reset)
         self.update_dir_label.setEnabled(reset and self.update_check.isChecked())
+        self.routerboot_check.setEnabled(reset)
         self.admin_password.setEnabled(reset)
         self.admin_password.setPlaceholderText(
             S.APPLY_ADMIN_PASSWORD_KEEP if reset and self.keep_users.isChecked() else "")
