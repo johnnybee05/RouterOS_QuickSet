@@ -19,6 +19,7 @@ from mqs.transport.base import (
     ConnectTimeout,
     PeerSecurity,
     ServiceUnavailable,
+    TransportKind,
 )
 
 
@@ -107,8 +108,10 @@ def test_legacy_token_login_fallback():
     ],
 )
 def test_connect_fatal_errors(outcome, expected):
-    with pytest.raises(expected):
+    with pytest.raises(expected) as err:
         ApiSslTransport(PARAMS, connect_func=FakeConnect([outcome])).connect()
+    if expected is AuthError:  # the CLI's hint tells an api-ssl refusal from an SSH one
+        assert err.value.kind == TransportKind.API_SSL
 
 
 def test_unavailable_after_all_attempts():

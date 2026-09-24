@@ -15,6 +15,7 @@ from mqs.transport.base import (
     ConnectTimeout,
     PeerSecurity,
     ServiceUnavailable,
+    TransportKind,
 )
 from mqs.transport.ssh import SshTransport
 
@@ -137,9 +138,11 @@ def test_an_empty_password_is_still_tried(password, key, passed):
 def test_connect_error_mapping(error, expected):
     client = FakeClient(connect_error=error)
     transport = SshTransport(PARAMS, client_factory=lambda: client)
-    with pytest.raises(expected):
+    with pytest.raises(expected) as err:
         transport.connect()
     assert client.closed and not transport.connected
+    if expected is AuthError:
+        assert err.value.kind == TransportKind.SSH
     assert transport.peer_security == PeerSecurity.UNKNOWN
 
 

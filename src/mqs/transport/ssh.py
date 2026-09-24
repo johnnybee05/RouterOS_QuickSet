@@ -117,7 +117,8 @@ class SshTransport:
             )
         except paramiko.AuthenticationException as exc:
             client.close()
-            raise AuthError(f"SSH authentication failed for {self.params.username}") from exc
+            raise AuthError(f"SSH authentication failed for {self.params.username}",
+                            self.kind) from exc
         except TimeoutError as exc:
             client.close()
             raise ConnectTimeout(

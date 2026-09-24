@@ -117,7 +117,7 @@ class ApiSslTransport:
             message = str(exc).lower()
             if any(marker in message for marker in _AUTH_MARKERS):
                 raise AuthError(
-                    f"api-ssl authentication failed for {self.params.username}"
+                    f"api-ssl authentication failed for {self.params.username}", self.kind
                 ) from exc
             raise _LoginMethodRejected(f"{login_method.__name__} login: {exc}") from exc
         except TimeoutError as exc:

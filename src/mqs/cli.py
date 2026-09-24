@@ -48,7 +48,7 @@ from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
 from mqs.paths import profiles_dir
 from mqs.profiles.store import ProfileStore, import_profile
-from mqs.transport.base import ConnectionParams, TransportError
+from mqs.transport.base import AuthError, ConnectionParams, TransportError, TransportKind
 from mqs.transport.factory import TransportChoice
 from mqs.transport.mac_connect import TEMP_COMMENT, local_interface_for
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
@@ -463,6 +463,21 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
     except CliError as exc:
         print(str(exc), file=sys.stderr)
         return FAILED
+    except TransportError as exc:  # refused, unreachable, gone: nothing a traceback explains
+        print(f"{type(exc).__name__}: {exc}{refusal_hint(exc, args)}", file=sys.stderr)
+        return FAILED
+
+
+def refusal_hint(exc: TransportError, args: argparse.Namespace) -> str:
+    """What to change when api-ssl refused a login that brought only a key, else ""."""
+    if not isinstance(exc, AuthError) or exc.kind != TransportKind.API_SSL:
+        return ""
+    # By address with a key the password is never asked for: it is the variable or none.
+    # By MAC it may have been typed in, so an empty variable does not mean there was none.
+    if not getattr(args, "key", None) or args.mac or _password(args.password_env, "", ask=False):
+        return ""
+    return (f" (api-ssl logs in with a password only and {args.password_env} holds none;"
+            " the key is used over SSH: --transport ssh --ssh-port <port>)")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -19,7 +19,8 @@ from mqs.generator.context import TargetContext
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.profiles.store import profile_to_json
-from mqs.transport.base import ConnectionParams
+from mqs.transport.base import AuthError, ConnectionParams, TransportKind
+from mqs.transport.factory import ConnectAttempt, ConnectFailed
 from mqs.transport.mac_connect import MacRoute
 from mqs.transport.mndp import DiscoveredDevice
 from mqs.transport.netifs import LocalInterface
@@ -150,6 +151,43 @@ def test_reset_keeping_users_asks_for_no_admin_password(router, profile_file, mo
     # --keep-users means nothing outside a reset.
     args = cli.build_parser().parse_args(["apply", "--profile", "x", "--keep-users"])
     assert not cli.build_options(args, ApplyMode.IMPORT).keep_users
+
+
+def refuse(error):
+    def connect(*args, **kwargs):
+        raise error
+    return connect
+
+
+KEY_ONLY = ["--user", "bee", "--key", "id_rsa"]
+
+
+@pytest.mark.parametrize(("error", "extra", "hinted"), [
+    # 2026-09-24: a key and no password; api-ssl refused, SSH not on its default port.
+    (AuthError("api-ssl authentication failed for bee", TransportKind.API_SSL), KEY_ONLY, True),
+    (AuthError("SSH authentication failed for bee", TransportKind.SSH), KEY_ONLY, False),
+    (AuthError("api-ssl authentication failed for bee", TransportKind.API_SSL), [], False),
+])
+def test_a_refused_login_is_one_line_not_a_traceback(profile_file, capsys, monkeypatch,
+                                                     error, extra, hinted):
+    monkeypatch.setenv("MQS_PASSWORD", "")
+    code, _out = run(["apply", "--host", "192.168.55.68", *extra,
+                      "--profile-file", str(profile_file), "--mode", "generate"],
+                     connect=refuse(error))
+    assert code == cli.FAILED
+    err = capsys.readouterr().err
+    assert err.splitlines() == [err.rstrip("\n")], err
+    assert err.startswith(f"AuthError: {error}")
+    assert ("--transport ssh --ssh-port" in err) == hinted
+
+
+def test_an_unreachable_device_is_one_line_not_a_traceback(capsys, monkeypatch):
+    monkeypatch.setenv("MQS_PASSWORD", "pw")
+    error = ConnectFailed([ConnectAttempt(TransportKind.API_SSL, 8729, "refused"),
+                           ConnectAttempt(TransportKind.SSH, 22, "timed out")])
+    code, _out = run(["connect", "--host", "192.168.55.68"], connect=refuse(error))
+    assert code == cli.FAILED
+    assert capsys.readouterr().err == f"ConnectFailed: {error}\n"
 
 
 def test_host_is_required_for_a_real_mode(profile_file, capsys):

@@ -51,7 +51,11 @@ class ServiceUnavailable(TransportError):
 
 
 class AuthError(TransportError):
-    pass
+    """The device refused the login; ``kind`` is the transport it refused, when known."""
+
+    def __init__(self, message: str, kind: TransportKind | None = None) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class ConnectTimeout(TransportError):
