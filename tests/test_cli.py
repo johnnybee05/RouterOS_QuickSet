@@ -50,8 +50,8 @@ def router(profile):
         "identity": profile.identity,
         "ssh_port": result.access.ssh_port,
         "services_disabled": {n for n, s in result.access.services.items() if s.disabled},
-        "bridges": {"bridge": "rstp"},
-        "addresses": [("192.168.88.1/24", "bridge")],
+        "bridges": {"bridge1": "none"},
+        "addresses": [("192.168.88.1/24", "bridge1")],
         "ports": profile.bridge.ports,
         "dhcp_clients": ["ether1"],  # the router preset takes its WAN address by DHCP
         "admin_password": "",

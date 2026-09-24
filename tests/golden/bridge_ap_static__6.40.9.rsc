@@ -5,19 +5,19 @@
 /system identity
 set name=PV-AP1
 # ---- BRIDGE / INTERFACE LISTS ----
-# Bridge bridge
+# Bridge bridge1
 /interface bridge
-add name=bridge protocol-mode=none
+add name=bridge1 protocol-mode=none
 /interface bridge port
-add bridge=bridge interface=ether1
-add bridge=bridge interface=ether2
-add bridge=bridge interface=ether3
-add bridge=bridge interface=ether4
-add bridge=bridge interface=ether5
+add bridge=bridge1 interface=ether1
+add bridge=bridge1 interface=ether2
+add bridge=bridge1 interface=ether3
+add bridge=bridge1 interface=ether4
+add bridge=bridge1 interface=ether5
 # ---- IP ADDRESSING / WAN / DHCP ----
 # LAN address
 /ip address
-add address=192.168.88.10/24 interface=bridge
+add address=192.168.88.10/24 interface=bridge1
 # Default route through the LAN gateway
 /ip route
 add dst-address=0.0.0.0/0 gateway=192.168.88.1

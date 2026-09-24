@@ -39,7 +39,7 @@ def setup():
 
 
 def device_after_apply(**overrides):
-    ports = [{"interface": f"ether{i}", "bridge": "bridge", "hw": "yes", "hw-offload": "yes"}
+    ports = [{"interface": f"ether{i}", "bridge": "bridge1", "hw": "yes", "hw-offload": "yes"}
              for i in range(2, 11)]
     replies = {
         "/system/identity/print": [{"name": "PV-R1"}],
@@ -53,8 +53,8 @@ def device_after_apply(**overrides):
             {"name": "winbox", "port": "8291", "disabled": "no"},
             {"name": "api-ssl", "port": "8729", "disabled": "no"},
         ],
-        "/interface/bridge/print": [{"name": "bridge", "protocol-mode": "rstp"}],
-        "/ip/address/print": [{"address": "192.168.88.1/24", "interface": "bridge"}],
+        "/interface/bridge/print": [{"name": "bridge1", "protocol-mode": "none"}],
+        "/ip/address/print": [{"address": "192.168.88.1/24", "interface": "bridge1"}],
         "/interface/bridge/port/print": ports,
         # The router preset takes its WAN address by DHCP, with the route that comes with it.
         "/ip/dhcp-client/print": [{"interface": "ether1", "disabled": "no", "status": "bound"}],
@@ -81,8 +81,8 @@ def test_failed_checks_are_reported():
         "/system/identity/print": [{"name": "MikroTik"}],
         "/ip/service/print": [{"name": "ssh", "port": "22", "disabled": "no"},
                               {"name": "gopher", "port": "70"}],
-        "/interface/bridge/print": [{"name": "bridge", "protocol-mode": "none"}],
-        "/ip/address/print": [{"address": "bogus", "interface": "bridge"}],
+        "/interface/bridge/print": [{"name": "bridge1", "protocol-mode": "rstp"}],
+        "/ip/address/print": [{"address": "bogus", "interface": "bridge1"}],
     })
     checks, _ = verify_configuration(fake, profile, result)
     failed = {c.code: c for c in checks if not c.ok}
@@ -90,12 +90,12 @@ def test_failed_checks_are_reported():
                            "verify.lan_address"}
     assert "MikroTik" in failed["verify.identity"].message
     assert failed["verify.services"].params["services"] == "ssh"
-    assert "none" in failed["verify.bridge"].message
+    assert "rstp" in failed["verify.bridge"].message
 
 
 def test_offload_silently_not_running_is_reported_with_reason():
     profile, result = setup()
-    ports = [{"interface": f"ether{i}", "bridge": "bridge", "hw": "yes",
+    ports = [{"interface": f"ether{i}", "bridge": "bridge1", "hw": "yes",
               "hw-offload": "no" if i == 7 else "yes"} for i in range(2, 10)]
     fake = device_after_apply(**{"/interface/bridge/port/print": ports})
     checks, issues = verify_configuration(fake, profile, result)
@@ -138,9 +138,9 @@ def test_bridge_ap_profile_skips_address_and_offload_offline():
     profile = apply_preset(DeviceProfile(identity="AP"), Mode.BRIDGE_AP, ["ether1", "ether2"])
     result = generate(profile, TargetContext.offline("7.15.3"))
     fake = device_after_apply(**{"/system/identity/print": [{"name": "AP"}],
-                                 "/interface/bridge/print": [{"name": "bridge",
-                                                              "protocol-mode": "rstp"}],
-                                 "/ip/dhcp-client/print": [{"interface": "bridge",
+                                 "/interface/bridge/print": [{"name": "bridge1",
+                                                              "protocol-mode": "none"}],
+                                 "/ip/dhcp-client/print": [{"interface": "bridge1",
                                                             "status": "searching..."}]})
     checks, issues = verify_configuration(fake, profile, result)
     assert [c.code for c in checks] == ["verify.identity", "verify.services", "verify.bridge",

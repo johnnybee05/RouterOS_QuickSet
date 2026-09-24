@@ -184,7 +184,7 @@ class FakeRouter:
         s.dhcp_clients = list(effects.get("dhcp_clients", s.dhcp_clients))
         s.default_gateways = list(effects.get("default_gateways", s.default_gateways))
         s.bridge_ports = [
-            {"interface": p, "bridge": "bridge", "hw": "yes",
+            {"interface": p, "bridge": "bridge1", "hw": "yes",
              "hw-offload": "yes" if self.offload_running else "no"}
             for p in effects.get("ports", [])
         ]

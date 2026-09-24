@@ -285,7 +285,7 @@ def test_port_name_collisions():
             if i.code == "ports.name_in_use"]
     assert [i.params for i in swap] == [{"default": "ether1", "name": "ether2",
                                          "other": "ether2"}]
-    assert "ports.name_taken" in codes(validate_profile(_named(profile, ether2="bridge")))
+    assert "ports.name_taken" in codes(validate_profile(_named(profile, ether2="bridge1")))
     assert "ports.name_empty" in codes(validate_profile(_named(profile, ether2="")))
 
 

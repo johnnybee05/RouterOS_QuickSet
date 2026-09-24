@@ -5,25 +5,25 @@
 /system identity
 set name=PV-R1
 # ---- BRIDGE / INTERFACE LISTS ----
-# Bridge bridge
+# Bridge bridge1
 /interface bridge
-add name=bridge protocol-mode=rstp
+add name=bridge1 protocol-mode=none
 /interface bridge port
-add bridge=bridge interface=ether1
-add bridge=bridge interface=ether2
-add bridge=bridge interface=ether3
-add bridge=bridge interface=ether4
+add bridge=bridge1 interface=ether1
+add bridge=bridge1 interface=ether2
+add bridge=bridge1 interface=ether3
+add bridge=bridge1 interface=ether4
 # Interface lists
 /interface list
 add name=WAN
 add name=LAN
 /interface list member
 add interface=ether5 list=WAN
-add interface=bridge list=LAN
+add interface=bridge1 list=LAN
 # ---- IP ADDRESSING / WAN / DHCP ----
 # LAN address
 /ip address
-add address=192.168.88.1/24 interface=bridge
+add address=192.168.88.1/24 interface=bridge1
 # WAN: DHCP client on ether5
 /ip dhcp-client
 add interface=ether5 use-peer-dns=yes add-default-route=yes disabled=no
@@ -31,7 +31,7 @@ add interface=ether5 use-peer-dns=yes add-default-route=yes disabled=no
 /ip pool
 add name=dhcp_pool ranges=192.168.88.10-192.168.88.254
 /ip dhcp-server
-add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no
+add name=dhcp1 interface=bridge1 address-pool=dhcp_pool lease-time=30m disabled=no
 /ip dhcp-server network
 add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.200.200,8.8.8.8
 # ---- FIREWALL / NAT ----

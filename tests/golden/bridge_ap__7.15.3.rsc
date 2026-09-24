@@ -5,24 +5,24 @@
 /system identity
 set name=PV-AP1
 # ---- BRIDGE / INTERFACE LISTS ----
-# Bridge bridge
+# Bridge bridge1
 /interface bridge
-add name=bridge protocol-mode=none
+add name=bridge1 protocol-mode=none
 /interface bridge port
-add bridge=bridge interface=ether1
-add bridge=bridge interface=ether2
-add bridge=bridge interface=ether3
-add bridge=bridge interface=ether4
-add bridge=bridge interface=ether5
+add bridge=bridge1 interface=ether1
+add bridge=bridge1 interface=ether2
+add bridge=bridge1 interface=ether3
+add bridge=bridge1 interface=ether4
+add bridge=bridge1 interface=ether5
 # Interface lists
 /interface list
 add name=LAN
 /interface list member
-add interface=bridge list=LAN
+add interface=bridge1 list=LAN
 # ---- IP ADDRESSING / WAN / DHCP ----
 # Management address from DHCP on the bridge
 /ip dhcp-client
-add interface=bridge disabled=no
+add interface=bridge1 disabled=no
 # ---- DNS / NTP / CLOCK / SNMP / DISCOVERY / IPV6 / LOGGING ----
 # DNS: the router answers no remote requests
 /ip dns

@@ -26,7 +26,7 @@ def _u(model, **changes):
 
 
 def router_dhcp() -> DeviceProfile:
-    """Acceptance scenario: ether5 as WAN, the rest in an rstp bridge."""
+    """Acceptance scenario: ether5 as WAN, the rest in the bridge."""
     profile = router_profile(FIVE_PORTS, identity="PV-R1")
     return _u(profile,
               wan=_u(profile.wan, interface="ether5"),
@@ -286,12 +286,12 @@ def test_acceptance_router_v7_contents():
     result = generate(router_dhcp(), target("7.15.3"))
     text = result.text
     assert "/system identity\nset name=PV-R1\n" in text
-    assert "add name=bridge protocol-mode=rstp" in text
+    assert "add name=bridge1 protocol-mode=none" in text
     assert "add interface=ether5 list=WAN" in text
     assert "add interface=ether5 use-peer-dns=yes add-default-route=yes disabled=no" in text
     assert ('add chain=srcnat action=masquerade comment="quickset: masquerade to WAN" '
             "out-interface-list=WAN") in text
-    assert "add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no" \
+    assert "add name=dhcp1 interface=bridge1 address-pool=dhcp_pool lease-time=30m disabled=no" \
         in text
     assert "/ip dns\nset allow-remote-requests=no\n" in text
     assert "dns-server=192.168.200.200,8.8.8.8" in text
@@ -366,12 +366,13 @@ def test_static_wan_block():
 
 def test_bridge_options_and_offload_offline():
     profile = router_dhcp()
-    options = _u(profile.bridge, priority=0x1000, ageing_time_s=300, vlan_filtering=True,
-                 pvid=10, use_ip_firewall=True, hw_offload=HwOffloadMode.OFF)
+    options = _u(profile.bridge, protocol_mode=ProtocolMode.RSTP, priority=0x1000,
+                 ageing_time_s=300, vlan_filtering=True, pvid=10, use_ip_firewall=True,
+                 hw_offload=HwOffloadMode.OFF)
     result = generate(_u(profile, bridge=options), target("7.15.3"))
-    assert ("add name=bridge protocol-mode=rstp priority=0x1000 ageing-time=5m "
+    assert ("add name=bridge1 protocol-mode=rstp priority=0x1000 ageing-time=5m "
             "vlan-filtering=yes pvid=10 frame-types=admit-all") in result.text
-    assert "add bridge=bridge interface=ether1 pvid=10" in result.text
+    assert "add bridge=bridge1 interface=ether1 pvid=10" in result.text
     assert "set [ find interface=ether1 ] hw=no" in result.text
     assert "/interface bridge settings\nset use-ip-firewall=yes" in result.text
 
@@ -424,7 +425,7 @@ def test_unsupported_version():
 
 def test_bridge_ap():
     result = generate(bridge_ap(), target("7.15.3"))
-    assert "/ip dhcp-client\nadd interface=bridge disabled=no" in result.text
+    assert "/ip dhcp-client\nadd interface=bridge1 disabled=no" in result.text
     assert "/ip firewall" not in result.text
     # Explicit, so an import onto a router turns its resolver off.
     assert "/ip dns\nset allow-remote-requests=no\n" in result.text
@@ -509,7 +510,7 @@ def test_remote_requests_in_hardening_block_warn():
 def test_bridge_ap_static_address_and_default_route():
     for version in TARGETS:
         result = generate(bridge_ap_static(), target(version))
-        assert "/ip address\nadd address=192.168.88.10/24 interface=bridge\n" in result.text
+        assert "/ip address\nadd address=192.168.88.10/24 interface=bridge1\n" in result.text
         assert "/ip route\nadd dst-address=0.0.0.0/0 gateway=192.168.88.1\n" in result.text
         assert "/ip dhcp-client" not in result.text
         assert "/ip dhcp-server" not in result.text
@@ -592,7 +593,7 @@ def test_port_names_are_set_before_anything_refers_to_them():
             "# Port names\n/interface ethernet\n"
             "set [ find default-name=ether1 ] name=\"lan 1\"\n"
             "set [ find default-name=ether5 ] name=wan\n"), target
-        assert 'add bridge=bridge interface="lan 1"' in interfaces
+        assert 'add bridge=bridge1 interface="lan 1"' in interfaces
         assert "add interface=wan list=WAN" in interfaces
         assert "default-name" not in generate(router_dhcp(), TargetContext.offline(target)).text
 

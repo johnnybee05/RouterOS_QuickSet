@@ -60,8 +60,8 @@ def build(mode=ApplyMode.IMPORT, *, kind=TransportKind.API_SSL, port=8729, uploa
         "identity": "PV-R1",
         "ssh_port": result.access.ssh_port,
         "services_disabled": {n for n, s in result.access.services.items() if s.disabled},
-        "bridges": {"bridge": "rstp"},
-        "addresses": [("192.168.88.1/24", "bridge")],
+        "bridges": {"bridge1": "none"},
+        "addresses": [("192.168.88.1/24", "bridge1")],
         "ports": profile.bridge.ports,
         "dhcp_clients": ["ether1"],  # the router preset takes its WAN address by DHCP
         "admin_password": options.get("admin_password", ""),
@@ -647,9 +647,9 @@ ROUTE = MacRoute(MAC_DEVICE, MAC_LOCAL, IPv4Address("192.168.55.254"))
 @pytest.mark.parametrize(("reported", "expected"), [
     ("bridge/ether1", "ether1"),  # a factory hEX S; the router profile makes ether1 the WAN
     ("ether1", "ether1"),
-    ("ether3", "bridge"),  # a LAN port goes into the profile's bridge
-    ("bridge/ether3", "bridge"),
-    ("bridge", "bridge"),
+    ("ether3", "bridge1"),  # a LAN port goes into the profile's bridge
+    ("bridge/ether3", "bridge1"),
+    ("bridge1", "bridge1"),
     (None, "ether1"),
 ])
 def test_the_lent_address_goes_where_the_port_ends_up(reported, expected):
@@ -810,7 +810,7 @@ def test_a_renamed_session_port_is_followed_after_the_apply():
     assert targets[0].mac_interface == "internet"
     assert targets[0].params.host == "192.168.55.68", "the WAN address of the session port"
     lan3 = rename_port(profile, "ether3", "lan3")
-    assert mac_interface_after_apply(lan3, "bridge/ether3", {"ether3": "lan3"}) == "bridge"
+    assert mac_interface_after_apply(lan3, "bridge/ether3", {"ether3": "lan3"}) == "bridge1"
 
 
 def test_the_lent_address_follows_a_port_mndp_announces_by_an_earlier_name():

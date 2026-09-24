@@ -32,8 +32,8 @@ class HwOffloadMode(StrEnum):
 class BridgeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(default="bridge", min_length=1, max_length=64)
-    protocol_mode: ProtocolMode = ProtocolMode.RSTP
+    name: str = Field(default="bridge1", min_length=1, max_length=64)
+    protocol_mode: ProtocolMode = ProtocolMode.NONE
     priority: int | None = Field(default=None, ge=0, le=65535)
     ageing_time_s: int | None = Field(default=None, ge=1)
     vlan_filtering: bool = False

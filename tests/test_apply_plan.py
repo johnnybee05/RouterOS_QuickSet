@@ -322,7 +322,7 @@ def test_import_adopts_what_an_earlier_apply_left():
     issues = preflight(profile, result, [], options, inventory, existing=existing)
     assert not has_errors(issues)
     adopted = next(i for i in issues if i.code == "apply.adopted")
-    assert "/interface bridge bridge" in adopted.params["items"]
+    assert "/interface bridge bridge1" in adopted.params["items"]
     assert "apply.bridge_port_moved" not in codes(issues)
 
     again = prepare_import(result, options, existing)
@@ -331,11 +331,11 @@ def test_import_adopts_what_an_earlier_apply_left():
     assert {c.path for c in adds} <= {"/ip firewall filter", "/ip firewall nat",
                                       "/ip firewall mangle"}, [c.path for c in adds]
     text = again.text
-    assert "set [ find name=bridge ] protocol-mode=rstp" in text
-    assert "set [ find interface=ether2 ] bridge=bridge" in text
+    assert "set [ find name=bridge1 ] protocol-mode=none" in text
+    assert "set [ find interface=ether2 ] bridge=bridge1" in text
     # Quoted: a bare address in a find matched no /ip address on 7.20.7.
-    assert 'set [ find address="192.168.88.1/24" ] interface=bridge' in text
-    assert "set [ find name=dhcp1 ] interface=bridge" in text
+    assert 'set [ find address="192.168.88.1/24" ] interface=bridge1' in text
+    assert "set [ find name=dhcp1 ] interface=bridge1" in text
     assert "add name=WAN" not in text and "add interface=ether1 list=WAN" not in text
     assert text.startswith(result.text.split("# ---- ")[0])  # the header is kept
 
@@ -348,11 +348,11 @@ def test_import_adopts_what_an_earlier_apply_left():
 def test_import_warns_about_moving_a_port_between_bridges():
     profile, inventory, result = _setup()
     existing = ExistingObjects({"/interface bridge port": frozenset({("ether2",)})},
-                               {"ether2": "bridge1"})
+                               {"ether2": "bridge"})
     issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
                        existing=existing)
     moved = next(i for i in issues if i.code == "apply.bridge_port_moved")
-    assert moved.params == {"port": "ether2", "old": "bridge1", "new": "bridge"}
+    assert moved.params == {"port": "ether2", "old": "bridge", "new": "bridge1"}
 
 
 def test_collect_existing_from_transport():
@@ -475,7 +475,7 @@ def test_import_warns_when_the_session_port_joins_the_bridge():
     issues = preflight(profile, result, [], options, inventory,
                        existing=ExistingObjects(), session_port="ether1")
     moved = next(i for i in issues if i.code == "apply.session_port_to_bridge")
-    assert moved.params == {"port": "ether1", "bridge": "bridge", "address": "192.168.55.68"}
+    assert moved.params == {"port": "ether1", "bridge": "bridge1", "address": "192.168.55.68"}
     assert "{" not in moved.message
 
     dhcp = _bridge_profile(LanAddressing.DHCP_CLIENT)
@@ -484,7 +484,7 @@ def test_import_warns_when_the_session_port_joins_the_bridge():
         dhcp, dhcp_result, [], options, inventory, existing=ExistingObjects(),
         session_port="ether1"))
     # Already a bridge port, or a port that stays out of the bridge: nothing changes for it.
-    for existing, port in ((ExistingObjects(bridge_ports={"ether1": "bridge"}), "ether1"),
+    for existing, port in ((ExistingObjects(bridge_ports={"ether1": "bridge1"}), "ether1"),
                            (ExistingObjects(), "ether9")):
         assert not {"apply.session_port_to_bridge", "apply.session_port_to_bridge_no_address"} \
             & codes(preflight(profile, result, [], options, inventory, existing=existing,
@@ -523,7 +523,7 @@ def test_apply_messages_format():
     text = binding.set_ssh_port(profile.services.hardening_text, 2222)
     profile = profile.model_copy(update={"services": profile.services.model_copy(
         update={"hardening_text": text})})
-    existing = ExistingObjects({"/interface bridge": frozenset({("bridge",)}),
+    existing = ExistingObjects({"/interface bridge": frozenset({("bridge1",)}),
                                 "/interface bridge port": frozenset({("ether2",)})},
                                {"ether2": "old"})
     options = ApplyOptions(ApplyMode.RESET_AND_IMPORT, rollback_minutes=1)
@@ -547,12 +547,12 @@ def test_what_the_device_has_is_matched_under_the_names_the_script_gives():
     existing = ExistingObjects({"/interface bridge port": frozenset({("ether2",)}),
                                 "/interface list member": frozenset({("WAN", "ether1")}),
                                 "/ip dhcp-client": frozenset({("ether1",)})},
-                               {"ether2": "bridge"})
+                               {"ether2": "bridge1"})
     options = ApplyOptions(ApplyMode.IMPORT)
     text = prepare_import(result, options, existing).text
     # The renames run first, so the finds after them use the new names.
-    assert text.index("name=internet") < text.index("set [ find interface=lan2 ] bridge=bridge")
-    assert "add bridge=bridge interface=lan2" not in text
+    assert text.index("name=internet") < text.index("set [ find interface=lan2 ] bridge=bridge1")
+    assert "add bridge=bridge1 interface=lan2" not in text
     assert "add interface=internet list=WAN" not in text
     assert "set [ find interface=internet ] use-peer-dns=yes" in text
 

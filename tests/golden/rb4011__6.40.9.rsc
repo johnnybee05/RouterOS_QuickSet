@@ -5,24 +5,24 @@
 /system identity
 set name=PV-RB4011
 # ---- BRIDGE / INTERFACE LISTS ----
-# Bridge bridge
+# Bridge bridge1
 /interface bridge
-add name=bridge protocol-mode=rstp
+add name=bridge1 protocol-mode=none
 /interface bridge port
-add bridge=bridge interface=ether2
-add bridge=bridge interface=ether3
-add bridge=bridge interface=ether4
-add bridge=bridge interface=ether5
-add bridge=bridge interface=ether6
-add bridge=bridge interface=ether7
-add bridge=bridge interface=ether8
-add bridge=bridge interface=ether9
-add bridge=bridge interface=ether10
-add bridge=bridge interface=sfp-sfpplus1
+add bridge=bridge1 interface=ether2
+add bridge=bridge1 interface=ether3
+add bridge=bridge1 interface=ether4
+add bridge=bridge1 interface=ether5
+add bridge=bridge1 interface=ether6
+add bridge=bridge1 interface=ether7
+add bridge=bridge1 interface=ether8
+add bridge=bridge1 interface=ether9
+add bridge=bridge1 interface=ether10
+add bridge=bridge1 interface=sfp-sfpplus1
 # ---- IP ADDRESSING / WAN / DHCP ----
 # LAN address
 /ip address
-add address=192.168.88.1/24 interface=bridge
+add address=192.168.88.1/24 interface=bridge1
 # WAN: DHCP client on ether1
 /ip dhcp-client
 add interface=ether1 use-peer-dns=yes add-default-route=yes disabled=no
@@ -30,7 +30,7 @@ add interface=ether1 use-peer-dns=yes add-default-route=yes disabled=no
 /ip pool
 add name=dhcp_pool ranges=192.168.88.10-192.168.88.254
 /ip dhcp-server
-add name=dhcp1 interface=bridge address-pool=dhcp_pool lease-time=30m disabled=no
+add name=dhcp1 interface=bridge1 address-pool=dhcp_pool lease-time=30m disabled=no
 /ip dhcp-server network
 add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.200.200,8.8.8.8
 # ---- FIREWALL / NAT ----
@@ -42,13 +42,13 @@ add chain=input action=accept comment="quickset: accept established,related,untr
 add chain=input action=drop comment="quickset: drop invalid" connection-state=invalid
 add chain=input action=accept comment="quickset: accept ICMP" protocol=icmp
 add chain=input action=accept comment="quickset: accept to local loopback" dst-address=127.0.0.1
-add chain=input action=accept comment="quickset: accept from LAN" in-interface=bridge
+add chain=input action=accept comment="quickset: accept from LAN" in-interface=bridge1
 add chain=input action=accept comment="quickset: accept api-ssl from WAN" protocol=tcp dst-port=8729 in-interface=ether1
 add chain=input action=accept comment="quickset: accept SSH from WAN" protocol=tcp dst-port=122 in-interface=ether1
 add chain=input action=accept comment="quickset: accept Winbox from WAN" protocol=tcp dst-port=8291 in-interface=ether1
 add chain=input action=accept comment="quickset: accept SNMP from WAN" protocol=udp dst-port=161 in-interface=ether1
 add chain=input action=accept comment="quickset: accept discovery from WAN" protocol=udp dst-port=5678 in-interface=ether1
-add chain=input action=drop comment="quickset: drop all not coming from LAN" in-interface=!bridge
+add chain=input action=drop comment="quickset: drop all not coming from LAN" in-interface=!bridge1
 # Firewall: forward (traffic through the router)
 add chain=forward action=accept comment="quickset: accept established,related,untracked" connection-state=established,related,untracked
 add chain=forward action=drop comment="quickset: drop invalid" connection-state=invalid
