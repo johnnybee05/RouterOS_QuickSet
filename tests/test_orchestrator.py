@@ -811,3 +811,18 @@ def test_a_renamed_session_port_is_followed_after_the_apply():
     assert targets[0].params.host == "192.168.55.68", "the WAN address of the session port"
     lan3 = rename_port(profile, "ether3", "lan3")
     assert mac_interface_after_apply(lan3, "bridge/ether3", {"ether3": "lan3"}) == "bridge"
+
+
+def test_the_lent_address_follows_a_port_mndp_announces_by_an_earlier_name():
+    """On the hEX S MNDP kept the name a port had when it began announcing (2026-09-24)."""
+    orchestrator, _, targets = _mac_reset_build(_router_session)
+    inventory = make_inventory("7.15.3", ["uplink", *PORTS[1:]],
+                               default_names={"uplink": "ether1"})
+    profile = rename_port(_static_wan_profile(), "ether1", "internet")
+    orchestrator.ctx.profile, orchestrator.ctx.inventory = profile, inventory
+    orchestrator.ctx.session_port = "uplink"
+    orchestrator.ctx.result = generate(profile, TargetContext.from_inventory(inventory))
+    assert orchestrator.ctx.result.renames == {"uplink": "internet"}
+    assert ROUTE.device.interface_name == "bridge/ether1"  # the factory name, not "uplink"
+    orchestrator.run()
+    assert targets[0].mac_interface == "internet"

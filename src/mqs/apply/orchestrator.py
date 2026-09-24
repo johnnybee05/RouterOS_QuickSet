@@ -36,6 +36,7 @@ from mqs.generator.render import render_inline
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.inventory import DeviceInventory
+from mqs.model.ports import names_after
 from mqs.model.profile import DeviceProfile
 from mqs.transport.base import (
     Cancelled,
@@ -387,8 +388,9 @@ class ApplyOrchestrator:
             params=replace(params, port=None, host=hosts[0]),
             api_port=access.api_ssl_port, ssh_port=access.ssh_port,
             alternatives=tuple(hosts[1:]), mac=route,
-            mac_interface=mac_interface_after_apply(self.ctx.profile,
-                                                    route.device.interface_name, renames)
+            mac_interface=mac_interface_after_apply(
+                self.ctx.profile, route.device.interface_name,
+                names_after(self.ctx.inventory, renames))
             if route is not None else None,
         )
         if self.ctx.options.mode == ApplyMode.IMPORT and self.transport.connected:

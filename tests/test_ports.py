@@ -5,6 +5,7 @@ from mqs.model.inventory import InterfaceInfo
 from mqs.model.ports import (
     adopt_device_names,
     final_port_names,
+    names_after,
     natural_key,
     port_renames,
     rename_port,
@@ -29,7 +30,8 @@ def test_a_profile_made_with_factory_names_fits_a_renamed_device():
     profile = apply_preset(DeviceProfile(identity="AP"), Mode.BRIDGE_AP, HEX_S)
     adopted = adopt_device_names(profile, named_hex_s())
     assert adopted.bridge.ports == list(HEX_S_NAMED)
-    # The names are the profile's now, so a reset (factory names back) keeps them.
+    # The names are the profile's now, so a reset (which may bring the factory ones back)
+    # keeps them.
     assert adopted.interface_names == {d: n for n, d in HEX_S_NAMED.items()}
     assert adopt_device_names(adopted, named_hex_s()) is adopted
 
@@ -106,3 +108,12 @@ def test_inventory_renamed():
     assert [i.name for i in renamed.interfaces] == ["wan", "ether2", "bridge"]
     assert renamed.interface("wan").default_name == "ether1"
     assert inventory.renamed({}) is inventory
+
+
+def test_names_after_finds_a_port_by_an_earlier_name():
+    # MNDP still announced "bridge1/ether1" hours after ether1 had become ether1-uplink.
+    inventory = named_hex_s()
+    names = names_after(inventory, {"sfp1-optika": "sfp1-uplink"})
+    assert names["ether1"] == "ether1-uplink"
+    assert names["ether1-uplink"] == "ether1-uplink"
+    assert names["sfp1"] == names["sfp1-optika"] == "sfp1-uplink"
