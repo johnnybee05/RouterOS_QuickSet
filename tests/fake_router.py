@@ -63,6 +63,8 @@ class FakeRouter:
         # `installs_packages` for a device that ignores it.
         self.installable: dict[str, str] = {}
         self.installs_packages = True
+        self.refused_parameter: str | None = None  # "bad parameter" to a script line
+        self.device_log: list[dict[str, str]] = []
 
     # ------------------------------------------------------------ simulation helpers
 
@@ -150,6 +152,8 @@ class FakeRouter:
             return [{"name": s.identity}]
         if word == "/system/resource/print":
             return [{"version": self.version, "architecture-name": "arm"}]
+        if word == "/log/print":
+            return [dict(row) for row in self.device_log]
         if word == "/ip/service/print":
             ports = {"telnet": 23, "ftp": 21, "www": 80, "ssh": s.ssh_port, "www-ssl": 443,
                      "api": 8728, "winbox": 8291, "api-ssl": 8729}
@@ -180,14 +184,25 @@ class FakeRouter:
             self.log.append(f"installed {name}")
 
     def _run_after_reset(self, name: str | None) -> None:
+        """Runs the uploaded script's lines in order; a line with a parameter this device
+        refuses stops it there, as 7.23.7 did (2026-09-24): logged, the file left behind."""
         script = self.files.get(name or "")
-        if script is None:
+        if not isinstance(script, str):
+            return
+        lines = script.splitlines()
+        stop = next((number for number, line in enumerate(lines, 1)
+                     if self.refused_parameter and f" {self.refused_parameter}=" in line), None)
+        ran = lines if stop is None else lines[:stop - 1]
+        # The script sets admin's password only when it was given one.
+        if any(line.startswith("/user set [ find name=admin ] password=") for line in ran):
+            self.state.admin_password = str(self.pending_import_effects["admin_password"])
+        if stop is not None:
+            self.device_log.append({
+                "topics": "system,error,critical",
+                "message": "error while running run-after-reset script: bad parameter "
+                           f"{self.refused_parameter} (line {stop} column 1)"})
             return
         self._apply_import()
-        # The script sets admin's password only when it was given one.
-        password = self.pending_import_effects.get("admin_password", "")
-        if password:
-            self.state.admin_password = password
         self.files.pop(name or "", None)
 
     def _apply_import(self) -> None:

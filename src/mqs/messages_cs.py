@@ -263,7 +263,8 @@ MESSAGES: dict[str, str] = {
     "apply.warning.prune": "Staré zálohy se ze zařízení nepodařilo smazat: {error}",
     # RouterOS update from the Update directory
     "update.planned": "Po resetu se nainstaluje RouterOS {version} (zařízení má {current}): "
-    "{files}.",
+    "{files}. Skript se vygeneruje pro {version} a bez vlastností, které aplikace ověřila "
+    "zkouškou na {current} (hw-offload u FastTracku).",
     "update.no_dir": "Adresář s aktualizacemi {dir} neexistuje, RouterOS se nebude aktualizovat.",
     "update.v7_only": "Aktualizace z adresáře Update je jen pro RouterOS 7, zařízení má "
     "{current}. RouterOS se nebude aktualizovat.",
@@ -287,6 +288,7 @@ MESSAGES: dict[str, str] = {
     "apply.warning.update_leftover": "Balíček {files} zůstal po restartu na zařízení "
     "(nenainstaloval se), aplikace ho smazala.",
     "verify.routeros_version": "RouterOS {expected} (na zařízení {actual})",
+    "verify.reset_script": "Skript po resetu doběhl do konce (chyba: {error})",
     # UI input syntax
     "ui.syntax": "{message}",
     # profiles

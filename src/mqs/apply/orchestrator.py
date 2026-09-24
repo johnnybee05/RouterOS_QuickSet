@@ -30,7 +30,12 @@ from mqs.apply.reconnect import (
 )
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.update import leftover_packages
-from mqs.apply.verify import CheckResult, check_routeros_version, verify_configuration
+from mqs.apply.verify import (
+    CheckResult,
+    check_reset_script,
+    check_routeros_version,
+    verify_configuration,
+)
 from mqs.generator.base import GenerationResult
 from mqs.generator.ir import Command, Find, KeepOwnFirst, RawLine, cmd
 from mqs.generator.render import render_inline
@@ -481,6 +486,9 @@ class ApplyOrchestrator:
         self._event("apply.step.verify", StepStatus.RUNNING)
         try:
             checks, issues = verify_configuration(self.transport, self.ctx.profile, self.result)
+            if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
+                # First: a script that stopped half-way explains every other check.
+                checks.insert(0, check_reset_script(self.transport, self.names.remote_script))
         except TransportError as exc:
             raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
         self.report.checks.extend(checks)

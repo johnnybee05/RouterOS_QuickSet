@@ -299,7 +299,8 @@ class ApplyPage(Page):
             self.refresh()
             return
         options = self.options()
-        result = prepare_import(self.controller.generate_for_apply(), options, existing)
+        result = prepare_import(self.controller.generate_for_apply(options.update_target),
+                                options, existing)
         names = make_names(self.now(), session.inventory.has_flash_dir)
         preview = build_upload_script(result.text, options, names, mask_secrets=True)
         if not self.dialogs.confirm_dry_run(self, preview, issues):

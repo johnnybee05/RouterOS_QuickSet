@@ -15,6 +15,7 @@ from mqs.generator.blocks.common import MASKED_SECRET
 from mqs.generator.hardening.access import analyze_access
 from mqs.generator.ir import Find, RawLine, SectionKey, cmd
 from mqs.generator.render import render_inline
+from mqs.model.version import RosVersion
 
 SCRIPT_PREFIX = "quickset"
 BACKUP_PREFIX = "pre-quickset"
@@ -62,6 +63,11 @@ class ApplyOptions:
     def installs_update(self) -> bool:
         return (self.mode == ApplyMode.RESET_AND_IMPORT and self.update is not None
                 and self.update.installs)
+
+    @property
+    def update_target(self) -> RosVersion | None:
+        """The version the script runs on, when an update is installed before it."""
+        return self.update.target if self.installs_update and self.update else None
 
     @property
     def reconnect_budget_s(self) -> float:
@@ -151,18 +157,26 @@ def build_upload_script(
     IMPORT uploads the generated script unchanged (removed by the apply flow afterwards).
     RESET wraps it: start delay, admin password, and self-removal of the file, because
     after the reset nobody else is there to clean up (decision Q2 / Q10).
+
+    The password comes before the configuration: a line that fails stops the whole
+    script, and on 2026-09-24 a hEX S updated to 7.23.7 refused line 60 of 107, so a
+    password set at the end left admin without one, on an address facing WAN. The removal
+    stays last: a script still on the device is how a stop half-way is noticed.
     """
     if options.mode != ApplyMode.RESET_AND_IMPORT:
         return generated_text
     lines = [
         "# QuickSet Plus run-after-reset script",
         render_inline(RawLine(f":delay {options.reset_delay_s}s")),
-        generated_text.rstrip("\n"),
-        "# ---- ADMIN PASSWORD / CLEANUP ----",
     ]
     if options.admin_password:
         password = MASKED_SECRET if mask_secrets else options.admin_password
-        lines.append(render_inline(cmd("/user", "set", selector=Find.by(name="admin"),
-                                       password=password)))
-    lines.append(render_inline(cmd("/file", "remove", selector=Find.by(name=names.remote_script))))
+        lines += ["# ---- ADMIN PASSWORD ----",
+                  render_inline(cmd("/user", "set", selector=Find.by(name="admin"),
+                                    password=password))]
+    lines += [
+        generated_text.rstrip("\n"),
+        "# ---- CLEANUP ----",
+        render_inline(cmd("/file", "remove", selector=Find.by(name=names.remote_script))),
+    ]
     return "\n".join(lines) + "\n"

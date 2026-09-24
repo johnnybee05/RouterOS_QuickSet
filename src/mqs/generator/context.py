@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from mqs.generator.features import FEATURES, Feature, version_supports
 from mqs.model.inventory import DeviceInventory, Ipv6PackageState
@@ -40,6 +40,15 @@ class TargetContext:
         cls, inventory: DeviceInventory, probes: Mapping[str, bool] | None = None
     ) -> TargetContext:
         return cls(version=inventory.version, inventory=inventory, probes=probes or {})
+
+    def after_update(self, version: RosVersion) -> TargetContext:
+        """The device as its script will find it once an update has installed ``version``.
+
+        No runtime probe carries over: it measured the version that is going away. The
+        hEX S had `hw-offload` on a filter rule in 7.20.7, and 7.23.7 refused the same
+        line with "bad parameter hw-offload" (2026-09-24). Unconfirmed means left out.
+        """
+        return replace(self, version=version, probes={}, consulted=set())
 
     @property
     def major(self) -> int:

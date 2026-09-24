@@ -19,6 +19,8 @@ from mqs.model.wan import DhcpWan, StaticWan
 from mqs.transport.base import CommandError, Transport
 from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
 
+RESET_SCRIPT_ERROR = "error while running run-after-reset script"
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -123,6 +125,25 @@ def verify_configuration(
             i.severity == Severity.WARNING for i in offload_issues),
             {"count": len(offload_issues)}))
     return checks, issues
+
+
+def check_reset_script(transport: Transport, script_file: str) -> CheckResult:
+    """The run-after-reset script ran to its last line, where it removes itself.
+
+    A line that fails stops the script there and the file stays. On 7.23.7 the log then
+    says "error while running run-after-reset script: bad parameter hw-offload (line 60
+    column 124)" (2026-09-24), which is what the check reports.
+    """
+    names = {f.get("name", "") for f in transport.execute("/file/print")}
+    if script_file not in names:
+        return CheckResult("verify.reset_script", True, {"error": "-"})
+    try:
+        log = transport.execute("/log/print")
+    except CommandError:
+        log = []
+    error = next((row["message"] for row in reversed(log)
+                  if RESET_SCRIPT_ERROR in row.get("message", "")), "")
+    return CheckResult("verify.reset_script", False, {"error": error or "?"})
 
 
 def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckResult:

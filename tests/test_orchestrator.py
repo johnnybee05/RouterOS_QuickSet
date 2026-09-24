@@ -35,10 +35,12 @@ from mqs.generator.context import TargetContext
 from mqs.generator.hardening.access import DEFAULT_SERVICE_PORTS
 from mqs.generator.ir import KeepOwnFirst, RawLine, SectionKey
 from mqs.issues import codes
+from mqs.model.firewall import FastTrackConfig
 from mqs.model.inventory import PackageInfo, ServiceInfo
 from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
+from mqs.model.version import RosVersion
 from mqs.model.wan import StaticWan
 from mqs.transport.base import AuthError, ConnectionParams, ServiceUnavailable, TransportKind
 from mqs.transport.factory import ConnectFailed, ConnectOutcome
@@ -941,3 +943,39 @@ def test_an_update_gives_the_reconnect_more_time(tmp_path):
                                  update=replace(plan, packages=()))):
         assert not options.installs_update
         assert options.reconnect_budget_s == options.reconnect_timeout_s
+
+
+def test_a_script_that_stops_half_way_leaves_the_password_and_says_why():
+    """7.23.7 refused line 60 of 107 and ran nothing after it (2026-09-24). With the
+    password set at the end, admin was left without one and the reconnect was refused."""
+    router, orchestrator, _, reconnects = _reset_build()
+    router.refused_parameter = "protocol-mode"  # the bridge, early in the script
+    report = orchestrator.run()
+    assert router.state.admin_password == "N3w"
+    assert reconnects[0].params.password == "N3w"
+    first = report.checks[0]
+    assert first.code == "verify.reset_script" and not first.ok
+    assert "bad parameter protocol-mode" in first.message
+    assert not report.succeeded
+
+
+def test_a_script_that_ran_through_passes_the_check():
+    _, orchestrator, _, _ = _reset_build()
+    report = orchestrator.run()
+    assert report.checks[0].code == "verify.reset_script" and report.checks[0].ok
+    assert report.succeeded
+
+
+def test_an_update_generates_for_the_new_version_without_old_probes():
+    inventory = make_inventory("7.20.7", PORTS)
+    context = TargetContext.from_inventory(inventory, {"fasttrack_hw_offload": True})
+    profile = apply_preset(DeviceProfile(identity="PV-R1"), Mode.ROUTER, PORTS)
+    fasttrack = FastTrackConfig(enabled=True, hw_offload=True, no_shaping_confirmed=True)
+    profile = profile.model_copy(update={"firewall": profile.firewall.model_copy(
+        update={"fasttrack": fasttrack})})
+    assert "hw-offload=yes" in generate(profile, context).text
+    after = context.after_update(RosVersion.parse("7.23.7"))
+    result = generate(profile, after)
+    assert "hw-offload" not in result.text  # 7.23.7: "bad parameter hw-offload"
+    assert str(result.target) == "7.23.7" and after.inventory is inventory
+    assert context.probes == {"fasttrack_hw_offload": True}  # the original is untouched

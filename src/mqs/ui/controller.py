@@ -168,6 +168,9 @@ class ProfileController(QObject):
         self.analysisReady.emit(self.analysis)
         return self.analysis
 
-    def generate_for_apply(self) -> GenerationResult:
-        """Unmasked script for the device (passwords included)."""
-        return generate(self._profile, self.context(self.primary_major))
+    def generate_for_apply(self, update: RosVersion | None = None) -> GenerationResult:
+        """Unmasked script for the device (passwords included); for the version an
+        update installs first, when there is one."""
+        context = self.context(self.primary_major)
+        return generate(self._profile, context if update is None
+                        else context.after_update(update))

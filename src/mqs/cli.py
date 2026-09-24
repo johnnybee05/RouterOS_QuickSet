@@ -320,7 +320,10 @@ def _apply_to(
                             if profile.interface_names.get(d) != n)
         print(f"port names  : taken over from the device: {renamed or '-'}", file=out)
         profile = adopted
-    result = generate(profile, TargetContext.from_inventory(session.inventory, session.probes))
+    context = TargetContext.from_inventory(session.inventory, session.probes)
+    if options.update_target is not None:
+        context = context.after_update(options.update_target)
+    result = generate(profile, context)
     existing = collect_existing_fn(session.transport) if mode != ApplyMode.GENERATE_ONLY else None
     issues = preflight(profile, result, validate_profile(profile, session.inventory), options,
                        session.inventory, existing=existing, session_port=session.session_port)

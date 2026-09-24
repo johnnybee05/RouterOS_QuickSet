@@ -91,7 +91,7 @@ v pořádku, nejde aplikovat.
 |---|---|
 | Jen vygenerovat | skript se uloží do souboru, na síť se nesahá |
 | Aplikovat na běžící konfiguraci | skript se nahraje a spustí přes `/import`, přidá se k tomu, co na zařízení už je. Objekty, které na zařízení už jsou (bridge, porty, seznamy rozhraní, adresy, pool, DHCP, výchozí trasa, SNMP community, NTP servery), skript místo `add` upraví přes `set`, nebo je vynechá; pravidla firewallu z dřívějšího běhu nahradí. Pravidla NAT a MSS clampingu z dřívějšího běhu odstraní, i když je profil už nepřidává (vypnutý masquerade nebo MSS clamping); cizí pravidla nechá být. Má-li profil jinou výchozí bránu, změní ji na stávající statické trase místo přidání druhé; je-li takových tras víc (záloha přes jinou bránu), nechá je a varuje. Stejný profil jde tedy aplikovat opakovaně. Náhled ukáže už upravený skript. |
-| Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Skript se po dokončení sám smaže. |
+| Reset + aplikovat | `/system reset-configuration no-defaults=yes skip-backup=no run-after-reset=…`: zařízení se restartuje a po startu samo naimportuje skript. Pro potvrzení je nutné opsat identity zařízení a zadat nové heslo pro `admin`. Heslo skript nastaví hned na začátku, protože chyba na kterémkoli řádku zastaví celý skript. Skript se po dokončení sám smaže; zůstane-li na zařízení, první řádek checklistu ukáže chybu z logu, na které se zastavil. |
 | Reset + aplikovat, *Zachovat uživatele* | totéž s `keep-users=yes`: uživatelé, jejich hesla i SSH klíče reset přežijí. Nové heslo pro `admin` je nepovinné (prázdné ponechá současné) a aplikace se po resetu připojí pod stejným účtem, třeba uživatelem s klíčem. V CLI `--keep-users`. |
 
 ### Aktualizace RouterOS při resetu
@@ -105,7 +105,10 @@ je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresář
    architekturou. Architekturu, jméno i verzi čte z hlavičky `.npk`, ne z názvu souboru,
    takže přejmenovaný soubor nevadí. Je-li jich víc, vezme nejnovější verzi;
 2. před resetem ho nahraje do kořene souborů zařízení, hned za zálohu a před skript;
-3. restart po resetu balíček nainstaluje a pak se spustí skript s konfigurací;
+3. restart po resetu balíček nainstaluje a pak se spustí skript s konfigurací. Skript je
+   proto vygenerovaný pro novou verzi a bez vlastností, které aplikace ověřuje zkouškou na
+   zařízení: zkouška na staré verzi o té nové nic neříká (7.20.7 zná `hw-offload` u
+   FastTracku, 7.23.7 už ne). Po aktualizaci ho můžete zapnout importem;
 4. po připojení checklist ověří řádkem *RouterOS 7.23.7 (na zařízení …)*, že zařízení
    opravdu běží na nové verzi. Balíček, který by po restartu na zařízení zůstal, aplikace
    smaže, aby se nenainstaloval při některém pozdějším restartu.
@@ -123,9 +126,10 @@ architektuře, jinak aplikace upozorní, že po aktualizaci nemusí fungovat. P�
 zdrojů se používá `dist\Update`. V CLI `--update` (volitelně `--update-dir`).
 
 > Architektura se nedá odhadnout podle názvu modelu: hEX S E60iUGS (čip EN7562) hlásí
-> `arm`, kdežto starší hEX S s čipem MT7621 patří k `mmips`. **Ověřeno** je čtení hlaviček všech balíčků 7.23.7 a
-> architektura `arm` na hEX S; že jeden restart zvládne instalaci i spuštění skriptu,
-> se teprve ověřuje (viz `docs/DIALECT_NOTES.md`).
+> `arm`, kdežto starší hEX S s čipem MT7621 patří k `mmips`.
+>
+> **Ověřeno 24. 9. 2026** na hEX S (7.20.7 → 7.23.7): jeden restart balíček nainstaluje,
+> smaže ho ze souborů a spustí skript. Podrobnosti v `docs/DIALECT_NOTES.md`.
 
 V okně je předvolený režim *Reset + aplikovat*. Po úspěšné aplikaci (všechny kontroly
 prošly) se aplikace od zařízení sama odpojí a vrátí případnou dočasnou adresu z připojení

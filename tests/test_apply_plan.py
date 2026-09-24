@@ -68,8 +68,9 @@ def test_reset_script_wrapping():
     text = build_upload_script("/system identity\nset name=R1\n", options, names)
     lines = text.splitlines()
     assert lines[1] == ":delay 20s"
-    assert lines[2:4] == ["/system identity", "set name=R1"]
-    assert lines[-2] == '/user set [ find name=admin ] password="pa ss\\"1"'
+    # The password first: a failing line stops the script (7.23.7, 2026-09-24).
+    assert lines[3] == '/user set [ find name=admin ] password="pa ss\\"1"'
+    assert lines[4:6] == ["/system identity", "set name=R1"]
     assert lines[-1] == '/file remove [ find name="flash/quickset-20260915-140509.rsc" ]'
     masked = build_upload_script("x\n", options, names, mask_secrets=True)
     assert "pa ss" not in masked and 'password="********"' in masked
