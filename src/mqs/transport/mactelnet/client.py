@@ -8,6 +8,7 @@ Verified against RouterOS 7.20.7; the findings are in docs/DIALECT_NOTES.md.
 
 from __future__ import annotations
 
+import re
 import secrets
 import socket
 import time
@@ -41,6 +42,25 @@ LICENSE_QUESTION = "software license"
 # the password as it was, and the console carries on to its prompt.
 PASSWORD_QUESTION = "password>"
 CTRL_C = b"\x03"
+
+
+# One drawing of the prompt, "[admin@MikroTik] >" (the identity may hold spaces).
+_PROMPT_RE = re.compile(r"\[[^@\r\n]+@[^\r\n]*\] >")
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _at_prompt(text: str) -> bool:
+    """The console shows its prompt, with nothing typed after it: the command is done.
+
+    The last line has to be the prompt and nothing else, drawn once or more. RouterOS
+    6.49.10 redraws the whole line for every character it echoes
+    ("\\r\\r[admin@MikroTik] > :pu<spaces>\\x1b[K\\r[admin@MikroTik] > :pu"), so the stream
+    passes "[admin@MikroTik] >" many times while the command is still being echoed; a
+    packet that happened to end there stopped the read before any output (2026-09-25).
+    """
+    line = _ANSI_RE.sub("", text).rsplit("\n", 1)[-1]
+    drawn = [part.strip() for part in line.split("\r") if part.strip()]
+    return bool(drawn) and all(_PROMPT_RE.fullmatch(part) for part in drawn)
 
 
 def _password_question(text: str) -> bool:
@@ -416,7 +436,7 @@ class MacTelnetSession:
                     if _password_question(recent.rstrip(" ")):
                         break  # never let a command be typed in as the new password
                     tail = recent.rstrip(" \t\r\n")
-                    if echoed and tail.endswith(">") and not _password_question(tail):
+                    if echoed and _at_prompt(recent):
                         saw_prompt = True
                         break
                     if tail.endswith(":") and LICENSE_QUESTION in recent.lower():

@@ -30,8 +30,10 @@ ERROR_PATTERNS = (
 def sanitize(text: str) -> str:
     text = _ANSI_RE.sub("", text)
     text = text.replace("\r\n", "\n")
-    # A lone CR means the terminal rewrote the line; keep only the last rewrite.
-    lines = [line.split("\r")[-1] for line in text.split("\n")]
+    # A lone CR means the terminal rewrote the line; keep only the last rewrite. A CR at
+    # the end rewrites nothing: RouterOS 6.49.10 ends console lines with CR CR LF, and
+    # taking what followed that CR as the rewrite emptied every line (2026-09-25).
+    lines = [line.rstrip("\r").split("\r")[-1] for line in text.split("\n")]
     text = "\n".join(line.rstrip() for line in lines)
     return _CONTROL_RE.sub("", text)
 

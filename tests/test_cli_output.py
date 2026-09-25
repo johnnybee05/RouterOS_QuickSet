@@ -11,6 +11,12 @@ def test_sanitize_strips_ansi_and_carriage_returns():
     assert sanitize("\x1b]0;title\x07ok  ") == "ok"
 
 
+def test_a_carriage_return_at_the_end_of_a_line_rewrites_nothing():
+    # RouterOS 6.49.10 over MAC-Telnet ends print lines with CR CR LF (2026-09-25).
+    raw = "\r\n\r  name: MikroTik\r\r\n\r\r\r\r[admin@MikroTik] >    \r[admin@MikroTik] > "
+    assert sanitize(raw) == "\n  name: MikroTik\n[admin@MikroTik] >"
+
+
 def test_find_error():
     assert find_error("bad command name printt (line 1 column 12)") == \
         "bad command name printt (line 1 column 12)"

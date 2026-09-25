@@ -511,6 +511,44 @@ def test_scrolled_echo_is_still_recognised():
     assert session.run(SCROLLED_COMMAND) == "code"
 
 
+V6_PROMPT = "[admin@MikroTik] > "
+
+
+def v6_console(line: str, output: str) -> list[str]:
+    """What RouterOS 6.49.10 sends for ``line`` (captured 2026-09-25, v6 hEX S), in two
+    packets split the way that broke the read: right after the "[admin@MikroTik] >" of
+    the last redraw of the echo.
+
+    Every echoed character comes with a redraw of the whole line, and print output ends
+    its lines with CR CR LF.
+    """
+    echo = "".join(f"{c}\r\r{V6_PROMPT}{line[:i + 1]}{' ' * (59 - i)}\x1b[K\r{V6_PROMPT}"
+                   f"{line[:i + 1]}" for i, c in enumerate(line))
+    cut = echo.rindex(V6_PROMPT) + len(V6_PROMPT) - 1
+    done = (f"\r{V6_PROMPT}{line}\r\n\r{output}\r\n\r\r\r\r{V6_PROMPT.rstrip()}{' ' * 61}"
+            f"\r{V6_PROMPT}")
+    return [echo[:cut], echo[cut:] + done]
+
+
+@pytest.mark.parametrize(("command", "output", "expected"), [
+    ("/system identity print", "  name: MikroTik\r", "name: MikroTik"),
+    (":put [:len [/ip address find]]", "1", "1"),
+    ("/ip address print", "Flags: X - disabled, I - invalid, D - dynamic \r\r\n"
+     " #   ADDRESS            NETWORK         INTERFACE\r\r\n 0   ;;; mqs-temp\r\r\n"
+     "     192.168.55.254/24  192.168.55.0    ether1\r",
+     "Flags: X - disabled, I - invalid, D - dynamic\n"
+     " #   ADDRESS            NETWORK         INTERFACE\n 0   ;;; mqs-temp\n"
+     "     192.168.55.254/24  192.168.55.0    ether1"),
+])
+def test_the_routeros_6_console_is_read_to_its_end(command, output, expected):
+    """On 6.49.10 the read stopped inside the echo, and the last output line was lost."""
+    device = FakeDevice(password="pw", command_reply=lambda line: (
+        v6_console(line, output) if line else V6_PROMPT))
+    session = make_session(device, "pw")
+    session.authenticate()
+    assert session.run(command) == expected
+
+
 def test_repeated_echo_lines_are_not_output():
     """Seen on 7.20.7: the finished line was redrawn twice, each on a line of its own."""
     command = ":put [/file get mqs-probe.txt size]"
