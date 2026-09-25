@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import paramiko
 import pytest
 
@@ -84,9 +86,14 @@ PARAMS = ConnectionParams(host="192.168.88.1", username="admin", password="pw",
                           connect_timeout=3, command_timeout=7)
 
 
+def rsa_key() -> paramiko.RSAKey:
+    return paramiko.RSAKey.generate(1024)
+
+
 def connected(responses=None, params=PARAMS) -> tuple[SshTransport, FakeClient]:
     client = FakeClient(responses)
-    transport = SshTransport(params, client_factory=lambda: client)
+    transport = SshTransport(params, client_factory=lambda: client,
+                             key_loader=lambda path: f"key from {path}")
     transport.connect()
     return transport, client
 
@@ -124,6 +131,80 @@ def test_an_empty_password_is_still_tried(password, key, passed):
     params = ConnectionParams(host="h", username="admin", password=password, key_filename=key)
     _, client = connected(params=params)
     assert client.connect_kwargs["password"] == passed
+
+
+def test_the_key_is_loaded_by_the_transport_not_by_paramiko():
+    # Given key_filename, paramiko reports a refused key as what its last key class said
+    # about the file: "encountered RSA key, expected OPENSSH key" (RouterOS 6.49.10).
+    params = ConnectionParams(host="h", username="bee", key_filename="id_rsa")
+    _, client = connected(params=params)
+    assert client.connect_kwargs["pkey"] == "key from id_rsa"
+    assert "key_filename" not in client.connect_kwargs
+    assert client.connect_kwargs["disabled_algorithms"] is None
+
+
+def test_an_unreadable_key_is_an_auth_error():
+    def missing(path):
+        raise FileNotFoundError(2, "No such file or directory", path)
+
+    params = ConnectionParams(host="h", username="bee", key_filename="C:/nowhere/id_rsa")
+    transport = SshTransport(params, client_factory=FakeClient, key_loader=missing)
+    with pytest.raises(AuthError, match="SSH key C:/nowhere/id_rsa"):
+        transport.connect()
+
+
+class RefusesSha512(FakeClient):
+    """RouterOS 6.49.10: no server-sig-algs, rsa-sha2-512 refused, rsa-sha2-256 accepted."""
+
+    made: ClassVar[list[RefusesSha512]] = []
+
+    def __init__(self) -> None:
+        super().__init__()
+        RefusesSha512.made.append(self)
+
+    def connect(self, **kwargs) -> None:
+        self.connect_kwargs = kwargs
+        disabled = (kwargs.get("disabled_algorithms") or {}).get("pubkeys", [])
+        if "rsa-sha2-512" not in disabled:
+            raise paramiko.AuthenticationException("Authentication failed.")
+
+
+def test_a_refused_rsa_key_is_tried_again_without_sha512():
+    RefusesSha512.made = []
+    params = ConnectionParams(host="h", username="bee", key_filename="id_rsa")
+    transport = SshTransport(params, client_factory=RefusesSha512,
+                             key_loader=lambda path: rsa_key())
+    transport.connect()
+    first, second = RefusesSha512.made
+    assert first.closed and first.connect_kwargs["disabled_algorithms"] is None
+    assert second.connect_kwargs["disabled_algorithms"] == {"pubkeys": ["rsa-sha2-512"]}
+    assert transport.connected
+
+
+def test_a_key_refused_both_ways_is_an_auth_error():
+    client = FakeClient(connect_error=paramiko.AuthenticationException("no"))
+    params = ConnectionParams(host="h", username="bee", key_filename="id_rsa")
+    transport = SshTransport(params, client_factory=lambda: client,
+                             key_loader=lambda path: rsa_key())
+    with pytest.raises(AuthError):
+        transport.connect()
+    assert client.connect_kwargs["disabled_algorithms"] == {"pubkeys": ["rsa-sha2-512"]}
+
+
+@pytest.mark.parametrize("pkey", [None, "an ed25519 key"])
+def test_only_an_rsa_key_is_tried_twice(pkey):
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return FakeClient(connect_error=paramiko.AuthenticationException("no"))
+
+    key = "id_ed25519" if pkey else None
+    params = ConnectionParams(host="h", username="bee", password="pw", key_filename=key)
+    transport = SshTransport(params, client_factory=factory, key_loader=lambda path: pkey)
+    with pytest.raises(AuthError):
+        transport.connect()
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(

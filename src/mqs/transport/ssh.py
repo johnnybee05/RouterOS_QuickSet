@@ -43,6 +43,9 @@ from mqs.transport.cli_output import (
 
 LOGIN_SUFFIX = "+cet"
 
+# paramiko's disabled_algorithms for the second try of an RSA key (see SshTransport.connect).
+RSA_WITHOUT_SHA512 = {"pubkeys": ["rsa-sha2-512"]}
+
 # Menus whose `print` shows a single `key: value` block instead of an item list.
 SINGLETON_MENUS = frozenset({
     "/system resource",
@@ -66,9 +69,11 @@ class SshTransport:
         params: ConnectionParams,
         *,
         client_factory: Callable[[], Any] = paramiko.SSHClient,
+        key_loader: Callable[[str], Any] = paramiko.PKey.from_path,
     ) -> None:
         self.params = params
         self._client_factory = client_factory
+        self._key_loader = key_loader
         self._client: Any = None
         self._reply_timeout: float | None = None  # None: the command timeout
         self.host_key_fingerprint: str | None = None
@@ -91,6 +96,43 @@ class SshTransport:
         return PeerSecurity.SSH_HOST_KEY if self.host_key_fingerprint else PeerSecurity.UNKNOWN
 
     def connect(self) -> None:
+        pkey = self._load_key()
+        # RouterOS 6 sends no server-sig-algs, so paramiko signs with an RSA key using the
+        # first algorithm of its own list, rsa-sha2-512, and 6.49.10 refuses that while it
+        # accepts rsa-sha2-256 (seen 2026-09-25). A refused RSA key is therefore tried once
+        # more without rsa-sha2-512, rather than changing what verified v7 devices get.
+        retries = [None]
+        if isinstance(pkey, paramiko.RSAKey):
+            retries.append(RSA_WITHOUT_SHA512)
+        for attempt, disabled in enumerate(retries, start=1):
+            try:
+                client = self._connect_client(pkey, disabled)
+            except AuthError:
+                if attempt == len(retries):
+                    raise
+                continue
+            break
+        self._client = client
+        transport = client.get_transport()
+        key = transport.get_remote_server_key() if transport else None
+        if key is not None:
+            self.host_key_fingerprint = key.get_fingerprint().hex(":")
+
+    def _load_key(self) -> Any:
+        """The private key, loaded here rather than by paramiko from `key_filename`.
+
+        Given a file name, paramiko tries every key class on it and, when the device
+        refuses the key, raises what the last class said about the file ("encountered RSA
+        key, expected OPENSSH key") instead of the refusal.
+        """
+        if not self.params.key_filename:
+            return None
+        try:
+            return self._key_loader(self.params.key_filename)
+        except (paramiko.SSHException, OSError, ValueError) as exc:
+            raise AuthError(f"SSH key {self.params.key_filename}: {exc}", self.kind) from exc
+
+    def _connect_client(self, pkey: Any, disabled: dict[str, list[str]] | None) -> Any:
         client = self._client_factory()
         # Trust on first use: freshly unboxed devices have unknown host keys. The fingerprint
         # is exposed so the UI can show it.
@@ -100,20 +142,20 @@ class SshTransport:
         # paramiko tries password authentication only for a password that is not None, so
         # passing None for it failed with "No authentication methods available" (seen
         # 2026-09-21). With a key and no password there is nothing to try but the key.
-        password = self.params.password if self.params.password or \
-            not self.params.key_filename else None
+        password = self.params.password if self.params.password or pkey is None else None
         try:
             client.connect(
                 hostname=self.params.host,
                 port=self.port,
                 username=self.params.username + LOGIN_SUFFIX,
                 password=password,
-                key_filename=self.params.key_filename,
+                pkey=pkey,
                 timeout=timeout,
                 auth_timeout=timeout,
                 banner_timeout=timeout,
                 look_for_keys=False,
                 allow_agent=False,
+                disabled_algorithms=disabled,
             )
         except paramiko.AuthenticationException as exc:
             client.close()
@@ -127,12 +169,7 @@ class SshTransport:
         except (paramiko.SSHException, OSError) as exc:
             client.close()
             raise ServiceUnavailable(f"SSH {self.params.host}:{self.port}: {exc}") from exc
-
-        self._client = client
-        transport = client.get_transport()
-        key = transport.get_remote_server_key() if transport else None
-        if key is not None:
-            self.host_key_fingerprint = key.get_fingerprint().hex(":")
+        return client
 
     @contextlib.contextmanager
     def reply_timeout(self, seconds: float) -> Iterator[None]:
