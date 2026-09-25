@@ -76,7 +76,10 @@ def parse_terse(text: str) -> list[dict[str, str]]:
             if not chunk or "=" not in chunk:
                 continue
             key, _, value = chunk.partition("=")
-            item[key] = value
+            # RouterOS 6.49.10 writes an empty value as "" (address="" in /ip service),
+            # while a value with spaces stays unquoted (comment=contains all interfaces).
+            # Taken literally, every service looked limited to the address '""'.
+            item[key] = "" if value == '""' else value
         if len(item) > ("_index" in item) + ("_flags" in item):
             items.append(item)
     return items

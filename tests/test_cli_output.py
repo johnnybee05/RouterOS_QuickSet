@@ -70,6 +70,19 @@ def test_parse_terse_adjacent_flags():
         ("0", "IH", "ether2"), ("1", "H", "ether3"), ("4", "I", "sfp1")]
 
 
+def test_parse_terse_empty_values_of_routeros_6():
+    """Captured from 6.49.10 (v6 hEX S, 2026-09-25): an empty value is written "", a value
+    with spaces is not quoted at all."""
+    text = (
+        " 3   name=ssh port=22 address=\"\" \r\n"
+        " 0 * comment=contains all interfaces name=all dynamic=no include=\"\" exclude=\"\" \r\n"
+    )
+    ssh, all_list = parse_terse(text)
+    assert ssh["address"] == ""
+    assert all_list["comment"] == "contains all interfaces"
+    assert (all_list["include"], all_list["exclude"]) == ("", "")
+
+
 def test_parse_terse_without_index():
     assert parse_terse("name=switch1 type=RTL8367\n") == [{"name": "switch1", "type": "RTL8367"}]
     assert parse_terse("garbage line\n") == []
