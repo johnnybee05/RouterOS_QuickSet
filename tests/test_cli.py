@@ -20,6 +20,7 @@ from mqs.model.bridge import ProtocolMode
 from mqs.model.inventory import PackageInfo
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
+from mqs.model.wan import WanType
 from mqs.profiles.store import profile_to_json
 from mqs.transport.base import AuthError, ConnectionParams, TransportKind
 from mqs.transport.factory import ConnectAttempt, ConnectFailed
@@ -121,6 +122,25 @@ def test_an_apply_blocked_by_the_generator_says_why(router, profile, tmp_path):
     assert code == cli.BLOCKED, out
     assert "error   bridge.mstp_needs_vlan_filtering" in out
     assert "/import" not in router.log
+
+
+def test_the_pppoe_password_comes_from_the_environment(profile, tmp_path, monkeypatch):
+    """A saved profile leaves it out, so a PPPoE profile was blocked by
+    "wan.pppoe.password_empty" in every CLI run."""
+    wan = profile.wan.with_type(WanType.PPPOE)
+    wan = wan.model_copy(update={"settings": wan.settings.model_copy(
+        update={"username": "test@isp"})})
+    source = tmp_path / "pppoe.json"
+    source.write_text(profile_to_json(profile.model_copy(update={"wan": wan})),
+                      encoding="utf-8")
+    argv = ["apply", "--profile-file", str(source), "--mode", "generate", "--target", "6.49.10"]
+    monkeypatch.delenv("MQS_PPPOE_PASSWORD", raising=False)
+    code, out = run(argv)
+    assert code == cli.BLOCKED and "wan.pppoe.password_empty" in out
+    monkeypatch.setenv("MQS_PPPOE_PASSWORD", "s3cr3t")
+    code, out = run(argv)
+    assert code == cli.OK, out
+    assert 'add name=pppoe-out1 interface=ether1 user="test@isp" password=s3cr3t' in out
 
 
 def test_connect_describes_the_device(router):

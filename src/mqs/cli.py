@@ -21,6 +21,8 @@ from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Any
 
+from pydantic import SecretStr
+
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
 from mqs.apply.plan import (
     DEFAULT_KEEP_BACKUPS,
@@ -48,6 +50,7 @@ from mqs.messages_cs import STEP_PREFIX
 from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
+from mqs.model.wan import PppoeWan
 from mqs.paths import profiles_dir, update_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import AuthError, ConnectionParams, TransportError, TransportKind
@@ -94,8 +97,28 @@ def connection_params(args: argparse.Namespace) -> ConnectionParams:
 
 def load_profile(args: argparse.Namespace) -> DeviceProfile:
     if args.profile_file:
-        return import_profile(Path(args.profile_file))
-    return ProfileStore(profiles_dir()).load(args.profile)
+        profile = import_profile(Path(args.profile_file))
+    else:
+        profile = ProfileStore(profiles_dir()).load(args.profile)
+    return with_pppoe_password(profile, args)
+
+
+def with_pppoe_password(profile: DeviceProfile, args: argparse.Namespace) -> DeviceProfile:
+    """A saved profile never holds the PPPoE password, on purpose; the window asks for it.
+
+    Here it comes like the other passwords, from the environment or a prompt. Without it
+    a PPPoE profile could not be applied from the command line at all: the validation
+    stopped it with "wan.pppoe.password_empty".
+    """
+    settings = profile.wan.settings
+    if (not profile.wan.enabled or not isinstance(settings, PppoeWan)
+            or settings.password.get_secret_value()):
+        return profile
+    password = _password(args.pppoe_password_env, f"PPPoE password for {settings.username}: ")
+    if not password:
+        return profile  # the validation says what is missing
+    settings = settings.model_copy(update={"password": SecretStr(password)})
+    return profile.model_copy(update={"wan": profile.wan.model_copy(update={"settings": settings})})
 
 
 def describe_session(session: DeviceSession, out: Any) -> None:
@@ -443,6 +466,9 @@ def build_parser() -> argparse.ArgumentParser:
                                 f"included (default {DEFAULT_KEEP_BACKUPS}; 0 keeps all)")
     apply_cmd.add_argument("--admin-password-env", default="MQS_ADMIN_PASSWORD", metavar="VAR",
                            help="environment variable with the new admin password (reset)")
+    apply_cmd.add_argument("--pppoe-password-env", default="MQS_PPPOE_PASSWORD", metavar="VAR",
+                           help="environment variable with the PPPoE password, which a saved "
+                           "profile does not keep")
     apply_cmd.add_argument("--keep-users", action="store_true",
                            help="reset with keep-users=yes: users and their passwords stay, "
                            "the admin password is optional, and the apply reconnects as the "
