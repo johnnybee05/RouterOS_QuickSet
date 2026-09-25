@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from ipaddress import IPv4Address, IPv4Interface
 
@@ -356,9 +357,29 @@ def test_import_warns_about_moving_a_port_between_bridges():
     assert moved.params == {"port": "ether2", "old": "bridge", "new": "bridge1"}
 
 
+def test_import_switches_off_vlan_filtering_the_profile_does_not_have():
+    """v6 hEX S, 2026-09-25: importing a profile without vlan-filtering onto a bridge an
+    earlier one had set it on left it on, and the MT7621 then offloaded no port."""
+    profile, inventory, result = _setup()
+    existing = _same_as_script(result)
+    options = ApplyOptions(ApplyMode.IMPORT)
+    assert "vlan-filtering" not in prepare_import(result, options, existing).text
+
+    filtering = replace(existing, vlan_filtering=frozenset({"bridge1"}))
+    issues = preflight(profile, result, [], options, inventory, existing=filtering)
+    assert "apply.vlan_filtering_off" in codes(issues)
+    text = prepare_import(result, options, filtering).text
+    assert "set [ find name=bridge1 ] protocol-mode=none vlan-filtering=no" in text
+
+    # A profile that filters writes its own value; another bridge is not touched.
+    other = replace(existing, vlan_filtering=frozenset({"bridge7"}))
+    assert "vlan-filtering" not in prepare_import(result, options, other).text
+
+
 def test_collect_existing_from_transport():
     fake = FakeTransport({
-        "/interface/bridge/print": [{"name": "bridge"}],
+        "/interface/bridge/print": [{"name": "bridge"},
+                                    {"name": "br-vlan", "vlan-filtering": "true"}],
         "/interface/list/print": [{"name": "WAN"}, {"comment": "no name"}],
         "/interface/list/member/print": [
             {"list": "WAN", "interface": "ether1"},
@@ -369,7 +390,8 @@ def test_collect_existing_from_transport():
         "/ip/dhcp-client/print": [{"interface": "ether1"}],
     })
     existing = collect_existing(fake)
-    assert existing.items["/interface bridge"] == {("bridge",)}
+    assert existing.items["/interface bridge"] == {("bridge",), ("br-vlan",)}
+    assert existing.vlan_filtering == {"br-vlan"}
     assert existing.items["/interface list"] == {("WAN",)}
     assert existing.items["/interface list member"] == {("WAN", "ether1")}  # dynamic left out
     assert existing.items["/ip address"] == {("192.168.88.1/24",), ("bogus",)}

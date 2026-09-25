@@ -205,6 +205,8 @@ MESSAGES: dict[str, str] = {
     "odstraní pravidla z dřívějšího běhu QuickSet (komentář „quickset: …“, počet {count}).",
     "apply.bridge_port_moved":"Port {port} je teď v bridge {old}; skript ho přesune do "
     "bridge {new}. Pokud přes něj vede spojení, na chvíli se přeruší.",
+    "apply.vlan_filtering_off": "Bridge {bridge} má na zařízení zapnutý vlan-filtering, "
+    "profil ho nemá; skript ho vypne.",
     "apply.notice_ssh_port": "Po aplikaci poběží SSH na portu {port}.",
     "apply.notice_services_disabled": "Po aplikaci budou vypnuté služby: {services}.",
     "apply.notice_api_ssl_kept": "api-ssl ({port}) zůstává zapnuté – je to hlavní transport "

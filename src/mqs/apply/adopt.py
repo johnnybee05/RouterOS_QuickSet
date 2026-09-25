@@ -60,6 +60,7 @@ class ExistingObjects:
     items: Mapping[str, frozenset[tuple[str, ...]]] = field(default_factory=dict)
     bridge_ports: Mapping[str, str] = field(default_factory=dict)  # interface -> bridge
     own_rules: Mapping[str, int] = field(default_factory=dict)  # table -> our rules there
+    vlan_filtering: frozenset[str] = frozenset()  # bridges with vlan-filtering on
 
     def has(self, path: str, key: tuple[str, ...]) -> bool:
         return key in self.items.get(path, frozenset())
@@ -109,6 +110,7 @@ def collect_existing(transport: Transport) -> ExistingObjects:
     have is simply empty."""
     items: dict[str, frozenset[tuple[str, ...]]] = {}
     bridge_ports: dict[str, str] = {}
+    vlan_filtering: frozenset[str] = frozenset()
     for path in ADOPT_KEYS:
         try:
             rows = transport.execute(path.replace(" ", "/") + "/print")
@@ -119,6 +121,9 @@ def collect_existing(transport: Transport) -> ExistingObjects:
         if path == "/interface bridge port":
             bridge_ports = {r["interface"]: r.get("bridge", "") for r in static
                             if "interface" in r}
+        elif path == "/interface bridge":
+            vlan_filtering = frozenset(r["name"] for r in static
+                                       if "name" in r and to_bool(r, "vlan-filtering"))
     own_rules: dict[str, int] = {}
     for table in OWN_RULE_TABLES:
         try:
@@ -128,7 +133,8 @@ def collect_existing(transport: Transport) -> ExistingObjects:
         count = sum(1 for r in rows if re.search(OWN_REGEX, r.get("comment", "")))
         if count:
             own_rules[table] = count
-    return ExistingObjects(items=items, bridge_ports=bridge_ports, own_rules=own_rules)
+    return ExistingObjects(items=items, bridge_ports=bridge_ports, own_rules=own_rules,
+                           vlan_filtering=vlan_filtering)
 
 
 def _adopt_route(command: Command, args: dict[str, str], existing: ExistingObjects,
@@ -179,6 +185,14 @@ def _adopt(command: Command, existing: ExistingObjects,
             issues.append(Issue("apply.bridge_port_moved", Severity.WARNING, "bridge.ports",
                                 {"port": interface, "old": current, "new": bridge}))
     rest = {k: v for k, v in args.items() if k not in names}
+    if (command.path == "/interface bridge" and "vlan-filtering" not in rest
+            and args["name"] in existing.vlan_filtering):
+        # The generator writes only what is switched on, so a profile without
+        # vlan-filtering left it on the bridge, and on the v6 hEX S (2026-09-25) the
+        # MT7621 then offloaded no port. The device has the property, so it can go off.
+        rest["vlan-filtering"] = "no"
+        issues.append(Issue("apply.vlan_filtering_off", Severity.INFO, "bridge.vlan_filtering",
+                            {"bridge": args["name"]}))
     if not rest:
         return None
     # The key as the script wrote it: that is what the console's find compares with.
