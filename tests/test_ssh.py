@@ -227,6 +227,19 @@ def test_connect_error_mapping(error, expected):
     assert transport.peer_security == PeerSecurity.UNKNOWN
 
 
+def test_the_log_is_read_with_its_messages():
+    transport, _ = connected({
+        "/log print terse": (
+            b"20:04:17 system,info system identity changed by bee+cet \r\n"
+            b"20:08:06 script,error script error: failure: mstp requires vlan-filtering \r\n"),
+    })
+    rows = transport.execute("/log/print")
+    assert rows[-1]["message"] == "script error: failure: mstp requires vlan-filtering"
+    keyed, _ = connected({"/log print terse": b" 0 time=20:04:17 topics=system,info "
+                                              b"message=identity changed\r\n"})
+    assert keyed.execute("/log/print")[0]["message"] == "identity changed"
+
+
 def test_print_singleton_and_list():
     transport, client = connected({
         "/system resource print": (

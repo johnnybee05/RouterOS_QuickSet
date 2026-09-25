@@ -20,6 +20,9 @@ from mqs.transport.base import CommandError, Transport
 from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
 
 RESET_SCRIPT_ERROR = "error while running run-after-reset script"
+# How RouterOS 6.49.10 logs the line that stopped an /import (script,error, 2026-09-25):
+# "script error: failure: mstp requires vlan-filtering". The v7 wording NUTNO OVĚŘIT.
+IMPORT_SCRIPT_ERROR = "script error"
 
 
 @dataclass(frozen=True)
@@ -134,16 +137,33 @@ def check_reset_script(transport: Transport, script_file: str) -> CheckResult:
     says "error while running run-after-reset script: bad parameter hw-offload (line 60
     column 124)" (2026-09-24), which is what the check reports.
     """
+    return _check_script_ran(transport, script_file, "verify.reset_script",
+                             RESET_SCRIPT_ERROR)
+
+
+def check_import_script(transport: Transport, script_file: str) -> CheckResult:
+    """The imported script ran to its last line, where it removes itself.
+
+    Over the API a failing /import is a trap, but over SSH RouterOS 6.49.10 answers it
+    with nothing at all (2026-09-25): an import that stopped at its bridge line was
+    reported as done. The file left behind and the log say what happened.
+    """
+    return _check_script_ran(transport, script_file, "verify.import_script",
+                             IMPORT_SCRIPT_ERROR)
+
+
+def _check_script_ran(transport: Transport, script_file: str, code: str,
+                      marker: str) -> CheckResult:
     names = {f.get("name", "") for f in transport.execute("/file/print")}
     if script_file not in names:
-        return CheckResult("verify.reset_script", True, {"error": "-"})
+        return CheckResult(code, True, {"error": "-"})
     try:
         log = transport.execute("/log/print")
     except CommandError:
         log = []
     error = next((row["message"] for row in reversed(log)
-                  if RESET_SCRIPT_ERROR in row.get("message", "")), "")
-    return CheckResult("verify.reset_script", False, {"error": error or "?"})
+                  if marker in row.get("message", "")), "")
+    return CheckResult(code, False, {"error": error or "?"})
 
 
 def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckResult:

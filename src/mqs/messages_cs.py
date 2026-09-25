@@ -300,6 +300,7 @@ MESSAGES: dict[str, str] = {
     "verify.routeros_version": "RouterOS {expected} (na zařízení {actual})",
     "verify.routerboot": "RouterBOOT {expected} (na zařízení {actual})",
     "verify.reset_script": "Skript po resetu doběhl do konce (chyba: {error})",
+    "verify.import_script": "Importovaný skript doběhl do konce (chyba: {error})",
     # UI input syntax
     "ui.syntax": "{message}",
     # profiles

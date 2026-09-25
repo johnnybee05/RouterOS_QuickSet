@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from mqs.generator.ir import Command, Find
 from mqs.transport.base import (
     CommandError,
+    CommandTimeout,
     ConnectionLost,
     ConnectionParams,
     PeerSecurity,
@@ -58,6 +59,13 @@ class FakeRouter:
         self.reset_refusals = 0  # how many times to answer "cannot use file" first
         self.offload_running = True
         self.version = "7.15.3 (stable)"
+        # The import runs, but its answer does not arrive in time (a bridge that
+        # carries the session stops forwarding while STP starts, v6 hEX S 2026-09-25).
+        self.import_answer_late = False
+        self.import_reply_limits: list[float | None] = []  # reply limit per /import
+        # An import that stops at a line and, as 6.49.10 does over SSH (2026-09-25),
+        # answers nothing: the error is only in the log.
+        self.import_stops_silently: str | None = None
         # Package file name -> the version the reboot installs from it. What a real
         # device does with a package on the reset's reboot is not known; see
         # `installs_packages` for a device that ignores it.
@@ -132,7 +140,18 @@ class FakeRouter:
         if word == "/import":
             if args["file-name"] not in self.files:
                 raise CommandError(word, "no such file")
+            if self.import_stops_silently is not None:
+                self.device_log.append({"topics": "script,error",
+                                        "message": f"script error: {self.import_stops_silently}"})
+                return []
             self._apply_import()
+            script = self.files[args["file-name"]]
+            if isinstance(script, str) and script.rstrip().splitlines()[-1].startswith(
+                    "/file remove"):
+                self.files.pop(args["file-name"])  # the script's last line removes it
+            self.import_reply_limits.append(session.reply_limit)
+            if self.import_answer_late:
+                raise CommandTimeout("SSH command timed out: /import")
             if session.kind == TransportKind.SSH and session.port != s.ssh_port:
                 session.alive = False
                 raise ConnectionLost("ssh session closed by port change")
@@ -248,6 +267,7 @@ class RouterSession:
         self.params = ConnectionParams(host="192.168.88.1", username=username, password=password)
         self.alive = True
         self.commands: list[Command] = []
+        self.reply_limit: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -279,7 +299,11 @@ class RouterSession:
 
     @contextlib.contextmanager
     def reply_timeout(self, seconds: float) -> Iterator[None]:
-        yield
+        previous, self.reply_limit = self.reply_limit, seconds
+        try:
+            yield
+        finally:
+            self.reply_limit = previous
 
     def execute_command(self, command: Command) -> Reply:
         if not self.alive:

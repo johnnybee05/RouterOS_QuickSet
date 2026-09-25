@@ -56,10 +56,15 @@ def test_names_with_and_without_flash():
     assert flash.backup_file == "flash/pre-quickset-20260915-140509.backup"
 
 
-def test_import_script_is_unchanged():
-    options = ApplyOptions(ApplyMode.IMPORT)
-    assert build_upload_script("/system identity\nset name=R1\n", options,
-                               make_names(NOW, False)) == "/system identity\nset name=R1\n"
+def test_the_import_script_removes_itself_last():
+    """A file still there after the import is how a stop half-way shows: over SSH,
+    6.49.10 answers a failing /import with nothing (2026-09-25)."""
+    names = make_names(NOW, has_flash_dir=True)
+    text = build_upload_script("/system identity\nset name=R1\n",
+                               ApplyOptions(ApplyMode.IMPORT), names)
+    assert text == ("/system identity\nset name=R1\n# ---- CLEANUP ----\n"
+                    f'/file remove [ find name="{names.remote_script}" ]\n')
+    assert build_upload_script("x\n", ApplyOptions(ApplyMode.GENERATE_ONLY), names) == "x\n"
 
 
 def test_reset_script_wrapping():

@@ -37,6 +37,7 @@ from mqs.transport.cli_output import (
     find_error,
     parse_columns,
     parse_key_value,
+    parse_log,
     parse_terse,
     sanitize,
 )
@@ -214,6 +215,10 @@ class SshTransport:
         if verb == "print":
             if menu in SINGLETON_MENUS:
                 return [parse_key_value(self.run(f"{menu} print"))]
+            if menu == "/log":
+                text = self.run("/log print terse")
+                rows = parse_terse(text)
+                return rows if rows and all("message" in r for r in rows) else parse_log(text)
             detail = " detail" if values.pop("detail", "no") == "yes" else ""
             return parse_terse(self.run(f"{menu} print{detail} terse"))
         selector = values.pop("numbers", None)

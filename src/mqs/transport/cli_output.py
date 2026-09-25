@@ -85,6 +85,28 @@ def parse_terse(text: str) -> list[dict[str, str]]:
     return items
 
 
+# "20:08:06 script,error script error: …", "sep/02 06:09:53 …", "jan/02/1970 01:00:46 …",
+# "2026-09-24 21:05:31 …": an optional date, the time, the topics, the message.
+_LOG_LINE_RE = re.compile(
+    r"^\s*(?P<time>(?:[a-z]{3}/\d{2}(?:/\d{4})?\s+|\d{4}-\d{2}-\d{2}\s+)?\d{2}:\d{2}:\d{2})"
+    r"\s+(?P<topics>[a-z0-9-]+(?:,[a-z0-9-]+)*)\s+(?P<message>.*?)\s*$"
+)
+
+
+def parse_log(text: str) -> list[dict[str, str]]:
+    """`/log print` lines as rows with time, topics and message, in the log's order.
+
+    RouterOS 6.49.10 prints its log the same way with and without `terse`, not as
+    key=value pairs (2026-09-25), so parse_terse finds no message in it.
+    """
+    rows = []
+    for line in sanitize(text).split("\n"):
+        match = _LOG_LINE_RE.match(line)
+        if match:
+            rows.append(match.groupdict())
+    return rows
+
+
 def parse_columns(text: str) -> list[dict[str, str]]:
     """Parse a column table (`/console inspect` over SSH on 7.20.7):
 

@@ -161,15 +161,21 @@ def build_upload_script(
 ) -> str:
     """Script that is uploaded to the device.
 
-    IMPORT uploads the generated script unchanged (removed by the apply flow afterwards).
-    RESET wraps it: start delay, admin password, and self-removal of the file, because
-    after the reset nobody else is there to clean up (decision Q2 / Q10).
+    IMPORT uploads the generated script with its self-removal as the last line. RESET
+    wraps it: start delay, admin password, and self-removal of the file, because after
+    the reset nobody else is there to clean up (decision Q2 / Q10).
 
     The password comes before the configuration: a line that fails stops the whole
     script, and on 2026-09-24 a hEX S updated to 7.23.7 refused line 60 of 107, so a
     password set at the end left admin without one, on an address facing WAN. The removal
-    stays last: a script still on the device is how a stop half-way is noticed.
+    stays last: a script still on the device is how a stop half-way is noticed. An import
+    needs that too: over SSH, RouterOS 6.49.10 answers a failing `/import` with nothing
+    at all, and says what failed only in its log (2026-09-25).
     """
+    cleanup = ["# ---- CLEANUP ----",
+               render_inline(cmd("/file", "remove", selector=Find.by(name=names.remote_script)))]
+    if options.mode == ApplyMode.IMPORT:
+        return "\n".join([generated_text.rstrip("\n"), *cleanup]) + "\n"
     if options.mode != ApplyMode.RESET_AND_IMPORT:
         return generated_text
     lines = [
@@ -181,9 +187,5 @@ def build_upload_script(
         lines += ["# ---- ADMIN PASSWORD ----",
                   render_inline(cmd("/user", "set", selector=Find.by(name="admin"),
                                     password=password))]
-    lines += [
-        generated_text.rstrip("\n"),
-        "# ---- CLEANUP ----",
-        render_inline(cmd("/file", "remove", selector=Find.by(name=names.remote_script))),
-    ]
+    lines += [generated_text.rstrip("\n"), *cleanup]
     return "\n".join(lines) + "\n"

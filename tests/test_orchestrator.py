@@ -115,6 +115,42 @@ def test_import_over_ssh_reconnects_to_new_port():
     assert ("apply.connection_lost", StepStatus.WARNING) in [(e.step, e.status) for e in events]
 
 
+def test_the_import_gets_its_own_time_to_answer():
+    """import_timeout_s was an option nothing used: /import had the 30 s of any command."""
+    router, orchestrator, _, _ = build(import_timeout_s=123.0)
+    assert orchestrator.run().succeeded
+    assert router.import_reply_limits == [123.0]
+
+
+def test_an_import_whose_answer_came_too_late_is_checked_not_failed():
+    """v6 hEX S, 2026-09-25: the import switched the session's bridge to STP, nothing was
+    forwarded for 39 s, and the flow called it failed although the device had run it all."""
+    router, orchestrator, events, _ = build()
+    router.import_answer_late = True
+    report = orchestrator.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert report.connection_lost_during == "execute"
+    steps = [(e.step, e.status) for e in events]
+    assert ("apply.connection_lost", StepStatus.WARNING) in steps
+    assert ("apply.step.verify", StepStatus.OK) in steps
+    assert "quickset-20260915-100000.rsc" not in router.files  # cleaned up after all
+
+
+def test_an_import_that_stopped_silently_is_a_failed_check():
+    """6.49.10 over SSH: the import stopped at "mstp requires vlan-filtering", answered
+    nothing, and the flow said "Import skriptu OK" (2026-09-25)."""
+    router, orchestrator, events, _ = build(kind=TransportKind.SSH, port=22)
+    router.import_stops_silently = "failure: mstp requires vlan-filtering"
+    report = orchestrator.run()
+    assert not report.succeeded
+    first = report.checks[0]
+    assert first.code == "verify.import_script" and not first.ok
+    assert first.params["error"] == "script error: failure: mstp requires vlan-filtering"
+    step = next(e for e in events if e.step == "apply.step.execute_import"
+                and e.status != StepStatus.RUNNING)
+    assert step.status == StepStatus.WARNING
+
+
 def test_old_backups_are_pruned_after_the_apply():
     router, orchestrator, events, _ = build(keep_backups=2)
     old = ["pre-quickset-20260901-100000", "pre-quickset-20260910-100000",

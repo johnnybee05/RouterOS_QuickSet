@@ -32,6 +32,7 @@ from mqs.apply.rollback import cancel_rollback, schedule_rollback
 from mqs.apply.update import firmware_newer, leftover_packages
 from mqs.apply.verify import (
     CheckResult,
+    check_import_script,
     check_reset_script,
     check_routeros_version,
     verify_configuration,
@@ -377,8 +378,19 @@ class ApplyOrchestrator:
             else:
                 file = self.names.remote_script
                 self._event("apply.step.execute_import", StepStatus.RUNNING, file=file)
-                self.transport.execute("/import", file_name=file)
-                self._event("apply.step.execute_import", StepStatus.OK, file=file)
+                try:
+                    with self.transport.reply_timeout(self.ctx.options.import_timeout_s):
+                        self.transport.execute("/import", file_name=file)
+                except CommandTimeout as exc:
+                    # The device runs the file whatever becomes of our wait for its
+                    # answer. On the v6 hEX S (2026-09-25) a bridge switched to STP
+                    # carried the session and forwarded nothing for 39 s, and the import
+                    # had run to its end; the checks after the reconnect say whether it did.
+                    raise ConnectionLost(f"no answer to /import: {exc}") from exc
+                # The script removes itself last; still there, it stopped on the way.
+                left = file in {f.get("name", "") for f in self.transport.execute("/file/print")}
+                self._event("apply.step.execute_import",
+                            StepStatus.WARNING if left else StepStatus.OK, file=file)
         except ConnectionLost as exc:
             # Expected e.g. over SSH when the SSH port changes; verified after reconnect.
             self.report.connection_lost_during = "execute"
@@ -463,7 +475,7 @@ class ApplyOrchestrator:
                 self._event("apply.step.reconnect", StepStatus.SKIPPED, hosts=params.host,
                             api_port=target.api_port, ssh_port=target.ssh_port)
                 return
-            except ConnectionLost:
+            except (ConnectionLost, CommandTimeout):
                 self.report.connection_lost_during = self.report.connection_lost_during or \
                     "verify"
         self._event("apply.step.reconnect", StepStatus.RUNNING, hosts=target.describe(),
@@ -492,15 +504,22 @@ class ApplyOrchestrator:
         self._event("apply.step.verify", StepStatus.RUNNING)
         try:
             checks, issues = verify_configuration(self.transport, self.ctx.profile, self.result)
+            # First: a script that stopped half-way explains every other check.
             if self.ctx.options.mode == ApplyMode.RESET_AND_IMPORT:
-                # First: a script that stopped half-way explains every other check.
                 checks.insert(0, check_reset_script(self.transport, self.names.remote_script))
+            elif self._imported_file():
+                checks.insert(0, check_import_script(self.transport, self.names.remote_script))
         except TransportError as exc:
             raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
         self.report.checks.extend(checks)
         self.report.issues.extend(issues)
         status = StepStatus.OK if all(c.ok for c in checks) else StepStatus.WARNING
         self._event("apply.step.verify", status)
+
+    def _imported_file(self) -> bool:
+        """The configuration went in by `/import` of the uploaded file, not line by line."""
+        upload = self.report.upload
+        return upload is not None and upload.strategy != UploadStrategy.LINE_BY_LINE
 
     def _verify_update(self) -> None:
         """The device runs the version the packages were, and no package is left over.

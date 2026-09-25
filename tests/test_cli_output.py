@@ -2,7 +2,13 @@ import pytest
 
 from mqs.generator.ir import Find, cmd
 from mqs.transport.base import api_word, args_from_kwargs, command_selector_args, split_path
-from mqs.transport.cli_output import find_error, parse_key_value, parse_terse, sanitize
+from mqs.transport.cli_output import (
+    find_error,
+    parse_key_value,
+    parse_log,
+    parse_terse,
+    sanitize,
+)
 
 
 def test_sanitize_strips_ansi_and_carriage_returns():
@@ -81,6 +87,21 @@ def test_parse_terse_empty_values_of_routeros_6():
     assert ssh["address"] == ""
     assert all_list["comment"] == "contains all interfaces"
     assert (all_list["include"], all_list["exclude"]) == ("", "")
+
+
+def test_parse_log_of_routeros_6():
+    """6.49.10 prints /log the same with and without terse (2026-09-25)."""
+    text = (
+        "sep/02 06:09:53 system,info,account user admin logged in from 192.168.201.250 via api \r\n"
+        "jan/02/1970 01:00:46 system,info log rule changed \r\n"
+        "20:08:06 script,error script error: failure: mstp requires vlan-filtering \r\n"
+        "2026-09-24 21:05:31 system,info,account user bee logged out \r\n"
+    )
+    rows = parse_log(text)
+    assert [r["time"] for r in rows] == ["sep/02 06:09:53", "jan/02/1970 01:00:46",
+                                         "20:08:06", "2026-09-24 21:05:31"]
+    assert rows[2] == {"time": "20:08:06", "topics": "script,error",
+                       "message": "script error: failure: mstp requires vlan-filtering"}
 
 
 def test_parse_terse_without_index():
