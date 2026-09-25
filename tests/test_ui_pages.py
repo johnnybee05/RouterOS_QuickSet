@@ -22,7 +22,7 @@ from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolM
 from mqs.model.inventory import Ipv6PackageState
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
-from mqs.transport.base import AuthError, ConnectionParams
+from mqs.transport.base import AuthError, ConnectionLost, ConnectionParams
 from mqs.transport.factory import ConnectOutcome, TransportChoice
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
@@ -283,6 +283,53 @@ def test_connect_by_mac_confirms_then_connects(window, qtbot):
     assert window.controller.inventory is not None
     assert window.status_connection.text() == (
         "Připojeno: 01:02:03:04:05:06 (přes mac-telnet; api-ssl:8729 na 192.168.88.253)")
+
+
+def test_connect_by_mac_cancelled_during_the_login_gives_the_address_back(window, qtbot):
+    """2026-09-25, v6 hEX S: "Zrušit" pressed while MAC-Telnet logged in closed the new
+    connection under the task, the window said "api-ssl transport is not connected" and
+    the lent address stayed on the device."""
+    page = window.device_page
+    inner = page.mac_connect_fn
+
+    def cancelled_meanwhile(*args, **kwargs):
+        result = inner(*args, **kwargs)
+        page.cancel_connect()  # the user, while the login was still running
+        return result
+
+    page.mac_connect_fn = cancelled_meanwhile
+    page.toggle_scan()
+    page.scan_tick()
+    page.scan_table.selectRow(0)
+    window.test_dialogs.answers["question"] = True
+    page.connect_by_mac_clicked()
+    qtbot.waitUntil(lambda: not window.runner.busy, timeout=5000)
+    assert page.session is None
+    assert page.connect_status.text() == "Připojení bylo přerušeno."
+    assert window.test_dialogs.errors == []
+    removed = window.test_transport.commands[-1]
+    assert (removed.path, removed.verb) == ("/ip address", "remove")
+    assert removed.selector.get("address") == "192.168.88.253/24"
+    assert not window.test_transport.connected
+
+
+def test_a_plain_connect_cancelled_is_reported_as_cancelled(window, qtbot):
+    page = window.device_page
+
+    def discover(transport, on_step):
+        page.cancel_connect()  # closes the transport under the task
+        transport.execute("/system/resource/print")  # what the next step would do
+        raise AssertionError("unreachable")
+
+    def gone(path, /, **args):
+        raise ConnectionLost("api-ssl transport is not connected")
+
+    window.test_transport.execute = gone
+    page.discover_fn = discover
+    connect(window, qtbot)
+    assert page.session is None
+    assert page.connect_status.text() == "Připojení bylo přerušeno."
+    assert window.test_dialogs.errors == []
 
 
 def test_connect_by_mac_without_local_interface_reports_error(window):

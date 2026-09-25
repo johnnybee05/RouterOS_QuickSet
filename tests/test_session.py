@@ -160,6 +160,53 @@ def test_open_mac_session_keeps_the_way_back_to_the_console(method, host, expect
     assert session.temp_address == "192.168.55.254/24"
 
 
+class Stop(Exception):
+    pass
+
+
+@pytest.mark.parametrize("fails_in", ["on_connected", "discover"])
+def test_a_mac_session_that_fails_to_open_gives_the_lent_address_back(fails_in):
+    """A connect cancelled in the window left 192.168.55.254 on a v6 hEX S (2026-09-25)."""
+    transport = FakeTransport()
+    transport.connect()
+
+    def mac_connect(device, params, address, interface, **kwargs):
+        return MacConnectResult(ConnectOutcome(transport), MacConnectMethod.MAC_TELNET,
+                                temp_address="192.168.55.254/24", host="192.168.55.254")
+
+    def fail(*args, **kwargs):
+        raise Stop
+
+    ok = lambda t, on_step: make_inventory("7.20.7", FIVE_PORTS)  # noqa: E731
+    with pytest.raises(Stop):
+        open_mac_session(
+            DEVICE, PARAMS, IPv4Address("192.168.55.254"), LOCAL, mac_connect=mac_connect,
+            on_connected=fail if fails_in == "on_connected" else lambda t: None,
+            discover=fail if fails_in == "discover" else ok,
+            probe=lambda t, version: {}, session_port=lambda t, h: "ether1",
+        )
+    removed = transport.commands[0]
+    assert (removed.path, removed.verb) == ("/ip address", "remove")
+    assert removed.selector.get("address") == "192.168.55.254/24"
+    assert not transport.connected
+
+
+def test_a_mac_session_whose_connection_is_gone_is_only_closed():
+    transport = FakeTransport()  # never connected: nothing to give the address back over
+
+    def mac_connect(device, params, address, interface, **kwargs):
+        return MacConnectResult(ConnectOutcome(transport), MacConnectMethod.MAC_TELNET,
+                                temp_address="192.168.55.254/24", host="192.168.55.254")
+
+    def lost(t, on_step):
+        raise TransportError("api-ssl transport is not connected")
+
+    with pytest.raises(TransportError):
+        open_mac_session(DEVICE, PARAMS, IPv4Address("192.168.55.254"), LOCAL,
+                         mac_connect=mac_connect, discover=lost)
+    assert transport.commands == []
+
+
 def connected(session: DeviceSession) -> DeviceSession:
     session.transport.connect()
     return session

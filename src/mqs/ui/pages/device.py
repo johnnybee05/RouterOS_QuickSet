@@ -371,8 +371,14 @@ class DevicePage(Page):
             outcome = self.connect_fn(params, choice, api_port=api_port, ssh_port=ssh_port,
                                       cancelled=token.cancelled)
             token.on_cancel(outcome.transport.close)
-            return self._discover_session(outcome.transport, params, report,
-                                          fell_back=outcome.fell_back)
+            try:
+                return self._discover_session(outcome.transport, params, report,
+                                              fell_back=outcome.fell_back)
+            except TransportError as exc:
+                # Closed under the task by the cancel: "not connected" is how that ends.
+                if token.cancelled():
+                    raise Cancelled("connect cancelled") from exc
+                raise
 
         self._connect_token = self.runner.start(
             task, on_finished=self._connected, on_failed=self._connect_failed,
@@ -413,10 +419,22 @@ class DevicePage(Page):
         self.connect_status.setText(S.CONNECT_PROGRESS)
 
         def task(token: CancelToken, report: Callable[[object], None]) -> DeviceSession:
+            # A cancel is taken between steps instead of by closing the connection under
+            # the task, as the plain connect does: the address lent to the device can only
+            # be given back over that connection. On 2026-09-25 a cancel during the
+            # MAC-Telnet login closed it and left the address on the device, and the
+            # window reported "api-ssl transport is not connected" instead of a cancel.
+            def check(_: object = None) -> None:
+                if token.cancelled():
+                    raise Cancelled("connect cancelled")
+
+            def step(value: object) -> None:
+                check()
+                report(value)
+
             return open_mac_session(
                 device, params, address, interface, choice,
-                api_port=api_port, ssh_port=ssh_port, on_step=report,
-                on_connected=lambda transport: token.on_cancel(transport.close),
+                api_port=api_port, ssh_port=ssh_port, on_step=step, on_connected=check,
                 mac_connect=self.mac_connect_fn, discover=self.discover_fn,
                 probe=self.probe_fn, session_port=self.session_port_fn,
             )

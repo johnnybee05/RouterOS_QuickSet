@@ -167,13 +167,24 @@ def open_mac_session(
     """
     result = mac_connect(device, params, address, interface, choice=choice,
                          api_port=api_port, ssh_port=ssh_port, on_step=on_step)
-    on_connected(result.transport)
     reached = replace(params, host=result.host or str(address))
-    return discover_session(
-        result.transport, reached, on_step=on_step,
-        temp_address=result.temp_address, mac_method=result.method.value,
-        mac_route=MacRoute(device, interface, address), **discover_fns,
-    )
+    try:
+        on_connected(result.transport)
+        return discover_session(
+            result.transport, reached, on_step=on_step,
+            temp_address=result.temp_address, mac_method=result.method.value,
+            mac_route=MacRoute(device, interface, address), **discover_fns,
+        )
+    except BaseException:
+        # Nobody else holds the session yet, so nobody else would give the address back:
+        # on 2026-09-25 a connect cancelled in the window left 192.168.55.254 on a v6
+        # hEX S for good. It can only go over the connection that is still open.
+        if result.temp_address is not None and result.transport.connected:
+            with contextlib.suppress(TransportError):
+                remove_temp_address(result.transport, result.temp_address)
+        with contextlib.suppress(OSError, TransportError):
+            result.transport.close()
+        raise
 
 
 class LazySsh:
