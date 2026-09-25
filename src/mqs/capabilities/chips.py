@@ -31,6 +31,9 @@ class ChipInfo:
     mstp: Tri = Tri.UNKNOWN
     vlan_filtering_v6: Tri = Tri.UNKNOWN
     vlan_filtering_v7: Tri = Tri.UNKNOWN
+    # Offload of a bridge running STP, RSTP or MSTP; NO is the only value acted on.
+    stp_v6: Tri = Tri.UNKNOWN
+    stp_v7: Tri = Tri.UNKNOWN
     # NO = the vendor does not support/recommend bridge HW offload on this chip at all.
     hw_offload: Tri = Tri.YES
     verified: bool = False
@@ -38,6 +41,9 @@ class ChipInfo:
 
     def vlan_filtering(self, major: int) -> Tri:
         return self.vlan_filtering_v6 if major == 6 else self.vlan_filtering_v7
+
+    def stp(self, major: int) -> Tri:
+        return self.stp_v6 if major == 6 else self.stp_v7
 
 
 def _normalize(chip_type: str) -> str:
@@ -56,6 +62,8 @@ def _chip(chip_type: str, values: dict[str, Any]) -> ChipInfo:
         mstp=Tri.of(values.get("mstp")),
         vlan_filtering_v6=Tri.of(values.get("vlan_filtering_v6")),
         vlan_filtering_v7=Tri.of(values.get("vlan_filtering_v7")),
+        stp_v6=Tri.of(values.get("stp_v6")),
+        stp_v7=Tri.of(values.get("stp_v7")),
         hw_offload=Tri.of(values.get("hw_offload", True)),
         verified=bool(values.get("verified", False)),
     )

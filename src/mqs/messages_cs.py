@@ -114,6 +114,10 @@ MESSAGES: dict[str, str] = {
     "Přepněte na rstp, nebo HW offload vypněte.",
     "offload.vlan_filtering_unsupported": "vlan-filtering=yes vypíná HW offload na čipu "
     "{chip_type}.",
+    "offload.stp_unsupported": "Čip {chip_type} s touto verzí RouterOS neoffloaduje bridge se "
+    "STP/RSTP/MSTP.",
+    "offload.stp_no_offload": "Čip {chip_type} ({chip}) s RouterOS {version} neoffloaduje bridge "
+    "s protocol-mode={mode}, porty poběží přes CPU. Pro HW offload zvolte protocol-mode=none.",
     "offload.vlan_filtering_uncertain": "Offload s vlan-filtering na čipu {chip_type} není jistý, "
     "ověřte po aplikaci.",
     "offload.ok": "Offload na čipu {chip_type} ({chip}).",
@@ -130,6 +134,8 @@ MESSAGES: dict[str, str] = {
     "target.unsupported_version": "RouterOS {version} není podporovaný (podporováno 6.40+ a 7.x).",
     "bridge.mstp_unsupported_version": "protocol-mode=mstp není na RouterOS {version} dostupný. "
     "Použijte rstp.",
+    "bridge.mstp_needs_vlan_filtering": "RouterOS {version} přijme protocol-mode=mstp jen se "
+    "zapnutým vlan-filtering. Zapněte vlan-filtering, nebo použijte rstp.",
     "fasttrack.hw_offload_skipped": "hw-offload na FastTrack pravidle se nevygeneruje – verze "
     "nebo hardware ho nepodporuje, případně to nebylo ověřeno na zařízení.",
     "dns.remote_requests_in_hardening": "Hardening blok nastavuje allow-remote-requests="

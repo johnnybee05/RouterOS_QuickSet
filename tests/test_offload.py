@@ -227,6 +227,27 @@ def test_the_mt7621_of_a_routeros_6_hex_s_is_known():
     assert not [i for i in vlan.issues if i.code == "offload.vlan_filtering_uncertain"]
 
 
+@pytest.mark.parametrize(("version", "mode", "offloaded"), [
+    ("6.49.10", ProtocolMode.NONE, True),
+    ("6.49.10", ProtocolMode.STP, False),
+    ("6.49.10", ProtocolMode.RSTP, False),
+    ("7.15", ProtocolMode.RSTP, True),  # documented "+", not measured: left as it was
+])
+def test_mt7621_on_routeros_6_offloads_no_spanning_tree(version, mode, offloaded):
+    """RB760iGS, 6.49.10 (2026-09-25): H on every port with protocol-mode none, on none with
+    stp or rstp; hw=yes there only made the checklist fail."""
+    ports = ["ether2", "ether3"]
+    caps = Capabilities.offline(version, ports, switches={"switch1": "MediaTek-MT7621"},
+                                port_switch=dict.fromkeys(ports, "switch1"))
+    plan = plan_offload(BridgeConfig(ports=ports, protocol_mode=mode), caps)
+    assert [p.hw for p in plan.ports] == [offloaded, offloaded]
+    warned = [i for i in plan.issues if i.code == "offload.stp_no_offload"]
+    assert len(warned) == (0 if offloaded else 1)
+    if warned:
+        assert plan.for_port("ether2").reason == "offload.stp_unsupported"
+        assert "protocol-mode=" + mode.value in warned[0].message
+
+
 def test_an_uncertain_chip_is_reported_once_not_for_every_port():
     ports = ["ether2", "ether3", "ether4"]
     caps = Capabilities.offline("7.15", ports, switches={"switch1": "XYZ-9000"},

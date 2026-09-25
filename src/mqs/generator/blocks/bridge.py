@@ -41,6 +41,14 @@ def build(
                 Issue("bridge.mstp_unsupported_version", Severity.ERROR, "bridge.protocol_mode",
                       {"version": str(ctx.version)})
             )
+        elif (bridge.protocol_mode == ProtocolMode.MSTP and not bridge.vlan_filtering
+              and ctx.major == 6):
+            # "failure: mstp requires vlan-filtering" (6.49.10, v6 hEX S, 2026-09-25); an
+            # import stops at that line. Whether v7 asks the same is NUTNO OVĚŘIT.
+            issues.append(
+                Issue("bridge.mstp_needs_vlan_filtering", Severity.ERROR, "bridge.protocol_mode",
+                      {"version": str(ctx.version)})
+            )
         args: dict[str, ArgValue] = {"name": bridge.name, "protocol-mode": bridge.protocol_mode}
         if bridge.priority is not None:
             args["priority"] = f"0x{bridge.priority:04X}"

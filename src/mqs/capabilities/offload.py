@@ -127,6 +127,7 @@ def plan_offload(
 
     decisions: list[PortOffload] = []
     conflict_chips: dict[str, str] = {}
+    stp_chips: dict[str, str] = {}
     forced = bridge.hw_offload == HwOffloadMode.FORCE_ON
 
     for name in bridge.ports:
@@ -165,6 +166,10 @@ def plan_offload(
             conflict_chips[cap.switch] = cap.chip_type
             decisions.append(decide(OffloadStatus.NO, "offload.mstp_unsupported", False))
             continue
+        if bridge.protocol_mode != ProtocolMode.NONE and chip.stp(version.major) == Tri.NO:
+            stp_chips[cap.switch] = cap.chip_type
+            decisions.append(decide(OffloadStatus.NO, "offload.stp_unsupported"))
+            continue
         if bridge.vlan_filtering:
             support = chip.vlan_filtering(version.major)
             if support == Tri.NO:
@@ -182,6 +187,12 @@ def plan_offload(
         issues.append(
             Issue("offload.mstp_conflict", Severity.ERROR, "bridge.protocol_mode",
                   {"chip": switch, "chip_type": chip_type})
+        )
+    for switch, chip_type in sorted(stp_chips.items()):
+        issues.append(
+            Issue("offload.stp_no_offload", Severity.WARNING, "bridge.protocol_mode",
+                  {"chip": switch, "chip_type": chip_type, "version": str(version),
+                   "mode": bridge.protocol_mode.value})
         )
     if bridge.use_ip_firewall and bridge.hw_offload != HwOffloadMode.OFF:
         issues.append(Issue("offload.use_ip_firewall", Severity.WARNING, "bridge.use_ip_firewall"))

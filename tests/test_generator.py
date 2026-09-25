@@ -397,6 +397,18 @@ def test_rb4011_offload_lines():
     assert explicit.text == result.text
 
 
+def test_routeros_6_takes_mstp_only_with_vlan_filtering():
+    """6.49.10: "failure: mstp requires vlan-filtering", and the import stopped there."""
+    profile = router_dhcp()
+    mstp = _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.MSTP))
+    assert "bridge.mstp_needs_vlan_filtering" in codes(generate(mstp, target("6.49.10")).issues)
+    filtering = _u(mstp, bridge=_u(mstp.bridge, vlan_filtering=True))
+    assert "bridge.mstp_needs_vlan_filtering" not in codes(
+        generate(filtering, target("6.49.10")).issues)
+    assert "bridge.mstp_needs_vlan_filtering" not in codes(
+        generate(mstp, target("7.15.3")).issues)
+
+
 def test_mstp_unsupported_version_and_conflict():
     profile = router_dhcp()
     profile = _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.MSTP))

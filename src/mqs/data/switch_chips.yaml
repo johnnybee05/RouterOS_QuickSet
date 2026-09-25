@@ -13,6 +13,9 @@
 # Values: true | false | unknown. "unknown" never silently enables anything:
 #   - mstp: anything other than true + protocol-mode=mstp -> conflict shown to the user
 #   - vlan_filtering_v6 / vlan_filtering_v7: unknown -> "nejisté, ověř po aplikaci"
+#   - stp_v6 / stp_v7: whether a bridge with protocol-mode stp, rstp or mstp is offloaded;
+#     only false changes anything (the ports are not offered offload), unknown keeps the
+#     documentation's "+" for STP/RSTP
 #   - hw_offload: false -> offload is not offered for the chip at all (user can force it)
 #
 # verified: false everywhere. The values come from the documentation, NOT from a device
@@ -51,8 +54,11 @@ chips:
 
   # --- MediaTek / Econet: hEX, hEX refresh, hAP ax lite, RBM33G --------------------
   # Offload table row "[MT7621, MT7531, EN7523]": MSTP "+", VLAN filtering "+" (v7.1+).
+  # stp_v6: RouterOS 6.49.10 on an RB760iGS offloads a bridge with protocol-mode none
+  # (H on every switch port) and none with stp or rstp (2026-09-25; mstp needs
+  # vlan-filtering there, which offloads nothing on v6 either).
   MT7621: &mt7621 {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true,
-                   verified: false}
+                   stp_v6: false, verified: false}
   # The type string RouterOS 6.49.10 reports on an RB760iGS (hEX S, 2026-09-25). Without
   # it the chip was unknown: offload "uncertain" with vlan-filtering, and MSTP refused.
   MediaTek-MT7621: *mt7621
