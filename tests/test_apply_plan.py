@@ -295,9 +295,21 @@ def test_lockout_warnings():
 
     pppoe = profile.model_copy(update={"wan": profile.wan.model_copy(update={
         "settings": PppoeWan(username="u")})})
-    issues = preflight(pppoe, generate(pppoe, TargetContext.from_inventory(inventory)), [],
-                       ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
+    pppoe_result = generate(pppoe, TargetContext.from_inventory(inventory))
+    issues = preflight(pppoe, pppoe_result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+                       session_port="ether1")
     assert "apply.lockout_wan_pppoe" in codes(issues)
+    # By MAC it comes back over an address lent to the port, if the filter lets it in
+    # (the v6 hEX S did after a reset to PPPoE, 2026-09-25).
+    by_mac = preflight(pppoe, pppoe_result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+                       session_port="ether1", by_mac=True)
+    assert "apply.lockout_wan_pppoe" not in codes(by_mac)
+    assert "apply.session_by_mac_on_wan_pppoe" in codes(by_mac)
+    shut = pppoe.model_copy(update={"firewall": pppoe.firewall.model_copy(
+        update={"wan_management": False})})
+    assert "apply.lockout_wan_pppoe" in codes(preflight(
+        shut, generate(shut, TargetContext.from_inventory(inventory)), [],
+        ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1", by_mac=True))
     reset = ApplyOptions(ApplyMode.RESET_AND_IMPORT, confirmed_identity="MikroTik",
                          admin_password="x")
     other = profile.model_copy(update={"bridge": profile.bridge.model_copy(

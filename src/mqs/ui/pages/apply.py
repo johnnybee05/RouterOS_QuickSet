@@ -260,6 +260,7 @@ class ApplyPage(Page):
             session.inventory if session else None,
             existing=existing,
             session_port=session.session_port if session else None,
+            by_mac=session is not None and session.reached_by_mac is not None,
         )
 
     def refresh(self) -> None:

@@ -352,7 +352,8 @@ def _apply_to(
     validation = validate_profile(profile, session.inventory)
     found = [*validation, *result.issues]
     issues = preflight(profile, result, validation, options, session.inventory,
-                       existing=existing, session_port=session.session_port)
+                       existing=existing, session_port=session.session_port,
+                       by_mac=session.reached_by_mac is not None)
     if mode == ApplyMode.GENERATE_ONLY:
         # What the offline generate reports, and the window's preview shows: the preflight
         # of an apply that will not happen has nothing to add.

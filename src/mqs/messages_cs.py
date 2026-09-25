@@ -183,6 +183,9 @@ MESSAGES: dict[str, str] = {
     "apply.lockout_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane WAN. "
     "Základní filtr bez správy z WAN tam zahodí nová spojení, takže se po aplikaci přes "
     "tento port znovu nepřipojí. Zapněte „Povolit správu z WAN“ nebo se připojte z LAN.",
+    "apply.session_by_mac_on_wan_pppoe": "Aplikace je k zařízení připojená přes MAC na portu "
+    "{port}, na kterém poběží PPPoE. Po aplikaci se vrátí stejně, přes adresu zapůjčenou na "
+    "tomto portu; správa z WAN zůstane dostupná ({paths}).",
     "apply.lockout_wan_pppoe": "Aplikace je k zařízení připojená přes port {port}, na kterém "
     "poběží PPPoE. Port sám nebude mít IP adresu, takže se po aplikaci přes něj znovu "
     "nepřipojí. Připojte se z LAN.",

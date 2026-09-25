@@ -27,7 +27,10 @@ def preflight(
     *,
     existing: ExistingObjects | None = None,
     session_port: str | None = None,
+    by_mac: bool = False,
 ) -> list[Issue]:
+    """``by_mac``: the session came in by MAC, and after the apply it comes back the same
+    way, over an address lent to the port it announces itself on."""
     issues: list[Issue] = []
     result = result_for_mode(result, options.mode)
     # Both were read from the device before the apply; the profile uses the names after it.
@@ -75,7 +78,7 @@ def preflight(
 
     if session_port is not None:
         if session_port == wan_port(profile):
-            issues.append(_wan_session(profile, result, session_port))
+            issues.append(_wan_session(profile, result, session_port, by_mac=by_mac))
         elif (options.mode == ApplyMode.RESET_AND_IMPORT
               and session_port not in profile.bridge.ports):
             issues.append(Issue("apply.lockout_unconfigured_port", W, "bridge.ports",
@@ -139,15 +142,23 @@ def prepare_import(result: GenerationResult, options: ApplyOptions,
     return adopt_existing(result, existing)[0]
 
 
-def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str) -> Issue:
+def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str, *,
+                 by_mac: bool = False) -> Issue:
     """What becomes of a session that arrives on the port the profile turns into WAN."""
-    if wan_l3_interface(profile) != port:  # PPPoE: the port itself keeps no IP address
-        return Issue("apply.lockout_wan_pppoe", W, "wan.interface", {"port": port})
     firewall = profile.firewall
-    if firewall.basic_filter and not firewall.wan_management:
+    closed = firewall.basic_filter and not firewall.wan_management
+    paths = ", ".join(f"{n} {result.access.services[n].port}" for n in result.access.remaining)
+    if wan_l3_interface(profile) != port:  # PPPoE: the port itself keeps no IP address
+        if by_mac and not closed:
+            # The port gets an address lent again, and management is let in from WAN: the
+            # v6 hEX S came back that way after a reset to PPPoE (2026-09-25), while this
+            # warned that it would not.
+            return Issue("apply.session_by_mac_on_wan_pppoe", INFO, "wan.interface",
+                         {"port": port, "paths": paths})
+        return Issue("apply.lockout_wan_pppoe", W, "wan.interface", {"port": port})
+    if closed:
         return Issue("apply.lockout_wan", W, "firewall.wan_management", {"port": port})
     # The filter is off, or it lets the management services in from WAN.
-    paths = ", ".join(f"{n} {result.access.services[n].port}" for n in result.access.remaining)
     return Issue("apply.session_on_wan", INFO, "wan.interface", {"port": port, "paths": paths})
 
 
