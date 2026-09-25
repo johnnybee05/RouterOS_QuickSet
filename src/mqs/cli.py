@@ -326,15 +326,22 @@ def _apply_to(
         context = context.after_update(options.update_target)
     result = generate(profile, context)
     existing = collect_existing_fn(session.transport) if mode != ApplyMode.GENERATE_ONLY else None
-    issues = preflight(profile, result, validate_profile(profile, session.inventory), options,
-                       session.inventory, existing=existing, session_port=session.session_port)
+    validation = validate_profile(profile, session.inventory)
+    found = [*validation, *result.issues]
+    issues = preflight(profile, result, validation, options, session.inventory,
+                       existing=existing, session_port=session.session_port)
     if mode == ApplyMode.GENERATE_ONLY:
         # What the offline generate reports, and the window's preview shows: the preflight
         # of an apply that will not happen has nothing to add.
-        issues = [*validate_profile(profile, session.inventory), *result.issues]
+        issues = found
         if args.out:
             Path(args.out).write_text(result.text, encoding="utf-8", newline="\n")
             print(f"written to {args.out}", file=out)
+    else:
+        # The window shows these in its preview before an apply; here they came out only
+        # as "blocked by errors", without the error (MSTP without vlan-filtering on v6).
+        issues = [*(i for i in found if i.severity != Severity.INFO and i not in issues),
+                  *issues]
     print("\npreflight:", file=out)
     print_issues(issues, out)
     if any(i.severity == Severity.ERROR for i in issues):

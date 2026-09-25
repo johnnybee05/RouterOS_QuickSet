@@ -16,6 +16,7 @@ from mqs.apply.plan import ApplyMode
 from mqs.apply.session import DeviceSession
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
+from mqs.model.bridge import ProtocolMode
 from mqs.model.inventory import PackageInfo
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
@@ -104,6 +105,22 @@ def test_generate_for_a_device_writes_the_script_and_reports_the_generator(
     assert "/interface bridge" in script.read_text(encoding="utf-8")
     assert f"written to {script}" in out
     assert "fasttrack.hw_offload_skipped" in out  # no probe said yes
+
+
+def test_an_apply_blocked_by_the_generator_says_why(router, profile, tmp_path):
+    """Before, an import of MSTP without vlan-filtering onto RouterOS 6 printed only
+    "apply.blocked_by_errors", without the error itself."""
+    mstp = profile.model_copy(update={"bridge": profile.bridge.model_copy(
+        update={"protocol_mode": ProtocolMode.MSTP})})
+    source = tmp_path / "mstp.json"
+    source.write_text(profile_to_json(mstp), encoding="utf-8")
+    session = DeviceSession(ConnectionParams(host="10.0.0.1", username="admin"),
+                            router.session(), make_inventory("6.49.10", PORTS), {}, "ether9")
+    code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(source),
+                     "--mode", "import", "-y"], router, connect=lambda *a, **k: session)
+    assert code == cli.BLOCKED, out
+    assert "error   bridge.mstp_needs_vlan_filtering" in out
+    assert "/import" not in router.log
 
 
 def test_connect_describes_the_device(router):
