@@ -273,7 +273,10 @@ def build_uploader_factory(session: DeviceSession,
             ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
         console: LazyConsole | None = None
-        if session.mac_route is not None:
+        # RouterOS 6 has neither `/file add`, `/file read` nor `:convert` (6.49.10, v6
+        # hEX S, 2026-09-25), so its console moves no file; trying it cost a login and
+        # typed the whole script, admin password included, into the console for nothing.
+        if session.mac_route is not None and session.inventory.version.major >= 7:
             route = session.mac_route
             console = LazyConsole(route.device, session.params, str(route.interface.address))
             # Reached over MAC-Telnet, the console is the one path known to work: the IP

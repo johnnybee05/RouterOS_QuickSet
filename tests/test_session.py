@@ -72,6 +72,14 @@ def test_over_link_local_ssh_goes_first_and_the_console_is_a_fallback():
         UploadStrategy.SFTP, UploadStrategy.SCP, UploadStrategy.MAC_TELNET]
 
 
+@pytest.mark.parametrize("method", list(MacConnectMethod))
+def test_routeros_6_moves_no_files_over_its_console(method):
+    """6.49.10 has neither /file add, /file read nor :convert (v6 hEX S, 2026-09-25)."""
+    session = DeviceSession(PARAMS, FakeTransport(), make_inventory("6.49.10", FIVE_PORTS),
+                            mac_method=method.value, mac_route=ROUTE)
+    assert order(session) == [UploadStrategy.SFTP, UploadStrategy.SCP]
+
+
 def test_a_session_by_address_has_no_console():
     assert order(make_session()) == [UploadStrategy.SFTP, UploadStrategy.SCP]
 
