@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from factories import make_inventory
@@ -206,6 +208,31 @@ def test_chip_lookup_ignores_punctuation_and_case():
         chip = db.lookup(spelling)
         assert chip.known and chip.mstp == Tri.NO
     assert db.lookup("Marvell 98DX3236").vlan_filtering(7) == Tri.YES
+
+
+def test_the_mt7621_of_a_routeros_6_hex_s_is_known():
+    """RB760iGS on 6.49.10 reports its switch as "MediaTek-MT7621" (2026-09-25); unknown,
+    it made vlan-filtering "uncertain" on every port and refused MSTP."""
+    db = default_chip_database()
+    reported, documented = db.lookup("MediaTek-MT7621"), db.lookup("MT7621")
+    assert reported.known
+    assert replace(reported, type="MT7621") == documented
+    caps = Capabilities.offline("6.49.10", ["ether2", "ether3"],
+                                switches={"switch1": "MediaTek-MT7621"},
+                                port_switch={"ether2": "switch1", "ether3": "switch1"})
+    plain = plan_offload(BridgeConfig(ports=["ether2", "ether3"]), caps)
+    assert plain.for_port("ether2").reason == "offload.ok"
+    vlan = plan_offload(BridgeConfig(ports=["ether2", "ether3"], vlan_filtering=True), caps)
+    assert vlan.for_port("ether2").reason == "offload.vlan_filtering_unsupported"
+    assert not [i for i in vlan.issues if i.code == "offload.vlan_filtering_uncertain"]
+
+
+def test_an_uncertain_chip_is_reported_once_not_for_every_port():
+    ports = ["ether2", "ether3", "ether4"]
+    caps = Capabilities.offline("7.15", ports, switches={"switch1": "XYZ-9000"},
+                                port_switch=dict.fromkeys(ports, "switch1"))
+    plan = plan_offload(BridgeConfig(ports=ports, vlan_filtering=True), caps)
+    assert [i.code for i in plan.issues].count("offload.vlan_filtering_uncertain") == 1
 
 
 def test_documented_chips_are_all_known():

@@ -51,7 +51,11 @@ chips:
 
   # --- MediaTek / Econet: hEX, hEX refresh, hAP ax lite, RBM33G --------------------
   # Offload table row "[MT7621, MT7531, EN7523]": MSTP "+", VLAN filtering "+" (v7.1+).
-  MT7621: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  MT7621: &mt7621 {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true,
+                   verified: false}
+  # The type string RouterOS 6.49.10 reports on an RB760iGS (hEX S, 2026-09-25). Without
+  # it the chip was unknown: offload "uncertain" with vlan-filtering, and MSTP refused.
+  MediaTek-MT7621: *mt7621
   MT7531: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
   EN7523: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
 

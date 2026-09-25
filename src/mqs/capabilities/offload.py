@@ -190,8 +190,10 @@ def plan_offload(
             issues.append(Issue("offload.forced", Severity.WARNING, _FIELD,
                                 {"port": d.port, "original": d.params["original"]}))
         elif d.status == OffloadStatus.UNCERTAIN:
-            issues.append(Issue("offload.vlan_filtering_uncertain", Severity.WARNING, _FIELD,
-                                d.params))
+            uncertain = Issue("offload.vlan_filtering_uncertain", Severity.WARNING, _FIELD,
+                              d.params)
+            if uncertain not in issues:  # it names the chip, not the port: once per chip
+                issues.append(uncertain)
 
     grouped: dict[str, list[PortOffload]] = {}
     for d in decisions:
