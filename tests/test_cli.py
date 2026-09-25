@@ -88,6 +88,24 @@ def test_generate_without_a_device_writes_the_script(profile_file, tmp_path):
     assert "/interface bridge" in script.read_text(encoding="utf-8")
 
 
+def test_generate_for_a_device_writes_the_script_and_reports_the_generator(
+        router, profile, tmp_path):
+    """--out and the generator's findings used to be offline only (2026-09-25)."""
+    fasttrack = profile.firewall.fasttrack.model_copy(
+        update={"enabled": True, "hw_offload": True, "no_shaping_confirmed": True})
+    profile = profile.model_copy(update={"firewall": profile.firewall.model_copy(
+        update={"fasttrack": fasttrack})})
+    source = tmp_path / "profile.json"
+    source.write_text(profile_to_json(profile), encoding="utf-8")
+    script = tmp_path / "out.rsc"
+    code, out = run(["apply", "--host", "10.0.0.1", "--profile-file", str(source),
+                     "--mode", "generate", "--out", str(script)], router)
+    assert code == cli.OK, out
+    assert "/interface bridge" in script.read_text(encoding="utf-8")
+    assert f"written to {script}" in out
+    assert "fasttrack.hw_offload_skipped" in out  # no probe said yes
+
+
 def test_connect_describes_the_device(router):
     session = DeviceSession(ConnectionParams(host="10.0.0.1", username="admin"),
                             router.session(), make_inventory("7.15.3", PORTS), {}, "ether9")

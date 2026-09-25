@@ -328,6 +328,13 @@ def _apply_to(
     existing = collect_existing_fn(session.transport) if mode != ApplyMode.GENERATE_ONLY else None
     issues = preflight(profile, result, validate_profile(profile, session.inventory), options,
                        session.inventory, existing=existing, session_port=session.session_port)
+    if mode == ApplyMode.GENERATE_ONLY:
+        # What the offline generate reports, and the window's preview shows: the preflight
+        # of an apply that will not happen has nothing to add.
+        issues = [*validate_profile(profile, session.inventory), *result.issues]
+        if args.out:
+            Path(args.out).write_text(result.text, encoding="utf-8", newline="\n")
+            print(f"written to {args.out}", file=out)
     print("\npreflight:", file=out)
     print_issues(issues, out)
     if any(i.severity == Severity.ERROR for i in issues):
