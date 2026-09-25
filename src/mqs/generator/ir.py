@@ -156,11 +156,16 @@ class KeepOwnFirst(RawLine):
 
     `/import` and SSH run the line as it is; over the API, which has no console
     scripting, the application does the same with print and `move` (`apply.orchestrator`).
+
+    With `block`, the matching items move instead, as one block in their order, before
+    the first other one: RouterOS 6 cannot move an item that sits right above a builtin
+    one (the fasttrack counter dummy), see the v6 dialect.
     """
 
     menu: str = ""
     key: str = ""
     regex: str = ""
+    block: bool = False
 
 
 Item = Command | Comment | RawLine

@@ -48,6 +48,31 @@ def remove_own(path: str) -> Command:
     return cmd(path, "remove", selector=Find.matching("comment", OWN_REGEX))
 
 
+def keep_own_first(ctx: TargetContext) -> KeepOwnFirst:
+    """The line that puts our filter rules above the device's own ones, in both orders.
+
+    v7: `move` without a destination moves an item to the end, so the other rules are
+    moved one by one and keep their order below ours; a no-op on an empty table, and
+    dynamic rules (the fasttrack counter dummy) cannot be moved and are skipped. Verified
+    on 7.20.7.
+
+    v6: 6.49.10 cannot move an item that sits right above a builtin one ("failure:
+    cannot move builtin", in the console and over the API alike), so a rule placed on
+    top of the table, above the dummy, stopped the import at the v7 line. It does take
+    that item as a destination, and ours, just added at the end, never sit above the
+    dummy: they move as one block before the first other rule (v6 hEX S, 2026-09-25).
+    Whether 7.x refuses the same move NUTNO OVĚŘIT.
+    """
+    others = f"[ {FILTER} find where dynamic=no and !({OWN}) ]"
+    if ctx.major == 6:
+        return KeepOwnFirst(
+            f":if ([ :len {others} ] > 0) do={{ {FILTER} move [ find where dynamic=no and "
+            f"{OWN} ] destination=[ :pick {others} 0 ] }}",
+            menu=FILTER, key="comment", regex=OWN_REGEX, block=True)
+    return KeepOwnFirst(f":foreach i in={others} do={{ {FILTER} move $i }}",
+                        menu=FILTER, key="comment", regex=OWN_REGEX)
+
+
 def negate(match: dict[str, str]) -> dict[str, str]:
     return {key: f"!{value}" for key, value in match.items()}
 
@@ -144,15 +169,8 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
             Comment("Firewall: replace the rules of an earlier QuickSet run"),
             remove_own(FILTER),
         ]
-        section.add(
-            Comment("Firewall: keep the rules above those already on the device"),
-            # `move` without a destination moves an item to the end, so moving the other
-            # rules one by one keeps their order below ours. A no-op on an empty table.
-            # Dynamic rules (the fasttrack counter dummy) cannot be moved and are skipped.
-            KeepOwnFirst(f":foreach i in=[ {FILTER} find where dynamic=no and !({OWN}) ] "
-                         f"do={{ {FILTER} move $i }}",
-                         menu=FILTER, key="comment", regex=OWN_REGEX),
-        )
+        section.add(Comment("Firewall: keep the rules above those already on the device"),
+                    keep_own_first(ctx))
 
     if has_wan and profile.wan.nat_masquerade:
         # Appended after the rules already there: a more specific src-nat stays first.

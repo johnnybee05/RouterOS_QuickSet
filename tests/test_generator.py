@@ -9,7 +9,7 @@ from mqs.generator import features
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.generator.hardening import binding
-from mqs.generator.ir import Command, SectionKey
+from mqs.generator.ir import Command, KeepOwnFirst, SectionKey
 from mqs.issues import codes
 from mqs.model.bridge import HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.inventory import Ipv6PackageState, PackageInfo, ServiceInfo
@@ -328,6 +328,17 @@ def test_firewall_order_and_wan_management():
     assert (":foreach i in=[ /ip firewall filter find where dynamic=no and "
             '!(comment~"^quickset: ") ] '
             "do={ /ip firewall filter move $i }") in text
+
+    # RouterOS 6 cannot move a rule that sits right above the builtin fasttrack dummy
+    # (6.49.10), so ours move as a block before the first other rule instead.
+    v6 = generate(router_dhcp(), target("6.49.10"))
+    others = '[ /ip firewall filter find where dynamic=no and !(comment~"^quickset: ") ]'
+    assert (f":if ([ :len {others} ] > 0) do={{ /ip firewall filter move [ find where "
+            f'dynamic=no and comment~"^quickset: " ] destination=[ :pick {others} 0 ] }}'
+            ) in v6.text
+    assert ":foreach" not in v6.text
+    moving = next(i for i in v6.script.items() if isinstance(i, KeepOwnFirst))
+    assert moving.block
 
     profile = router_dhcp()
     services = _u(profile.services, management_subnet=IPv4Network("10.0.0.0/24"))

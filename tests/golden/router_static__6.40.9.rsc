@@ -49,7 +49,7 @@ add chain=forward action=accept comment="quickset: accept established,related,un
 add chain=forward action=drop comment="quickset: drop invalid" connection-state=invalid
 add chain=forward action=drop comment="quickset: drop all from WAN not DSTNATed" connection-state=new connection-nat-state=!dstnat in-interface=ether5
 # Firewall: keep the rules above those already on the device
-:foreach i in=[ /ip firewall filter find where dynamic=no and !(comment~"^quickset: ") ] do={ /ip firewall filter move $i }
+:if ([ :len [ /ip firewall filter find where dynamic=no and !(comment~"^quickset: ") ] ] > 0) do={ /ip firewall filter move [ find where dynamic=no and comment~"^quickset: " ] destination=[ :pick [ /ip firewall filter find where dynamic=no and !(comment~"^quickset: ") ] 0 ] }
 # NAT
 /ip firewall nat
 remove [ find where comment~"^quickset: " ]

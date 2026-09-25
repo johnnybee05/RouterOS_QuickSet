@@ -256,6 +256,30 @@ def test_keep_own_first_over_the_api():
     assert moves == [{"numbers": "*2"}, {"numbers": "*3"}]
 
 
+def test_keep_own_first_as_a_block_over_the_api():
+    """RouterOS 6: foreign-B right above the builtin dummy cannot be moved at all ("failure:
+    cannot move builtin", 6.49.10), so ours move before the first other rule instead."""
+    rows = [
+        {".id": "*C", "comment": "foreign-C"},
+        {".id": "*B", "comment": "foreign-B"},
+        {".id": "*1", "dynamic": "true", "comment": "special dummy rule"},
+        {".id": "*A", "comment": "foreign-A"},
+        {".id": "*4", "comment": "quickset: drop invalid"},
+        {".id": "*5", "comment": "quickset: accept from LAN"},
+    ]
+    fake = FakeTransport({"/ip/firewall/filter/print": rows, "/ip/firewall/filter/move": []})
+    keep_own_first(fake, KeepOwnFirst("(console line)", menu="/ip firewall filter",
+                                      key="comment", regex="^quickset: ", block=True))
+    moves = [args for path, args in fake.calls if path == "/ip/firewall/filter/move"]
+    assert moves == [{"numbers": "*4,*5", "destination": "*C"}]
+
+    alone = FakeTransport({"/ip/firewall/filter/print": rows[4:],
+                           "/ip/firewall/filter/move": []})
+    keep_own_first(alone, KeepOwnFirst("(console line)", menu="/ip firewall filter",
+                                       key="comment", regex="^quickset: ", block=True))
+    assert [p for p, _ in alone.calls if p.endswith("/move")] == []  # nothing to pass
+
+
 def test_reset_requires_file_not_line_by_line():
     router, orchestrator, _, _ = build(ApplyMode.RESET_AND_IMPORT, admin_password="x",
                                        confirmed_identity="MikroTik")

@@ -141,13 +141,21 @@ def keep_own_first(transport: Transport, item: KeepOwnFirst) -> None:
 
     Every static item whose ``item.key`` does not match ``item.regex`` is moved to the end
     in its order (`move` without a destination), so the matching ones end up first. Moving
-    by `.id` does not depend on the order the items are listed in while they move.
+    by `.id` does not depend on the order the items are listed in while they move. With
+    ``item.block`` (RouterOS 6) the matching ones move instead, in one `move` before the
+    first other item.
     """
     api_path = item.menu.replace(" ", "/")
-    for row in transport.execute(f"{api_path}/print"):
-        if to_bool(row, "dynamic", "D") or re.search(item.regex, row.get(item.key, "")):
-            continue
-        transport.execute(f"{api_path}/move", numbers=row[".id"])
+    rows = [r for r in transport.execute(f"{api_path}/print") if not to_bool(r, "dynamic", "D")]
+    own = [r[".id"] for r in rows if re.search(item.regex, r.get(item.key, ""))]
+    others = [r[".id"] for r in rows if not re.search(item.regex, r.get(item.key, ""))]
+    if item.block:
+        # RouterOS 6: ours as one block before the first other item (see KeepOwnFirst).
+        if own and others:
+            transport.execute(f"{api_path}/move", numbers=",".join(own), destination=others[0])
+        return
+    for row_id in others:
+        transport.execute(f"{api_path}/move", numbers=row_id)
 
 
 @dataclass
