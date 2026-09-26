@@ -63,7 +63,10 @@ chips:
   # it the chip was unknown: offload "uncertain" with vlan-filtering, and MSTP refused.
   MediaTek-MT7621: *mt7621
   MT7531: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
-  EN7523: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
+  # stp_v7: RouterOS 7.23.7 on an E60iUGS (hEX S) offloads ether2-5 with protocol-mode stp
+  # ("hardware offloading activated", H as planned, 2026-09-26); rstp and mstp not measured.
+  EN7523: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, stp_v7: true,
+           verified: false}
 
   # --- Realtek: RB4011, RB1100AHx4 -------------------------------------------------
   # Offload table row "[RTL8367]": MSTP "+", VLAN filtering "+" (v7.1+).

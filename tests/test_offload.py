@@ -248,6 +248,18 @@ def test_mt7621_on_routeros_6_offloads_no_spanning_tree(version, mode, offloaded
         assert "protocol-mode=" + mode.value in warned[0].message
 
 
+def test_en7523_on_routeros_7_offloads_stp():
+    """E60iUGS, 7.23.7 (2026-09-26): with protocol-mode stp, H on ether2-5 as planned."""
+    chip = default_chip_database().lookup("EN7523")
+    assert chip.stp(7) == Tri.YES and chip.stp(6) == Tri.UNKNOWN
+    ports = ["ether2", "ether3"]
+    caps = Capabilities.offline("7.23.7", ports, switches={"switch1": "EN7523"},
+                                port_switch=dict.fromkeys(ports, "switch1"))
+    plan = plan_offload(BridgeConfig(ports=ports, protocol_mode=ProtocolMode.STP), caps)
+    assert [p.hw for p in plan.ports] == [True, True]
+    assert not [i for i in plan.issues if i.code == "offload.stp_no_offload"]
+
+
 def test_an_uncertain_chip_is_reported_once_not_for_every_port():
     ports = ["ether2", "ether3", "ether4"]
     caps = Capabilities.offline("7.15", ports, switches={"switch1": "XYZ-9000"},
