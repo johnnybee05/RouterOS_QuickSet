@@ -3,6 +3,7 @@ from ipaddress import IPv4Address, IPv4Interface
 from factories import make_inventory
 from fake_transport import FakeTransport
 from mqs.apply.verify import (
+    check_import_script,
     compare_offload,
     expected_dhcp_clients,
     expected_gateways,
@@ -19,6 +20,7 @@ from mqs.model.inventory import BridgePortState
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import StaticWan, WanType
+from mqs.transport.cli_output import parse_log
 
 PORTS = [f"ether{i}" for i in range(1, 11)]
 
@@ -208,3 +210,20 @@ def test_an_open_connection_does_not_stand_in_for_its_service():
                                      profile, result)
     services = next(c for c in checks if c.code == "verify.services")
     assert services.params["services"] == "api-ssl"
+
+
+def test_the_stopped_import_is_quoted_from_a_7_23_7_log():
+    """7.23.7 over SSH (hEX S, 2026-09-26) writes "Script Error" after the session, and
+    the check quoted nothing ("chyba: ?")."""
+    log = parse_log(
+        " 2026-09-26 14:32:00 script,error executing script from sshd failed, please check"
+        " it manually\r\n"
+        " 2026-09-26 14:32:00 script,error,debug (ssh-cmd:bee+cet@192.168.55.55) Script"
+        " Error: failure: mstp requires vlan-filtering (/interface/bridge/set *0 = *0)"
+        " (/interface/bridge/set; line 18) (:import; line 1)\r\n")
+    fake = FakeTransport({"/file/print": [{"name": "quickset-1.rsc"}], "/log/print": log})
+    check = check_import_script(fake, "quickset-1.rsc")
+    assert not check.ok
+    assert check.params["error"] == (
+        "Script Error: failure: mstp requires vlan-filtering (/interface/bridge/set *0 = *0)"
+        " (/interface/bridge/set; line 18) (:import; line 1)")

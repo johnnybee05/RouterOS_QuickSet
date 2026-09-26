@@ -20,8 +20,10 @@ from mqs.transport.base import CommandError, Transport
 from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
 
 RESET_SCRIPT_ERROR = "error while running run-after-reset script"
-# How RouterOS 6.49.10 logs the line that stopped an /import (script,error, 2026-09-25):
-# "script error: failure: mstp requires vlan-filtering". The v7 wording NUTNO OVĚŘIT.
+# How RouterOS logs the line that stopped an /import: 6.49.10 "script error: failure: mstp
+# requires vlan-filtering" (script,error, 2026-09-25); 7.23.7 "(ssh-cmd:bee+cet@...) Script
+# Error: failure: mstp requires vlan-filtering (/interface/bridge/set ...) (...; line 18)"
+# (script,error,debug, 2026-09-26). Matched without regard to case.
 IMPORT_SCRIPT_ERROR = "script error"
 
 
@@ -161,9 +163,14 @@ def _check_script_ran(transport: Transport, script_file: str, code: str,
         log = transport.execute("/log/print")
     except CommandError:
         log = []
-    error = next((row["message"] for row in reversed(log)
-                  if marker in row.get("message", "")), "")
+    error = next((_from_marker(row["message"], marker) for row in reversed(log)
+                  if marker in row.get("message", "").lower()), "")
     return CheckResult(code, False, {"error": error or "?"})
+
+
+def _from_marker(message: str, marker: str) -> str:
+    """The message from the marker on, without 7.23.7's "(ssh-cmd:user@host)" before it."""
+    return message[message.lower().index(marker):]
 
 
 def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckResult:
