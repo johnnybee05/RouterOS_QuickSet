@@ -408,16 +408,16 @@ def test_rb4011_offload_lines():
     assert explicit.text == result.text
 
 
-def test_routeros_6_takes_mstp_only_with_vlan_filtering():
-    """6.49.10: "failure: mstp requires vlan-filtering", and the import stopped there."""
+@pytest.mark.parametrize("version", ["6.49.10", "7.23.7"])
+def test_routeros_takes_mstp_only_with_vlan_filtering(version):
+    """6.49.10 and 7.23.7: "failure: mstp requires vlan-filtering", and the import stopped
+    there (2026-09-25, 2026-09-26)."""
     profile = router_dhcp()
     mstp = _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.MSTP))
-    assert "bridge.mstp_needs_vlan_filtering" in codes(generate(mstp, target("6.49.10")).issues)
+    assert "bridge.mstp_needs_vlan_filtering" in codes(generate(mstp, target(version)).issues)
     filtering = _u(mstp, bridge=_u(mstp.bridge, vlan_filtering=True))
     assert "bridge.mstp_needs_vlan_filtering" not in codes(
-        generate(filtering, target("6.49.10")).issues)
-    assert "bridge.mstp_needs_vlan_filtering" not in codes(
-        generate(mstp, target("7.15.3")).issues)
+        generate(filtering, target(version)).issues)
 
 
 def test_mstp_unsupported_version_and_conflict():
@@ -436,7 +436,7 @@ def test_mstp_unsupported_version_and_conflict():
 
     # RTL8367 does offload MSTP, so the same setting is fine on an RB4011.
     rb = rb4011_profile()
-    rb = _u(rb, bridge=_u(rb.bridge, protocol_mode=ProtocolMode.MSTP))
+    rb = _u(rb, bridge=_u(rb.bridge, protocol_mode=ProtocolMode.MSTP, vlan_filtering=True))
     ok = generate(rb, TargetContext.from_inventory(_rb4011_inventory("7.15.3")))
     assert not ok.offload.has_conflict and not ok.has_errors
 
