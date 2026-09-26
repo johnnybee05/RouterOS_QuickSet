@@ -63,8 +63,8 @@ chips:
   # it the chip was unknown: offload "uncertain" with vlan-filtering, and MSTP refused.
   MediaTek-MT7621: *mt7621
   MT7531: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, verified: false}
-  # stp_v7: RouterOS 7.23.7 on an E60iUGS (hEX S) offloads ether2-5 with protocol-mode stp
-  # ("hardware offloading activated", H as planned, 2026-09-26); rstp and mstp not measured.
+  # stp_v7: RouterOS 7.23.7 on an E60iUGS (hEX S) offloads ether2-5 with protocol-mode stp,
+  # rstp, and mstp with vlan-filtering ("hardware offloading activated", H, 2026-09-26).
   EN7523: {mstp: true, vlan_filtering_v6: false, vlan_filtering_v7: true, stp_v7: true,
            verified: false}
 
