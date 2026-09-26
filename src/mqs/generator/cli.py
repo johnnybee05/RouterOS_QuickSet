@@ -36,7 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.profile:
-        profile = DeviceProfile.model_validate_json(Path(args.profile).read_text(encoding="utf-8"))
+        text = Path(args.profile).read_text(encoding="utf-8-sig")  # a BOM from PowerShell 5.1
+        profile = DeviceProfile.model_validate_json(text)
     else:
         ports = [p for p in args.ports.split(",") if p]
         profile = apply_preset(DeviceProfile(), Mode.ROUTER, ports)

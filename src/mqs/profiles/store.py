@@ -76,7 +76,9 @@ def export_profile(profile: DeviceProfile, path: Path) -> None:
 
 def import_profile(path: Path) -> DeviceProfile:
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig: a profile saved by Windows PowerShell 5.1 (Out-File, Set-Content -Encoding
+        # utf8) or an older Notepad starts with a BOM, which json.loads refuses.
+        text = path.read_text(encoding="utf-8-sig")
     except OSError as exc:
         raise ProfileError("profile.unreadable", str(exc)) from exc
     return profile_from_json(text)

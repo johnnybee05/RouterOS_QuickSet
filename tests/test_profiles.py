@@ -90,6 +90,14 @@ def test_export_import_file(tmp_path):
     assert err.value.code == "profile.unreadable"
 
 
+def test_import_file_with_a_bom(tmp_path):
+    """Windows PowerShell 5.1 writes UTF-8 with a BOM, and the import said
+    "profile.invalid_json: Unexpected UTF-8 BOM" (2026-09-26)."""
+    target = tmp_path / "powershell.json"
+    target.write_bytes(b"\xef\xbb\xbf" + profile_to_json(custom_profile()).encode("utf-8"))
+    assert import_profile(target).identity == "PV-R9"
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [("a/b:c", "a_b_c"), ("  .hidden. ", "hidden"), ("", "profil"), ("CON", "_CON"),
