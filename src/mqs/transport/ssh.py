@@ -213,6 +213,12 @@ class SshTransport:
         menu, verb = split_path(path)
         values = args_from_kwargs(args)
         if verb == "print":
+            if menu == "/system identity":
+                # 7.23.7 prints the name one character per line ("name: t", "e", "s" ...),
+                # over SSH exec and MAC-Telnet alike and whatever the terminal width, so it
+                # read as "t e s t - b r i d g e" (2026-09-26). `get` answers the bare name
+                # on 7.23.7 and 6.49.10.
+                return [{"name": self.run(":put [/system identity get name]").strip()}]
             if menu in SINGLETON_MENUS:
                 return [parse_key_value(self.run(f"{menu} print"))]
             if menu == "/log":

@@ -258,6 +258,19 @@ def test_print_singleton_and_list():
     assert client.commands[0] == ("/system resource print", 7)
 
 
+def test_identity_is_read_with_get():
+    # Captured from 7.23.7 (hEX S), 2026-09-26: print breaks the name into one character
+    # per line, get answers it whole.
+    transport, client = connected({
+        "/system identity print": (
+            b"  name: t\r\n        e\r\n        s\r\n        t\r\n\r\n"
+        ),
+        ":put [/system identity get name]": b"test-bridge\r\n",
+    })
+    assert transport.execute("/system/identity/print") == [{"name": "test-bridge"}]
+    assert [line for line, _ in client.commands] == [":put [/system identity get name]"]
+
+
 def test_console_inspect_column_table():
     # Shortened from 7.20.7 (hEX S); the empty NODE-TYPE cell is made up.
     transport, _ = connected({
