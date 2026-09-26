@@ -541,6 +541,19 @@ def test_a_device_that_never_takes_the_script_is_reported():
     assert err.value.issue.code == "apply.failed.execute"
     assert router.log.count("/system/reset-configuration") == RESET_ARM_ATTEMPTS
     assert router.reboots == 0, "the device was never reset"
+    assert "quickset-20260915-100000.rsc" not in router.files  # taken back
+
+
+def test_a_stopped_import_takes_its_script_back():
+    """Every stopped apply left its script on the device for good (16 MiB flash on the
+    v6 hEX S, 4.8 MiB free)."""
+    router, orchestrator, events, _ = build()
+    router.fail["/import"] = "failure: mstp requires vlan-filtering"
+    with pytest.raises(ApplyAborted):
+        orchestrator.run()
+    assert "quickset-20260915-100000.rsc" not in router.files
+    assert ("apply.step.cleanup", StepStatus.OK) in [(e.step, e.status) for e in events]
+    assert "pre-quickset-20260915-100000.backup" in router.files  # the backup stays
 
 
 def test_another_reset_error_is_not_retried():

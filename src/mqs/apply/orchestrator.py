@@ -246,6 +246,7 @@ class ApplyOrchestrator:
                 # The reset never came: a package left in the file root would be
                 # installed by whatever reboot comes next, weeks later perhaps.
                 self._withdraw_update()
+                self._withdraw_script()
                 raise
             self._reconnect()
             self._verify()
@@ -330,6 +331,17 @@ class ApplyOrchestrator:
             self._warn("apply.warning.update_left", files=", ".join(files), error=str(exc))
             return
         self._event("apply.step.update_withdrawn", StepStatus.OK, files=", ".join(files))
+
+    def _withdraw_script(self) -> None:
+        """A stopped apply takes its uploaded script back as well.
+
+        Nothing did before, so every stopped import or refused reset left one for good;
+        the v6 hEX S has 16 MiB of flash, 4.8 MiB of it free, and an import that timed out
+        there on 2026-09-25 left its script behind.
+        """
+        upload = self.report.upload
+        if upload is not None and upload.remote_path and self.transport.connected:
+            self._cleanup()
 
     def _upload(self, uploader: FileUploader) -> None:
         file = self.names.remote_script
