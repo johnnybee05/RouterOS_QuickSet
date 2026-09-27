@@ -57,6 +57,7 @@ from mqs.apply.routerboot import (
     REBOOT_WAIT_S as ROUTERBOOT_REBOOT_WAIT_S,
 )
 from mqs.apply.routerboot import RouterbootUpgrade, state_from_inventory
+from mqs.apply.update import firmware_newer
 from mqs.apply.verify import CheckResult, check_routeros_version
 from mqs.generator.ir import Find, cmd
 from mqs.issues import Issue, Severity
@@ -256,6 +257,11 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
     if board.is_routerboard and target > current:
         notes.append(_issue("version.routerboot_after", Severity.INFO, version=str(target),
                             current=board.current or "?"))
+    elif board.is_routerboard and firmware_newer(board.current, str(target)):
+        # The firmware the target carries is behind the one running; saying so is better
+        # than a silent "RouterBOOT zůstává" at the end of the run.
+        notes.append(_issue("version.routerboot_stays", Severity.INFO, version=str(target),
+                            current=board.current))
     planned = _issue("version.planned", Severity.INFO, current=str(current),
                      version=str(target), reboots=len(hops),
                      files=", ".join(h.file_names for h in hops))
@@ -317,6 +323,8 @@ class VersionContext:
     # "Aktualizovat RouterBOOT", the same step the apply ends with: the new RouterOS leaves
     # its firmware in `upgrade-firmware`, and this writes it after the last hop.
     upgrade_routerboot: bool = False
+    # ... and let it go down to the firmware an older RouterOS carries, on its own switch.
+    routerboot_downgrade: bool = False
     routerboot_wait_s: float = ROUTERBOOT_REBOOT_WAIT_S
 
 
@@ -411,6 +419,7 @@ class VersionChanger:
             transport=self.transport, event=self._event, warn=self._warn,
             reconnect=self._reconnect_returning, checks=self.report.checks,
             sleep=self.ctx.sleep, wait_s=self.ctx.routerboot_wait_s,
+            allow_older=self.ctx.routerboot_downgrade,
         )
         try:
             self.report.transport = step.run()

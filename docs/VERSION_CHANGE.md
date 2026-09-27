@@ -214,8 +214,8 @@ was — `_reconnect_after_reboot` covers it. Two exceptions:
 
 ### 5.5 RouterBOOT
 
-**The `--routerboot-downgrade` option of the design was not built**: it turned out not to be
-needed. On 2026-09-27 RouterOS 6.49.12 ran on RouterBOOT 6.49.21 and booted normally, and
+**`--routerboot-downgrade` was built after all** — on 2026-09-27, once the device was shown
+to allow it — but as a switch of its own that nothing implies, not as part of the route. On 2026-09-27 RouterOS 6.49.12 ran on RouterBOOT 6.49.21 and booted normally, and
 after a downgrade `upgrade-firmware` reads *older* than `current-firmware` (6.49.12 next to
 6.49.21), so nothing is written. `/console inspect`, which the design meant to probe the
 command with, does not exist on RouterOS 6 at all ("bad command name inspect").
@@ -233,6 +233,7 @@ The step itself lives in `apply/routerboot.py` and both callers use it unchanged
 | apply (`ApplyOrchestrator`) | the *Aktualizovat RouterBOOT* switch, `--routerboot`, `--mode reset` | last, after the configuration is verified |
 | version change (`VersionChanger`) | the same switch; `mqs.cli version --routerboot` | once, after the **last** hop — an in-between version's firmware is of no interest |
 | nothing to install | `mqs.cli version --routerboot` with no `--to`, or `--to` the running version | on its own: one reboot, no configuration touched (`version.routerboot_pending` / `version.routerboot_none`) |
+| going **down** on purpose | *Snížit RouterBOOT* next to the switch above, `--routerboot-downgrade` (refused without `--routerboot`) | the same step, allowed to write a firmware older than the running one: `apply.step.routerboot_downgrade` |
 
 `RouterbootUpgrade` reads the state itself rather than trusting the inventory, decides from
 `firmware_newer(upgrade, current)`, and reports through the caller's own event and check
@@ -247,14 +248,18 @@ Two things follow from "the step belongs to whatever runs last":
 - Going **down** never writes firmware, so a board that went v7 → v6 keeps its v7 RouterBOOT.
   That is harmless: **OVĚŘENO** 2026-09-27, RouterOS 6.49.21 boots and runs normally under
   RouterBOOT 7.23.7, with its configuration, its address and its users.
-- **A RouterBOOT *can* be written backwards**, which an earlier note here denied. `/system
+- **A RouterBOOT can be written backwards**, which an earlier note here denied. `/system
   routerboard upgrade` writes whatever firmware the installed RouterOS carries, in either
   direction: **OVĚŘENO** 2026-09-27 on the same board — with RouterOS 6.49.21 installed under
   RouterBOOT 7.23.7 the command answered `Firmware upgraded successfully`, `current-firmware`
-  stayed 7.23.7 until the reboot and read **6.49.21** after it. So `--routerboot-downgrade`
-  is *possible*; it stays out because it is not *needed* (the line above) and because a
-  `--routerboot` switch that silently took the bootloader down with a RouterOS downgrade
-  would be doing something nobody asked for. `firmware_newer()` is what keeps it out.
+  stayed 7.23.7 until the reboot and read **6.49.21** after it.
+- **Writing it down is therefore offered, on its own switch**: *Snížit RouterBOOT* /
+  `--routerboot-downgrade`, default off, and refused on the command line without
+  `--routerboot` because it says which way that step may write rather than being a step of
+  its own. `RouterbootState.writable(allow_older=…)` is the whole decision; without it
+  `firmware_newer()` alone still means a plain RouterOS downgrade leaves the bootloader
+  where it is. The plan says so in advance (`version.routerboot_stays`, INFO) instead of
+  leaving it to a silent skip at the end of the run.
 
 ## 6. Combining with "Reset + aplikovat"
 
@@ -353,6 +358,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 8 | 6.49.21 → 7.23.7 | one reboot, RouterOS converted the configuration, the device answered on the same address, one `routeros` package where the v6 bundle had eleven |
 | 9 | 7.23.7 → 6.49.21 | one `/system package downgrade`, back on the same address with identity, services, addresses, bridge, users and the disabled `ipv6` package all in place; api-ssl refused the login once before SSH took over |
 | 10 | the two-hop route 6.49.12 → 6.49.21 → 7.23.7 in one command | both hops walked in order, each uploaded only after the one before it had rebooted, each reconnected and verified on its own, two rows in the checklist; `version.planned` named both files and `2x restart` up front |
+| 11c | the whole *Snížit RouterBOOT* switch, through the application | `version --to 7.23.7 --routerboot` installed v7 and wrote firmware 7.23.7 (two checklist rows), then `version --to 6.49.21 --routerboot --routerboot-downgrade` installed v6 and wrote firmware 6.49.21 back, logging `Snížení RouterBOOT 7.23.7 → 6.49.21 a restart`; afterwards there was nothing left to write |
 | 11b | RouterBOOT back to 6.49.21 under RouterOS 6.49.21 | `/system routerboard upgrade` wrote the **older** firmware: `Firmware upgraded successfully`, unchanged until the reboot, 6.49.21 after it. The board is left on RouterOS 6.49.21 with RouterBOOT 6.49.21 and its configuration |
 | 11a | writing the firmware across the major version, on its own | `version --routerboot` with no `--to` on a board left with `current-firmware 6.49.21` under RouterOS 7.23.7: `version.routerboot_pending`, one reboot, `OK RouterBOOT 7.23.7`, the configuration untouched |
 | 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
@@ -365,7 +371,7 @@ Still NUTNO OVĚŘIT, and the reason each is still open:
 | 2 | the MAC ladder of §5.4 *after a version change* | the one move that could have needed it (7.23.7 → v6) came back on its own address, so the ladder was never entered; it is verified after a reset, not after a downgrade |
 | 3 | what v7 → v6 does to a configuration actually **made on v7** | the board's configuration was v6-made, so this run does not answer it; it would take configuring something v6 has no notion of and going back |
 | 4 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
-| 5 | whether a **RouterBOOT downgrade** should be offered at all, now that the device is known to do it | it is not needed for anything (v6 runs under a v7 bootloader) and it is not something a `--routerboot` switch should do by itself; it would want its own switch and its own confirmation |
+| 5 | whether a device exists whose RouterBOOT **refuses** to go back (protected-routerboot, a newer board) | the one board here has `protected-routerboot: disabled` and wrote both ways; a refusal shows up as `apply.warning.routerboot` and a failed check, which is tested but not seen on hardware |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 

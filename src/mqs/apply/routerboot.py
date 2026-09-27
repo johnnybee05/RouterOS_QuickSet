@@ -47,6 +47,16 @@ class RouterbootState:
     def upgradable(self) -> bool:
         return self.is_routerboard and firmware_newer(self.available, self.current)
 
+    @property
+    def older(self) -> bool:
+        """The firmware on offer is *behind* the running one, as after a RouterOS
+        downgrade. Writing it is possible — `/system routerboard upgrade` writes whatever
+        the installed RouterOS carries, OVĚŘENO 2026-09-27 — but never implied."""
+        return self.is_routerboard and firmware_newer(self.current, self.available)
+
+    def writable(self, *, allow_older: bool = False) -> bool:
+        return self.upgradable or (allow_older and self.older)
+
 
 def read_state(transport: Transport) -> RouterbootState:
     """CHR and x86 have no RouterBOOT and answer with an error; that is a state too."""
@@ -68,9 +78,17 @@ def state_from_inventory(inventory: DeviceInventory) -> RouterbootState:
     return RouterbootState(board.routerboard, board.current_firmware, board.upgrade_firmware)
 
 
-def pending_issue(state: RouterbootState, code: str) -> Issue | None:
-    """`{code}` (INFO) when a firmware is waiting to be written, else nothing."""
+def pending_issue(state: RouterbootState, code: str, *, allow_older: bool = False,
+                  lower_code: str = "") -> Issue | None:
+    """`{code}` (INFO) when a firmware is waiting to be written, else nothing.
+
+    With ``allow_older`` an older firmware counts as waiting too, and is reported under
+    ``lower_code`` so the message can say which way it is going.
+    """
     if not state.upgradable:
+        if allow_older and state.older:
+            return Issue(lower_code or code, Severity.INFO, "",
+                         {"current": state.current or "?", "version": state.available})
         return None
     return Issue(code, Severity.INFO, "",
                  {"current": state.current or "?", "version": state.available})
@@ -94,15 +112,19 @@ class RouterbootUpgrade:
     checks: list[CheckResult]
     sleep: Callable[[float], None]
     wait_s: float = REBOOT_WAIT_S
+    # "Snížit RouterBOOT": write the firmware even when it is older than the running one.
+    # Never implied by anything — a RouterOS downgrade does not take the bootloader with it.
+    allow_older: bool = False
 
     def run(self) -> Transport:
         state = read_state(self.transport)
-        if not state.upgradable:
+        if not state.writable(allow_older=self.allow_older):
             self.event("apply.step.routerboot_current", StepStatus.SKIPPED,
                        current=state.current or "-")
             return self.transport
+        step = "apply.step.routerboot_downgrade" if state.older else "apply.step.routerboot"
         params = {"current": state.current, "version": state.available}
-        self.event("apply.step.routerboot", StepStatus.RUNNING, **params)
+        self.event(step, StepStatus.RUNNING, **params)
         try:
             self.transport.execute("/system/routerboard/upgrade")
             with self.transport.reply_timeout(REBOOT_REPLY_S):
@@ -118,7 +140,7 @@ class RouterbootUpgrade:
                                             "actual": state.current}))
             return self.transport
         self.transport.close()
-        self.event("apply.step.routerboot", StepStatus.OK, **params)
+        self.event(step, StepStatus.OK, **params)
         self.sleep(self.wait_s)
         self.transport = self.reconnect()
         # A device that came back but will not say what it is running is the caller's

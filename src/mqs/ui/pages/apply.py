@@ -236,6 +236,10 @@ class ApplyPage(Page):
         self.routerboot_check.setToolTip(S.APPLY_ROUTERBOOT_TIP)
         self.routerboot_check.toggled.connect(lambda _: self.refresh())
         form.addRow(self.routerboot_check)
+        self.routerboot_down_check = QCheckBox(S.APPLY_ROUTERBOOT_DOWN)
+        self.routerboot_down_check.setToolTip(S.APPLY_ROUTERBOOT_DOWN_TIP)
+        self.routerboot_down_check.toggled.connect(lambda _: self.refresh())
+        form.addRow("", self.routerboot_down_check)
         # Changing the version is not an option of the apply: it happens before one, on its
         # own button, and the update above (which rides the reset's reboot) is then off.
         self.version_check = QCheckBox(S.APPLY_VERSION)
@@ -277,6 +281,7 @@ class ApplyPage(Page):
             update=self.update_plan(),
             upgrade_routerboot=mode == ApplyMode.RESET_AND_IMPORT
             and self.routerboot_check.isChecked(),
+            routerboot_downgrade=self.routerboot_down_check.isChecked(),
         )
 
     def update_plan(self) -> UpdatePlan | None:
@@ -395,11 +400,13 @@ class ApplyPage(Page):
         self.apply_button.setEnabled(False)
 
         routerboot = self.routerboot_check.isChecked()
+        routerboot_down = self.routerboot_down_check.isChecked()
 
         def task(token, report):
             ctx = build_version_context(
                 plan, session, on_event=report, profile=self.controller.profile,
                 cancelled=token.cancelled, upgrade_routerboot=routerboot,
+                routerboot_downgrade=routerboot_down,
                 uploader_factory_builder=self.uploader_factory_builder,
                 reconnect_fn=self.reconnect_fn,
             )
@@ -456,6 +463,8 @@ class ApplyPage(Page):
         # RouterBOOT belongs to whatever installs a version: the reset's apply, or the
         # version row on its own.
         self.routerboot_check.setEnabled(reset or self.version_check.isChecked())
+        self.routerboot_down_check.setEnabled(self.routerboot_check.isEnabled()
+                                              and self.routerboot_check.isChecked())
         self.version_check.setEnabled(self.session_provider() is not None)
         self.refresh_version_row()
         self.admin_password.setEnabled(reset)

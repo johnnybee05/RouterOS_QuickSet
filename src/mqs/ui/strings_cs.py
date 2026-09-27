@@ -251,11 +251,18 @@ APPLY_UPDATE_TIP = (
     "pokud je novější než ta na zařízení. Co se nainstaluje, ukážou kontroly před aplikací."
 )
 APPLY_UPDATE_DIR = "Adresář: {dir}"
-APPLY_ROUTERBOOT = "Aktualizovat RouterBOOT (při resetu, restart navíc)"
+APPLY_ROUTERBOOT = "Aktualizovat RouterBOOT (restart navíc)"
 APPLY_ROUTERBOOT_TIP = (
-    "Po ověření konfigurace se RouterBOOT aktualizuje na firmware, který nese RouterOS na "
-    "zařízení, pokud je novější než ten, který běží (i bez aktualizace RouterOS). Zařízení "
-    "se kvůli tomu ještě jednou restartuje."
+    "Po ověření konfigurace, nebo po přechodu na jinou verzi RouterOS, se RouterBOOT "
+    "aktualizuje na firmware, který nese RouterOS na zařízení, pokud je novější než ten, "
+    "který běží (i bez aktualizace RouterOS). Zařízení se kvůli tomu ještě jednou restartuje."
+)
+APPLY_ROUTERBOOT_DOWN = "Snížit RouterBOOT, když je novější než RouterOS"
+APPLY_ROUTERBOOT_DOWN_TIP = (
+    "Zapíše firmware, který nese RouterOS na zařízení, i když je starší než RouterBOOT, "
+    "který běží – to je stav po downgradu RouterOS. Zařízení to umí a je to vratné, ale "
+    "potřeba to není: starší RouterOS běží i pod novějším RouterBOOTem (ověřeno 6.49.21 pod "
+    "7.23.7). Samo se to nikdy nestane, downgrade RouterOS bootloader nesnižuje."
 )
 APPLY_VERSION = "Přejít na jinou verzi RouterOS (samostatně, bez resetu)"
 APPLY_VERSION_TIP = (

@@ -370,6 +370,7 @@ def build_version_context(
     cancelled: Callable[[], bool] = lambda: False,
     reconnect_timeout_s: float = 300.0,
     upgrade_routerboot: bool = False,
+    routerboot_downgrade: bool = False,
     uploader_factory_builder: Callable[..., Any] = build_uploader_factory,
     reconnect_fn: Callable[..., Transport] = reconnect_with_retry,
 ) -> VersionContext:
@@ -402,6 +403,7 @@ def build_version_context(
         ssh_port=ssh.port if ssh else 22,
         reconnect_timeout_s=reconnect_timeout_s,
         upgrade_routerboot=upgrade_routerboot,
+        routerboot_downgrade=routerboot_downgrade,
     )
 
 

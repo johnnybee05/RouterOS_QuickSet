@@ -720,3 +720,43 @@ def test_the_version_it_already_has_and_no_switch_does_nothing(router, tmp_path)
     assert code == cli.OK, out
     assert "version.same" in out and not router.log
 
+
+def test_the_firmware_can_be_lowered_but_only_when_asked_for_it(router, tmp_path):
+    """The board as it was left after a version change back to v6: RouterBOOT ahead."""
+    folder = v6_packages(tmp_path)
+    router.version = "6.49.21 (long-term)"
+    router.firmware.update({"current-firmware": "7.23.7", "upgrade-firmware": "6.49.21"})
+    argv = ["version", "--host", "10.0.0.1", "--update-dir", str(folder), "--routerboot",
+            "--yes"]
+    code, out = run_version(argv, router, routerboot_inventory("6.49.21", "7.23.7", "6.49.21"))
+    assert code == cli.OK, out
+    assert "version.routerboot_none" in out and not router.log
+
+    code, out = run_version([*argv, "--routerboot-downgrade"], router,
+                            routerboot_inventory("6.49.21", "7.23.7", "6.49.21"))
+    assert code == cli.OK, out
+    assert "version.routerboot_lower" in out
+    assert "/system/routerboard/upgrade" in router.log and router.reboots == 1
+    assert "OK   RouterBOOT 6.49.21" in out
+
+
+def test_lowering_is_not_a_step_of_its_own(profile_file, capsys):
+    assert cli.main(["version", "--host", "10.0.0.1", "--routerboot-downgrade"]) == cli.BLOCKED
+    assert "--routerboot-downgrade needs --routerboot" in capsys.readouterr().err
+    assert cli.main(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                     "--mode", "reset", "--routerboot-downgrade"]) == cli.BLOCKED
+    assert "--routerboot-downgrade needs --routerboot" in capsys.readouterr().err
+
+
+def test_an_apply_can_lower_it_too():
+    parse = cli.build_parser().parse_args
+    reset = ApplyMode.RESET_AND_IMPORT
+    argv = ["apply", "--profile", "x", "--mode", "reset", "--keep-users", "--routerboot"]
+    plain = cli.build_options(parse(argv), reset)
+    assert plain.upgrades_routerboot and not plain.downgrades_routerboot
+    lower = cli.build_options(parse([*argv, "--routerboot-downgrade"]), reset)
+    assert lower.downgrades_routerboot
+    # Only ever with the step it modifies, whatever the parser was given.
+    without = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset",
+                                      "--keep-users", "--routerboot-downgrade"]), reset)
+    assert not without.downgrades_routerboot

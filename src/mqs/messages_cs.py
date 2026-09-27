@@ -307,6 +307,7 @@ MESSAGES: dict[str, str] = {
     "update.routerboot_after": "Po aktualizaci RouterOS se aktualizuje i RouterBOOT (teď "
     "{current}) na {version} a zařízení se ještě jednou restartuje.",
     "apply.step.routerboot": "Aktualizace RouterBOOT {current} → {version} a restart",
+    "apply.step.routerboot_downgrade": "Snížení RouterBOOT {current} → {version} a restart",
     "apply.step.routerboot_current": "RouterBOOT {current} zůstává, novější firmware "
     "zařízení nenabízí",
     "apply.warning.routerboot": "RouterBOOT se nepodařilo aktualizovat, konfigurace zůstává: "
@@ -314,8 +315,14 @@ MESSAGES: dict[str, str] = {
     # Přechod na jinou verzi RouterOS (downgrade, v6 <-> v7)
     "version.routerboot_pending": "Zařízení má připravený RouterBOOT {version} (teď běží "
     "{current}). Zapíše se a zařízení se jednou restartuje; konfigurace se nemění.",
+    "version.routerboot_lower": "Zařízení má připravený starší RouterBOOT {version} (teď "
+    "běží {current}). Zapíše se a zařízení se jednou restartuje; konfigurace se nemění. "
+    "Starší RouterOS běží i pod novějším RouterBOOTem, takže snižovat ho není nutné.",
     "version.routerboot_none": "RouterBOOT {current} je poslední, který zařízení nabízí – "
     "není co zapisovat.",
+    "version.routerboot_stays": "RouterBOOT {current} je novější než RouterOS {version} a "
+    "zůstane; snížit ho lze jen výslovně volbou „Snížit RouterBOOT“. "
+    "Starší RouterOS pod novějším RouterBOOTem běží bez potíží.",
     "version.routerboot_after": "S RouterOS {version} přijde i novější RouterBOOT (teď "
     "{current}). Se zaškrtnutým krokem „Aktualizovat RouterBOOT“ se zapíše po posledním "
     "restartu a zařízení se restartuje ještě jednou; bez něj zůstane RouterBOOT starý.",

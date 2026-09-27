@@ -11,6 +11,7 @@ from factories import make_npk as npk
 from fake_router import FakeRouter, RouterUploader
 from mqs.apply.events import StepStatus
 from mqs.apply.packages import scan_update_dir
+from mqs.apply.routerboot import RouterbootState
 from mqs.apply.version_change import (
     V6_TO_V7_FROM,
     Install,
@@ -88,7 +89,8 @@ def test_a_downgrade_inside_one_major_version(tmp_path):
     assert hop.install == Install.BY_DOWNGRADE and not hop.crosses_major
     assert hop.main.file_name == "routeros-mmips-6.49.12.npk"
     assert plan.floor == V("6.42.4") and plan.downgrades and plan.needs_confirmation
-    assert codes(plan.issues) == {"version.planned"}
+    # A downgrade leaves the bootloader ahead of RouterOS, and the plan says so.
+    assert codes(plan.issues) == {"version.planned", "version.routerboot_stays"}
 
 
 def test_an_upgrade_inside_one_major_version_installs_by_reboot(tmp_path):
@@ -192,7 +194,7 @@ def test_an_extra_package_comes_along_inside_one_major_version(tmp_path):
     plan = plan_version(mmips("6.49.21", extras=("wireless",)), scan_update_dir(folder),
                         V("6.49.12"))
     assert [p.display_name for p in plan.hops[0].packages] == ["routeros", "wireless"]
-    assert codes(plan.issues) == {"version.planned"}
+    assert codes(plan.issues) == {"version.planned", "version.routerboot_stays"}
 
 
 def test_an_extra_package_without_a_file_is_a_warning(tmp_path):
@@ -268,7 +270,8 @@ def test_an_unreadable_file_is_mentioned_but_does_not_stop_the_move(tmp_path):
     folder = mmips_dir(tmp_path)
     write(folder, "broken.npk", b"garbage")
     plan = plan_version(mmips("6.49.21"), scan_update_dir(folder), V("6.49.12"))
-    assert plan.changes and codes(plan.issues) == {"version.unreadable", "version.planned"}
+    assert plan.changes and codes(plan.issues) == {"version.unreadable", "version.planned",
+                                                   "version.routerboot_stays"}
 
 
 # ------------------------------------------------------------------ what the window offers
@@ -310,7 +313,7 @@ class SilentUploader(RouterUploader):
 
 def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
             installs: bool = True, reconnect=None, versions=(), routerboot=False,
-            firmware: str = "6.42.4"):
+            routerboot_down=False, firmware: str = "6.42.4"):
     router = FakeRouter()
     router.version = f"{current} (long-term)"
     router.installs_packages = installs
@@ -334,7 +337,7 @@ def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
         uploader_factory=lambda transport: uploader or RouterUploader(router),
         reconnect=reconnect(router, targets) if reconnect else default_reconnect,
         on_event=events.append, sleep=lambda seconds: None, alternatives=NOW_HOSTS,
-        upgrade_routerboot=routerboot,
+        upgrade_routerboot=routerboot, routerboot_downgrade=routerboot_down,
     )
     return router, VersionChanger(ctx), events, targets
 
@@ -484,3 +487,53 @@ def test_without_the_option_the_firmware_is_not_even_read(tmp_path):
     assert runner.run().succeeded
     assert "/system/routerboard/print" not in router.log
     assert router.reboots == 1
+
+
+def test_a_downgrade_can_take_the_bootloader_with_it_when_asked(tmp_path):
+    """"Snížit RouterBOOT": the firmware an older RouterOS carries is written too. The
+    device does allow it (OVĚŘENO 2026-09-27), it is simply never implied."""
+    router, runner, events, _ = changer(tmp_path, "6.49.12", firmware="6.49.21",
+                                        routerboot=True, routerboot_down=True)
+    report = runner.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert "/system/routerboard/upgrade" in router.log
+    assert router.reboots == 2  # the version, then the firmware
+    step = next(e for e in events if e.step == "apply.step.routerboot_downgrade"
+                and e.status == StepStatus.OK)
+    assert step.params == {"current": "6.49.21", "version": "6.49.12"}
+    assert report.checks[-1].code == "verify.routerboot" and report.checks[-1].ok
+    assert report.checks[-1].message == "RouterBOOT 6.49.12 (na zařízení 6.49.12)"
+
+
+def test_the_switch_alone_does_not_lower_anything(tmp_path):
+    """With the firmware already behind, nothing is written and no step claims otherwise."""
+    router, runner, events, _ = changer(tmp_path, "6.49.21", current="6.49.12",
+                                        firmware="6.49.21", routerboot=True,
+                                        routerboot_down=True)
+    assert runner.run().succeeded
+    assert "/system/routerboard/upgrade" not in router.log and router.reboots == 1
+    assert {e.step for e in events} & {"apply.step.routerboot_current"}
+
+
+def test_going_down_says_the_bootloader_stays(tmp_path):
+    plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V("6.49.12"))
+    note = next(i for i in plan.issues if i.code == "version.routerboot_stays")
+    assert "6.49.21" in note.message and "Snížit RouterBOOT" in note.message
+
+
+@pytest.mark.parametrize(("current", "available", "up", "down"), [
+    ("6.49.21", "7.23.7", True, False),   # after installing a newer RouterOS
+    ("7.23.7", "6.49.21", False, True),   # after a downgrade
+    ("7.23.7", "7.23.7", False, False),   # nothing waiting
+    ("7.23.7", "", False, False),         # the board did not say
+])
+def test_what_the_firmware_state_allows(current, available, up, down):
+    state = RouterbootState(True, current, available)
+    assert (state.upgradable, state.older) == (up, down)
+    assert state.writable() is up
+    assert state.writable(allow_older=True) is (up or down)
+
+
+def test_a_board_that_is_not_a_routerboard_allows_nothing():
+    state = RouterbootState(False, "7.23.7", "7.23.9")  # CHR, x86
+    assert not state.upgradable and not state.writable(allow_older=True)

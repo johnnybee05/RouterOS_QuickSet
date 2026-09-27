@@ -589,6 +589,7 @@ class ApplyOrchestrator:
             transport=self.transport, event=self._event, warn=self._warn,
             reconnect=self._reconnect_returning, checks=self.report.checks,
             sleep=self.ctx.sleep, wait_s=ROUTERBOOT_REBOOT_WAIT_S,
+            allow_older=self.ctx.options.downgrades_routerboot,
         )
         try:
             self.report.transport = step.run()

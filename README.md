@@ -201,8 +201,10 @@ Jak to funguje:
    běží, stejně jako po resetu s aplikací (v CLI `version --routerboot`). Po downgradu je
    `upgrade-firmware` starší než `current-firmware`, takže krok sám nic neudělá a řekne to.
    Starší RouterOS pod novějším RouterBOOTem běží bez potíží, i napříč hlavní verzí (6.49.21
-   pod RouterBOOTem 7.23.7, ověřeno). Samo zařízení by starší firmware zapsat umělo, aplikace
-   to ale nedělá: snižovat bootloader mimochodem u downgradu RouterOS není co si přát. Když už je zařízení na správné
+   pod RouterBOOTem 7.23.7, ověřeno), takže snižovat ho není nutné. Když ho snížit chcete,
+   je na to **vlastní** volba *Snížit RouterBOOT* (v CLI `--routerboot-downgrade`, jen spolu
+   s `--routerboot`): výchozí je vypnutá a samo se to nikdy nestane — downgrade RouterOS
+   bootloader nestahuje s sebou. Ověřeno oběma směry na hEX S. Když už je zařízení na správné
    verzi a firmware jen čeká, zapíše ho `version --routerboot` samotné (jeden restart,
    konfigurace se nemění).
 

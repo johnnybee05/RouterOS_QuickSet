@@ -61,10 +61,18 @@ class ApplyOptions:
     # RESET: upgrade RouterBOOT to the firmware of the RouterOS on the device afterwards,
     # when that is newer, which takes one more reboot.
     upgrade_routerboot: bool = False
+    # ... and write it even when it is *older* than the running one, which is what the
+    # firmware of an older RouterOS is. Only ever on its own switch: a RouterOS downgrade
+    # does not take the bootloader down with it.
+    routerboot_downgrade: bool = False
 
     @property
     def upgrades_routerboot(self) -> bool:
         return self.mode == ApplyMode.RESET_AND_IMPORT and self.upgrade_routerboot
+
+    @property
+    def downgrades_routerboot(self) -> bool:
+        return self.upgrades_routerboot and self.routerboot_downgrade
 
     @property
     def installs_update(self) -> bool:

@@ -1117,3 +1117,24 @@ def test_the_routerboot_switch_belongs_to_the_version_row_as_well(window, qtbot,
     qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
                     timeout=5000)
     assert not RecordingChanger.instances[-1].ctx.upgrade_routerboot
+
+
+def test_lowering_the_bootloader_is_a_switch_of_its_own(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    assert page.routerboot_check.isChecked()  # on by default, as it always was
+    assert not page.routerboot_down_check.isChecked()  # this one never is
+    page.routerboot_check.setChecked(False)
+    assert not page.routerboot_down_check.isEnabled()  # nothing to modify
+    page.routerboot_check.setChecked(True)
+    assert page.routerboot_down_check.isEnabled()
+    assert not page.options().routerboot_downgrade
+    page.routerboot_down_check.setChecked(True)
+    assert page.options().routerboot_downgrade
+
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(2)  # 6.49.12, a downgrade
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
+                    timeout=5000)
+    ctx = RecordingChanger.instances[-1].ctx
+    assert ctx.upgrade_routerboot and ctx.routerboot_downgrade
