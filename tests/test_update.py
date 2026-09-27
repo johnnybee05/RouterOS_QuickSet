@@ -31,6 +31,15 @@ REAL_ARM_HEADER = bytes.fromhex(
 REAL_MIPSBE_HEADER = bytes.fromhex(
     "1ef1d0ba8c5cae0019000000000001002400000073797374656d000000000000000000000766"
     "17074389aa6a0000000000000000030000001800090000006c6f6e672d7465726d1000040000006d697073")
+# routeros-mmips-6.49.21.npk (downloaded 2026-09-16), up to and including the part 1 of
+# the first package inside the bundle: a v6 package names itself in part 18.
+REAL_MMIPS_V6_HEADER = bytes.fromhex(
+    "1ef1d0ba8080a100190000000000120020000000726f757465726f732d6d6d6970730000156631"
+    "06e35d996a00000000000000001800090000006c6f6e672d7465726d1000050000006d6d697073"
+    "02001b000000526f757465724f5320666f72204d4d49505320646576696365730a150000000000"
+    "140022000000010069707636000000000000000000000000000000000000000000000000000000"
+    "0001002400000073797374656d0000000000000000000015663106e35d996a0000000000000000"
+    "030000001000050000006d6d697073")
 
 
 npk = make_npk
@@ -97,9 +106,19 @@ def test_scan_takes_npk_files_newest_first_and_names_the_unusable(tmp_path):
     assert not scan_update_dir(tmp_path / "missing").exists
 
 
-def device(version: str = "7.20.7", arch: str = "arm", packages=()):
-    return make_inventory(version, architecture=arch, packages=[
+def device(version: str = "7.20.7", arch: str = "arm", packages=(), free: int = 0):
+    return make_inventory(version, architecture=arch, free_hdd_space=free, packages=[
         PackageInfo(name="routeros", version=version), *packages])
+
+
+def v6_device(version: str = "6.49.10", arch: str = "mmips", free: int = 64 * 1024 * 1024):
+    """A v6 hEX S as it prints itself: the bundle, then every package in it."""
+    bundle = f"routeros-{arch}"
+    members = ("system", "ipv6", "wireless", "hotspot", "mpls", "routing", "ppp", "dhcp",
+               "security", "advanced-tools")
+    return make_inventory(version, architecture=arch, free_hdd_space=free, packages=[
+        PackageInfo(name=bundle, version=version),
+        *(PackageInfo(name=m, version=version, bundle=bundle) for m in members)])
 
 
 def found_in(tmp_path, *files: tuple[str, bytes]) -> UpdateDir:
@@ -144,7 +163,8 @@ def test_the_newest_version_wins(tmp_path):
 @pytest.mark.parametrize(("current", "code", "severity"), [
     ("7.23.7", "update.up_to_date", Severity.INFO),
     ("7.24.1", "update.up_to_date", Severity.INFO),  # a reboot does not downgrade
-    ("6.49.10", "update.v7_only", Severity.WARNING),
+    # A v6 device offered a v7 package: a migration, not an update.
+    ("6.49.10", "update.other_major", Severity.WARNING),
 ])
 def test_nothing_to_install(tmp_path, current, code, severity):
     plan = plan_update(device(current), found_in(tmp_path, ("a.npk", npk())))
@@ -189,6 +209,52 @@ def test_extra_packages_go_along_when_the_directory_has_them(tmp_path):
     assert [i.params["name"] for i in missing] == ["container"]
     assert missing[0].severity == Severity.WARNING
     assert "wifi.npk" in plan.issues[0].message
+
+
+def test_the_header_of_a_real_v6_package_is_read(tmp_path):
+    package = read_npk(write(tmp_path, "routeros-mmips-6.49.21.npk", REAL_MMIPS_V6_HEADER))
+    # Part 18, the bundle's own info — not the part 1 of the "system" package inside it,
+    # which these bytes also carry.
+    assert (package.name, str(package.version), package.architecture, package.channel) == (
+        "routeros-mmips", "6.49.21", "mmips", "long-term")
+    assert package.is_main and package.display_name == "routeros"
+
+
+def test_the_builder_matches_the_real_v6_layout(tmp_path):
+    built = read_npk(write(tmp_path, "a.npk", npk("routeros-mmips", (6, 49, 21), "mmips",
+                                                  bundle=True)))
+    real = read_npk(write(tmp_path, "b.npk", REAL_MMIPS_V6_HEADER))
+    assert (built.name, built.version, built.architecture, built.channel) == (
+        real.name, real.version, real.architecture, real.channel)
+
+
+def test_a_v6_device_updates_within_v6(tmp_path):
+    # The directory holds a package for both major versions, as MikroTik publishes them.
+    plan = plan_update(v6_device(), found_in(
+        tmp_path, ("routeros-mmips-6.49.21.npk", npk("routeros-mmips", (6, 49, 21), "mmips",
+                                                     bundle=True)),
+        ("routeros-7.23.7-mmips.npk", npk(arch="mmips"))))
+    assert [p.file_name for p in plan.packages] == ["routeros-mmips-6.49.21.npk"]
+    assert str(plan.target) == "6.49.21"
+    # The bundle and the ten packages in it all come in that one file.
+    assert codes(plan.issues) == {"update.planned"}
+
+
+def test_a_v6_device_is_not_moved_to_v7(tmp_path):
+    plan = plan_update(v6_device(), found_in(tmp_path, ("a.npk", npk(arch="mmips"))))
+    assert not plan.installs and codes(plan.issues) == {"update.other_major"}
+    assert plan.issues[0].params["version"] == "7.23.7"
+
+
+def test_a_package_that_does_not_fit_is_not_uploaded(tmp_path):
+    data = npk("routeros-mmips", (6, 49, 21), "mmips", bundle=True)
+    fits = plan_update(v6_device(free=len(data)), found_in(tmp_path, ("a.npk", data)))
+    assert fits.installs
+    plan = plan_update(v6_device(free=len(data) - 1), found_in(tmp_path, ("a.npk", data)))
+    assert not plan.installs and codes(plan.issues) == {"update.no_space"}
+    assert plan.issues[0].params["version"] == "6.49.21"
+    # A device that does not say how much room it has is not stopped.
+    assert plan_update(v6_device(free=0), found_in(tmp_path, ("a.npk", data))).installs
 
 
 def test_packages_only_offered_for_download_are_not_missing(tmp_path):

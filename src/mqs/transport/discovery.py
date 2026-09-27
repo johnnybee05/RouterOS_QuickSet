@@ -117,7 +117,7 @@ def collect_inventory(
     packages = [
         PackageInfo(
             name=p["name"], version=p.get("version", ""), disabled=to_bool(p, "disabled", "X"),
-            available=to_bool(p, "available", "A"),
+            available=to_bool(p, "available", "A"), bundle=p.get("bundle", ""),
         )
         for p in transport.execute("/system/package/print")
     ]
@@ -161,6 +161,7 @@ def collect_inventory(
             uptime=resource.get("uptime", ""),
             free_memory=to_bytes(resource.get("free-memory")),
             total_memory=to_bytes(resource.get("total-memory")),
+            free_hdd_space=to_bytes(resource.get("free-hdd-space")),
             cpu=resource.get("cpu", ""),
         ),
         identity=identity,

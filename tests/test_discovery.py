@@ -95,7 +95,9 @@ def hap_v6_ssh() -> dict:
     """SSH-style replies from `print terse`: flags instead of some booleans, units in sizes."""
     return {
         "/system/resource/print": [{"version": "6.40.9 (bugfix)", "board-name": "hAP ac",
-                                    "free-memory": "85.3MiB", "total-memory": "128.0MiB"}],
+                                    "free-memory": "85.3MiB", "total-memory": "128.0MiB",
+                                    "free-hdd-space": "4812.0KiB",
+                                    "total-hdd-space": "16.3MiB"}],
         "/system/identity/print": [{"name": "old-hap"}],
         "/system/routerboard/print": [{"routerboard": "yes", "model": "RB962UiGS-5HacT2HnT"}],
         "/interface/print": [
@@ -107,9 +109,11 @@ def hap_v6_ssh() -> dict:
         "/interface/ethernet/switch/print": [{"name": "switch1", "type": "Atheros8327"}],
         "/interface/ethernet/switch/port/print": [{"name": "ether1", "switch": "switch1"}],
         "/interface/wireless/print": [{"name": "wlan1"}],
+        # As the RB760iGS prints it: the bundle, then every package inside it.
         "/system/package/print": [
             {"_flags": "", "name": "routeros-mipsbe", "version": "6.40.9"},
-            {"_flags": "X", "name": "ipv6", "version": "6.40.9"},
+            {"_flags": "", "name": "system", "version": "6.40.9", "bundle": "routeros-mipsbe"},
+            {"_flags": "X", "name": "ipv6", "version": "6.40.9", "bundle": "routeros-mipsbe"},
         ],
         "/ip/service/print": [{"_flags": "X", "name": "telnet", "port": "23"},
                               {"_flags": "", "name": "ssh", "port": "22"}],
@@ -127,6 +131,9 @@ def test_collect_inventory_v6_ssh():
     assert len(inv.interfaces) == 2
     assert inv.wireless == WirelessStack.WIRELESS
     assert inv.ipv6_package_state == Ipv6PackageState.DISABLED
+    assert next(p for p in inv.packages if p.name == "ipv6").bundle == "routeros-mipsbe"
+    assert not next(p for p in inv.packages if p.name == "routeros-mipsbe").bundle
+    assert inv.resource.free_hdd_space == int(4812.0 * 1024)
     assert next(s for s in inv.services if s.name == "telnet").disabled
     assert inv.certificates == []  # /certificate menu missing in the fake -> tolerated
     assert inv.has_flash_dir

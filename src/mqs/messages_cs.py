@@ -277,8 +277,9 @@ MESSAGES: dict[str, str] = {
     "{files}. Skript se vygeneruje pro {version} a bez vlastností, které aplikace ověřila "
     "zkouškou na {current} (hw-offload u FastTracku).",
     "update.no_dir": "Adresář s aktualizacemi {dir} neexistuje, RouterOS se nebude aktualizovat.",
-    "update.v7_only": "Aktualizace z adresáře Update je jen pro RouterOS 7, zařízení má "
-    "{current}. RouterOS se nebude aktualizovat.",
+    "update.no_space": "Na zařízení není dost místa pro RouterOS {version}: balíčky mají "
+    "{size} MB, volného místa je {free} MB. RouterOS se nebude aktualizovat – uvolněte místo "
+    "ve Files, nebo použijte Netinstall.",
     "update.unknown_arch": "Architekturu zařízení „{arch}“ aplikace nezná, RouterOS se nebude "
     "aktualizovat.",
     "update.no_package": "V adresáři {dir} není balíček RouterOS pro architekturu {arch}, "

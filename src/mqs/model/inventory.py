@@ -37,6 +37,7 @@ class PackageInfo(BaseModel):
     version: str = ""
     disabled: bool = False
     available: bool = False  # offered for download, not on the device (v7 flag "A")
+    bundle: str = ""  # v6: the bundle package this one came in, e.g. routeros-mmips
 
     @property
     def installed(self) -> bool:
@@ -80,6 +81,7 @@ class ResourceInfo(BaseModel):
     uptime: str = ""
     free_memory: int = 0
     total_memory: int = 0
+    free_hdd_space: int = 0
     cpu: str = ""
 
 

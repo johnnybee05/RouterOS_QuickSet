@@ -32,6 +32,7 @@ def make_inventory(
     services: Sequence[ServiceInfo] = (),
     default_names: Mapping[str, str] | None = None,
     architecture: str = "",
+    free_hdd_space: int = 0,
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
     ``default_names`` a renamed port → its default-name (others are not renamed)."""
@@ -40,7 +41,7 @@ def make_inventory(
     default_names = default_names or {}
     return DeviceInventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
-                              architecture=architecture),
+                              architecture=architecture, free_hdd_space=free_hdd_space),
         identity="MikroTik",
         interfaces=[
             InterfaceInfo(
@@ -62,9 +63,11 @@ def router_profile(ports: Sequence[str] = FIVE_PORTS, identity: str = "R1") -> D
 
 
 def make_npk(name: str = "system", version: tuple[int, int, int] = (7, 23, 7),
-             arch: str = "arm", *, kind: bytes = b"f", channel: str = "long-term") -> bytes:
+             arch: str = "arm", *, kind: bytes = b"f", channel: str = "long-term",
+             bundle: bool = False) -> bytes:
     """A RouterOS package header laid out like MikroTik's own (test_update.REAL_ARM_HEADER
-    checks the two against each other), for any name, version and architecture."""
+    and REAL_MMIPS_V6_HEADER check the two against each other), for any name, version and
+    architecture. ``bundle`` lays it out the way a v6 package is built."""
     major, minor, revision = version
     info = name.encode().ljust(16, b"\0") + bytes([revision]) + kind + bytes([minor, major])
     info += struct.pack("<I", 0x6AAA8943) + b"\0" * 12
@@ -72,6 +75,15 @@ def make_npk(name: str = "system", version: tuple[int, int, int] = (7, 23, 7),
     def part(kind_id: int, data: bytes) -> bytes:
         return struct.pack("<HI", kind_id, len(data)) + data
 
+    if bundle:
+        # A v6 package: its own info in part 18, then a part 1 for each package in it.
+        head = part(25, b"") + part(18, info) + part(24, channel.encode())
+        head += part(16, arch.encode()) + part(2, b"RouterOS for devices")
+        for member in ("system", "ipv6", "wireless@"):
+            member_info = member.encode().ljust(16, b"\0") + bytes([revision]) + kind
+            member_info += bytes([minor, major]) + struct.pack("<I", 0x6AAA8943) + b"\0" * 12
+            head += part(1, member_info) + part(16, arch.encode())
+        return struct.pack("<II", 0xBAD0F11E, len(head)) + head
     parts = (part(25, b"") + part(1, info) + part(24, channel.encode())
              + part(16, arch.encode()) + part(2, b"Main package") + part(4, b"\0" * 64))
     return struct.pack("<II", 0xBAD0F11E, len(parts)) + parts

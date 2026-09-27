@@ -25,13 +25,22 @@ from mqs.model.version import RosVersion
 
 NPK_MAGIC = 0xBAD0F11E
 PART_INFO = 1  # name[16], revision, release kind, minor, major, build time, ...
+PART_BUNDLE_INFO = 18  # the same layout, for the bundle a v6 package is
 PART_ARCHITECTURE = 16
 PART_CHANNEL = 24
+INFO_PARTS = (PART_INFO, PART_BUNDLE_INFO)
 MAX_HEADER_PARTS = 32  # the parts that matter come first; the file system is far bigger
 RELEASE_FINAL = ord("f")
-# The main package is "system" in its header and "routeros" in /system package on v7.
+# The main package is "system" in a v7 header, "routeros-<arch>" in a v6 one, and
+# "routeros" (v7) or "routeros-<arch>" (v6, the bundle) in /system package on the device.
 MAIN_PACKAGE = "system"
+MAIN_PACKAGE_PREFIX = "routeros"
 DEVICE_MAIN_PACKAGES = {"routeros", "system"}
+
+
+def is_main_package(name: str) -> bool:
+    """The package that carries RouterOS itself, under any of the names it goes by."""
+    return name == MAIN_PACKAGE or name.startswith(MAIN_PACKAGE_PREFIX)
 
 # /system resource architecture-name -> the architecture in the package header.
 # The header side is read from MikroTik's own 7.23.7 packages (routeros-7.23.7-mipsbe.npk
@@ -68,8 +77,12 @@ class NpkPackage:
         return self.path.name
 
     @property
+    def is_main(self) -> bool:
+        return is_main_package(self.name)
+
+    @property
     def display_name(self) -> str:
-        return "routeros" if self.name == MAIN_PACKAGE else self.name
+        return "routeros" if self.is_main else self.name
 
 
 @dataclass(frozen=True)
@@ -105,6 +118,11 @@ def read_npk(path: Path) -> NpkPackage:
     payload size (both little endian), then parts of (type u16, size u32, data). Part 1
     holds the name in 16 bytes and the version as revision, release kind ('f'), minor,
     major; part 16 the architecture; part 24 the channel.
+
+    A v6 package is a bundle, and puts that same info in part 18 under the bundle's own
+    name (`routeros-mmips`), ahead of a part 1 for each package inside it (`system`,
+    `ipv6`, `wireless@`, ...). The first info part of either kind is the file's own, so
+    the members never stand in for it.
     """
     size = path.stat().st_size
     with path.open("rb") as handle:
@@ -118,14 +136,16 @@ def read_npk(path: Path) -> NpkPackage:
             if len(head) < 6:
                 break
             part, length = struct.unpack("<HI", head)
-            if part in (PART_INFO, PART_ARCHITECTURE, PART_CHANNEL):
+            if part in (*INFO_PARTS, PART_ARCHITECTURE, PART_CHANNEL):
                 data = _read_exact(handle, length)
-                if part == PART_INFO:
-                    info = data
+                # First wins: past the file's own header the same types come back, for
+                # the packages inside a v6 bundle and inside the payload.
+                if part in INFO_PARTS:
+                    info = data if info is None else info
                 elif part == PART_ARCHITECTURE:
-                    architecture = data.decode("ascii", "replace").strip("\0")
+                    architecture = architecture or data.decode("ascii", "replace").strip("\0")
                 else:
-                    channel = data.decode("ascii", "replace").strip("\0")
+                    channel = channel or data.decode("ascii", "replace").strip("\0")
             else:
                 handle.seek(length, 1)
             if info is not None and architecture and channel:
@@ -172,13 +192,17 @@ def _issue(code: str, severity: Severity, **params: object) -> Issue:
     return Issue(code, severity, "", dict(params))
 
 
+def _mb(size: int) -> str:
+    return f"{size / 1024 / 1024:.1f}"
+
+
 def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
     """The packages to upload so the device comes back on the newest main package in
     ``found`` built for its architecture, or no packages and the reason why not.
 
-    Only upgrades within RouterOS 7: going between v6 and v7 is a migration of its own,
-    and a package older than the running system is not installed by a reboot at all
-    (that takes `/system package downgrade`).
+    Only upgrades within the major version the device runs: going between v6 and v7 is a
+    migration of its own, and a package older than the running system is not installed by
+    a reboot at all (that takes `/system package downgrade`).
     """
     current = inventory.version
     notes = tuple(_issue("update.unreadable", Severity.WARNING, file=name, error=why)
@@ -190,19 +214,19 @@ def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
 
     if not found.exists:
         return skip("update.no_dir", dir=str(found.directory))
-    if current.major != 7:
-        return skip("update.v7_only", current=str(current))
     device_arch = inventory.resource.architecture
     package_arch = ARCHITECTURES.get(device_arch)
     if package_arch is None:
         return skip("update.unknown_arch", arch=device_arch or "?")
-    mains = [p for p in found.packages
-             if p.name == MAIN_PACKAGE and p.architecture == package_arch]
+    mains = [p for p in found.packages if p.is_main and p.architecture == package_arch]
     if not mains:
         return skip("update.no_package", arch=device_arch, dir=str(found.directory))
-    newest = mains[0]  # scan_update_dir sorts newest first
-    if newest.version.major != current.major:
-        return skip("update.other_major", version=str(newest.version), current=str(current))
+    # Within the device's own major version: the directory may well hold both, as
+    # MikroTik publishes a v6 and a v7 package for the same board.
+    same_major = [p for p in mains if p.version.major == current.major]
+    if not same_major:
+        return skip("update.other_major", version=str(mains[0].version), current=str(current))
+    newest = same_major[0]  # scan_update_dir sorts newest first
     if newest.version <= current:
         return skip("update.up_to_date", Severity.INFO, version=str(newest.version),
                     current=str(current))
@@ -221,16 +245,36 @@ def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
                                   version=str(newest.version), arch=device_arch))
         else:
             packages.append(match)
+
+    # The packages go to the device's file system and stay there until the reboot
+    # installs them, so they have to fit next to what is already on it. A 16 MiB board
+    # on v6 has no room for a full package (hEX S 6.49.10: 4.8 MiB free, 10.1 MiB
+    # package), and an upload that fills the flash is worse than one that never starts.
+    needed = sum(p.size for p in packages)
+    free = inventory.resource.free_hdd_space
+    if free and needed > free:
+        return skip("update.no_space", version=str(newest.version),
+                    size=_mb(needed), free=_mb(free))
+
     planned = _issue("update.planned", Severity.INFO, version=str(newest.version),
                      current=str(current), files=", ".join(p.file_name for p in packages))
     return UpdatePlan(tuple(packages), newest.version, current, (*notes, planned, *missing))
 
 
 def _extra_packages(inventory: DeviceInventory) -> list[PackageInfo]:
-    """The packages installed next to the main one, without the ones 7.23 merely offers
-    for download (`PackageInfo.installed`), which need no file in the Update directory."""
+    """The packages that need a file of their own in the Update directory.
+
+    Left out are the ones 7.23 merely offers for download (`PackageInfo.installed`) and,
+    on v6, the bundle and everything in it: `/system package print` lists the bundle
+    `routeros-mmips` and its members (system, ipv6, wireless, hotspot, mpls, routing,
+    ppp, dhcp, security, advanced-tools, each with `bundle=routeros-mmips`), and the one
+    `routeros-<arch>-<version>.npk` brings them all.
+    """
+    bundles = {p.bundle for p in inventory.packages if p.bundle}
     return [p for p in inventory.packages
-            if p.installed and p.name not in DEVICE_MAIN_PACKAGES]
+            if p.installed and not p.bundle
+            and p.name not in DEVICE_MAIN_PACKAGES and p.name not in bundles
+            and not is_main_package(p.name)]
 
 
 def firmware_newer(available: str, current: str) -> bool:
