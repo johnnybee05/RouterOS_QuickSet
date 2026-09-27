@@ -196,9 +196,13 @@ Jak to funguje:
 5. **Než se zařízení ohlásí zpět**, hledá ho aplikace na adrese, na které odpovídalo,
    pak na adresách z profilu a nakonec přes MAC. Po přechodu z v7 na v6 se totiž může
    ohlásit jinde, nebo vůbec — pak zbývá Netinstall, což dialog říká předem.
-6. **RouterBOOT se nesnižuje.** RouterOS 6.49.12 běžel na RouterBOOTu 6.49.21 bez potíží
-   a `upgrade-firmware` je po downgradu starší než `current-firmware`, takže krok
-   *Aktualizovat RouterBOOT* sám nic neudělá.
+6. **RouterBOOT jde s RouterOS, a jen nahoru.** Nová verze RouterOS položí nový firmware
+   do `upgrade-firmware` a krok *Aktualizovat RouterBOOT* ho zapíše — po přechodu tedy
+   běží, stejně jako po resetu s aplikací (v CLI `version --routerboot`). Po downgradu je
+   `upgrade-firmware` starší než `current-firmware`, takže krok sám nic neudělá a řekne to;
+   RouterOS 6.49.12 běžel na RouterBOOTu 6.49.21 bez potíží. Když už je zařízení na správné
+   verzi a firmware jen čeká, zapíše ho `version --routerboot` samotné (jeden restart,
+   konfigurace se nemění).
 
 Downgrade a přechod mezi v6 a v7 potvrzujete opsáním identity zařízení, stejně jako reset;
 v CLI `--confirm-identity`.

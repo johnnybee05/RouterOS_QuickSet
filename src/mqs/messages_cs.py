@@ -307,10 +307,18 @@ MESSAGES: dict[str, str] = {
     "update.routerboot_after": "Po aktualizaci RouterOS se aktualizuje i RouterBOOT (teď "
     "{current}) na {version} a zařízení se ještě jednou restartuje.",
     "apply.step.routerboot": "Aktualizace RouterBOOT {current} → {version} a restart",
-    "apply.step.routerboot_current": "RouterBOOT {current} je aktuální",
+    "apply.step.routerboot_current": "RouterBOOT {current} zůstává, novější firmware "
+    "zařízení nenabízí",
     "apply.warning.routerboot": "RouterBOOT se nepodařilo aktualizovat, konfigurace zůstává: "
     "{error}",
     # Přechod na jinou verzi RouterOS (downgrade, v6 <-> v7)
+    "version.routerboot_pending": "Zařízení má připravený RouterBOOT {version} (teď běží "
+    "{current}). Zapíše se a zařízení se jednou restartuje; konfigurace se nemění.",
+    "version.routerboot_none": "RouterBOOT {current} je poslední, který zařízení nabízí – "
+    "není co zapisovat.",
+    "version.routerboot_after": "S RouterOS {version} přijde i novější RouterBOOT (teď "
+    "{current}). Se zaškrtnutým krokem „Aktualizovat RouterBOOT“ se zapíše po posledním "
+    "restartu a zařízení se restartuje ještě jednou; bez něj zůstane RouterBOOT starý.",
     "version.planned": "Přechod z RouterOS {current} na {version}: {reboots}x restart, "
     "nahraje se {files}.",
     "version.no_dir": "Adresář s balíčky {dir} neexistuje, přejít na jinou verzi nelze.",

@@ -34,6 +34,7 @@ from mqs.apply.plan import (
     make_names,
 )
 from mqs.apply.preflight import collect_existing, preflight, prepare_import
+from mqs.apply.routerboot import pending_issue, state_from_inventory
 from mqs.apply.session import (
     DeviceSession,
     TempAddressLeft,
@@ -51,6 +52,7 @@ from mqs.apply.update import plan_from_dir
 from mqs.apply.version_change import (
     VersionChangeAborted,
     VersionChanger,
+    VersionPlan,
     available_versions,
     plan_version,
 )
@@ -343,8 +345,13 @@ def cmd_version(args: argparse.Namespace, out: Any, *,
         describe_session(session, out)
         if not args.to:
             _print_offers(session, scan_update_dir(packages_dir(args)), out)
-            return OK
-        return run_version_change(session, args, out, changer_factory=changer_factory)
+            # `--routerboot` with no version to install: write the firmware that is already
+            # waiting, which is what a version change leaves behind when it is all there is
+            # left to do.
+            return (run_routerboot(session, args, out, changer_factory=changer_factory)
+                    if args.routerboot else OK)
+        return run_version_change(session, args, out, routerboot=args.routerboot,
+                                  changer_factory=changer_factory)
     finally:
         hang_up(session, out)
 
@@ -365,8 +372,15 @@ def _print_offers(session: DeviceSession, found: Any, out: Any) -> None:
 
 def run_version_change(session: DeviceSession, args: argparse.Namespace, out: Any, *,
                        profile: DeviceProfile | None = None,
+                       routerboot: bool = False,
                        changer_factory: Callable[..., Any] = VersionChanger) -> int:
-    """Plan the route, ask, walk it. Nothing touches the device before the last of those."""
+    """Plan the route, ask, walk it. Nothing touches the device before the last of those.
+
+    ``routerboot`` writes the firmware the new RouterOS brings after the last hop. It
+    belongs to whatever runs last, so `apply --to` leaves it off here and lets the apply's
+    own step do it — the firmware would otherwise be written before the reset instead of
+    after it, and the second attempt would only find nothing to do.
+    """
     try:
         target = RosVersion.parse(args.to)
     except ValueError as exc:
@@ -377,7 +391,9 @@ def run_version_change(session: DeviceSession, args: argparse.Namespace, out: An
     if plan.blocked:
         return BLOCKED
     if not plan.changes:
-        return OK
+        # Nothing to install, so `--routerboot` is all that is left of the request.
+        return (run_routerboot(session, args, out, changer_factory=changer_factory)
+                if routerboot else OK)
     # A downgrade, and a move between v6 and v7, is confirmed by the device's own name,
     # the way a reset is: --yes alone is not enough for either.
     if plan.needs_confirmation and args.confirm_identity != session.inventory.identity:
@@ -388,7 +404,41 @@ def run_version_change(session: DeviceSession, args: argparse.Namespace, out: An
         return REFUSED
     print(f"\nchanging the version, {plan.reboots} reboot(s):", file=out)
     ctx = build_version_context(plan, session, on_event=_step_printer(args, out),
-                                profile=profile)
+                                profile=profile, upgrade_routerboot=routerboot)
+    try:
+        report = changer_factory(ctx).run()
+    except VersionChangeAborted as exc:
+        session_after_version_change(session, exc.report)
+        _print_checks(exc.report.checks, exc.report.issues, out)
+        print(f"aborted: {exc}", file=sys.stderr)
+        return FAILED
+    session_after_version_change(session, report)
+    _print_checks(report.checks, report.issues, out)
+    return OK if report.succeeded else FAILED
+
+
+def run_routerboot(session: DeviceSession, args: argparse.Namespace, out: Any, *,
+                   changer_factory: Callable[..., Any] = VersionChanger) -> int:
+    """Write the firmware waiting in `upgrade-firmware`, with no version change at all.
+
+    A version change leaves the new RouterOS's firmware waiting, and so does an update;
+    when the device already runs the version it should, writing that firmware is the only
+    thing left, and this is the one way to ask for it on its own. One reboot, no
+    configuration touched.
+    """
+    state = state_from_inventory(session.inventory)
+    waiting = pending_issue(state, "version.routerboot_pending")
+    if waiting is None:
+        print_issues([Issue("version.routerboot_none", Severity.INFO, "",
+                            {"current": state.current or "-"})], out)
+        return OK
+    print_issues([waiting], out)
+    if not confirmed_action(args, session, f"RouterBOOT {state.available}"):
+        return REFUSED
+    plan = VersionPlan(current=session.inventory.version, target=session.inventory.version,
+                       hops=(), floor=session.inventory.version_floor)
+    ctx = build_version_context(plan, session, on_event=_step_printer(args, out),
+                                upgrade_routerboot=True)
     try:
         report = changer_factory(ctx).run()
     except VersionChangeAborted as exc:
@@ -634,6 +684,10 @@ def build_parser() -> argparse.ArgumentParser:
     version_cmd.add_argument("--confirm-identity", metavar="IDENTITY", default="",
                              help="the device identity, required by a downgrade and by a "
                              "move between RouterOS 6 and 7")
+    version_cmd.add_argument("--routerboot", action="store_true",
+                             help="after the last version also write the RouterBOOT firmware "
+                             "the new RouterOS brings, with one more reboot (nothing happens "
+                             "when it is not newer, as after a downgrade)")
     version_cmd.add_argument("-y", "--yes", action="store_true",
                              help="do not ask before changing the device")
     version_cmd.add_argument("-v", "--verbose", action="store_true",
@@ -683,7 +737,9 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
         print("--update needs --mode reset: the packages are installed by its reboot",
               file=sys.stderr)
         return BLOCKED
-    if getattr(args, "routerboot", False) and args.mode != ApplyMode.RESET_AND_IMPORT.value:
+    # `version --routerboot` has no mode: there the step follows the last installed version.
+    if args.command == "apply" and getattr(args, "routerboot", False) \
+            and args.mode != ApplyMode.RESET_AND_IMPORT.value:
         print("--routerboot needs --mode reset", file=sys.stderr)
         return BLOCKED
     try:

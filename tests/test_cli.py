@@ -635,3 +635,88 @@ def test_the_version_change_runs_before_the_apply(router, profile_file, tmp_path
     assert router.version.startswith("7.23.5")
     assert router.log.index("/system/reboot") < router.log.index("/system/reset-configuration")
     assert "OK   RouterOS 7.23.5" in out
+
+
+def test_version_can_write_the_routerboot_firmware_too(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    router.version = "6.49.12 (long-term)"
+    router.firmware.update({"current-firmware": "6.42.4", "upgrade-firmware": "6.42.4"})
+    router.installable = {"routeros-mmips-6.49.21.npk": "6.49.21"}
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.49.21", "--routerboot", "--yes",
+                             "--confirm-identity", "MikroTik"],
+                            router, v6_inventory("6.49.12"))
+    assert code == cli.OK, out
+    assert "/system/routerboard/upgrade" in router.log
+    assert router.reboots == 2  # the version, then the firmware
+    assert "OK   RouterBOOT 6.49.21" in out
+    # `--routerboot` on `version` has no `--mode` to go with, and needs none.
+    assert "needs --mode reset" not in out
+
+
+def test_without_the_switch_the_version_change_leaves_routerboot_alone(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    router.version = "6.49.12 (long-term)"
+    router.installable = {"routeros-mmips-6.49.21.npk": "6.49.21"}
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.49.21", "--yes"], router, v6_inventory("6.49.12"))
+    assert code == cli.OK, out
+    assert "/system/routerboard/upgrade" not in router.log and router.reboots == 1
+
+
+def routerboot_inventory(version="7.23.7", current="6.49.21", available="7.23.7"):
+    """The hEX S after the move to v7: RouterOS 7, RouterBOOT still the old one."""
+    inventory = v6_inventory(version)
+    board = inventory.routerboard.model_copy(update={"current_firmware": current,
+                                                     "upgrade_firmware": available})
+    return inventory.model_copy(update={"routerboard": board})
+
+
+def test_the_waiting_routerboot_firmware_can_be_written_on_its_own(router, tmp_path):
+    """What the board is left with after a version change: RouterOS 7.23.7 with RouterBOOT
+    6.49.21 waiting to be written, and no version to install any more."""
+    folder = v6_packages(tmp_path)
+    router.version = "7.23.7 (long-term)"
+    router.firmware.update({"current-firmware": "6.49.21", "upgrade-firmware": "7.23.7"})
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--routerboot", "--yes"],
+                            router, routerboot_inventory())
+    assert code == cli.OK, out
+    assert "version.routerboot_pending" in out  # said before anything happened
+    assert "/system/routerboard/upgrade" in router.log and router.reboots == 1
+    assert "OK   RouterBOOT 7.23.7" in out
+    assert router.version.startswith("7.23.7")  # the RouterOS was not touched
+
+
+def test_nothing_to_write_says_so_and_does_nothing(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    router.version = "7.23.7 (long-term)"
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--routerboot", "--yes"],
+                            router, routerboot_inventory(current="7.23.7"))
+    assert code == cli.OK, out
+    assert "version.routerboot_none" in out
+    assert "/system/routerboard/upgrade" not in router.log and router.reboots == 0
+
+
+def test_the_version_it_already_has_still_writes_the_firmware(router, tmp_path):
+    """`--to` the running version is not a route, but `--routerboot` is still a request."""
+    folder = v6_packages(tmp_path)
+    router.version = "7.23.7 (long-term)"
+    router.firmware.update({"current-firmware": "6.49.21", "upgrade-firmware": "7.23.7"})
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "7.23.7", "--routerboot", "--yes"],
+                            router, routerboot_inventory())
+    assert code == cli.OK, out
+    assert "version.same" in out and "/system/routerboard/upgrade" in router.log
+
+
+def test_the_version_it_already_has_and_no_switch_does_nothing(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    router.version = "7.23.7 (long-term)"
+    router.firmware.update({"current-firmware": "6.49.21", "upgrade-firmware": "7.23.7"})
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "7.23.7", "--yes"], router, routerboot_inventory())
+    assert code == cli.OK, out
+    assert "version.same" in out and not router.log
+

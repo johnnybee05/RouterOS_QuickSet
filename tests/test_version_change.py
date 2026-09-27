@@ -309,10 +309,14 @@ class SilentUploader(RouterUploader):
 
 
 def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
-            installs: bool = True, reconnect=None, versions=()):
+            installs: bool = True, reconnect=None, versions=(), routerboot=False,
+            firmware: str = "6.42.4"):
     router = FakeRouter()
     router.version = f"{current} (long-term)"
     router.installs_packages = installs
+    # As the real board reports it: the firmware it was made with, until a package puts a
+    # newer image in `upgrade-firmware`.
+    router.firmware.update({"current-firmware": firmware, "upgrade-firmware": firmware})
     inventory = mmips(current)
     found = scan_update_dir(mmips_dir(tmp_path, *versions))
     plan = plan_version(inventory, found, V(target))
@@ -330,6 +334,7 @@ def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
         uploader_factory=lambda transport: uploader or RouterUploader(router),
         reconnect=reconnect(router, targets) if reconnect else default_reconnect,
         on_event=events.append, sleep=lambda seconds: None, alternatives=NOW_HOSTS,
+        upgrade_routerboot=routerboot,
     )
     return router, VersionChanger(ctx), events, targets
 
@@ -420,3 +425,62 @@ def test_a_route_with_nothing_to_do_touches_nothing(tmp_path):
     report = runner.run()
     assert report.succeeded and not report.installed and not events
     assert router.reboots == 0 and not router.log
+
+
+# ------------------------------------------------------------------ RouterBOOT
+
+
+def test_going_up_says_a_newer_routerboot_is_coming(tmp_path):
+    plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    note = next(i for i in plan.issues if i.code == "version.routerboot_after")
+    assert note.severity == Severity.INFO
+    assert "7.23.5" in note.message and "6.49.21" in note.message  # coming, and running
+
+
+@pytest.mark.parametrize("target", ["6.49.12", "6.49.21"])
+def test_going_down_or_nowhere_says_nothing_about_routerboot(tmp_path, target):
+    plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V(target))
+    assert "version.routerboot_after" not in codes(plan.issues)
+
+
+def test_a_device_without_routerboot_says_nothing_about_it(tmp_path):
+    """CHR and x86: `/system routerboard` has nothing to say, so neither has the plan."""
+    inventory = make_inventory("6.49.21", architecture="mmips", has_flash_dir=True,
+                               free_memory=227 * MB,
+                               packages=[PackageInfo(name="routeros-mmips",
+                                                     version="6.49.21")])
+    plan = plan_version(inventory, scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    assert "version.routerboot_after" not in codes(plan.issues)
+    assert plan.floor is None and plan.changes  # no floor to speak of, and it still goes
+
+
+def test_routerboot_is_written_once_after_the_last_hop(tmp_path):
+    router, runner, events, targets = changer(tmp_path, "7.23.5", current="6.49.12",
+                                              routerboot=True)
+    report = runner.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert router.log.count("/system/routerboard/upgrade") == 1  # not once per hop
+    assert router.reboots == 3 and len(targets) == 3  # two hops, then the firmware
+    steps = [e.step for e in events]
+    assert steps.index("apply.step.routerboot") > steps.index("apply.step.version_installed")
+    assert report.checks[-1].code == "verify.routerboot" and report.checks[-1].ok
+    assert report.checks[-1].message == "RouterBOOT 7.23.5 (na zařízení 7.23.5)"
+
+
+def test_a_downgrade_leaves_routerboot_alone_even_when_asked(tmp_path):
+    """The firmware that comes with the older RouterOS is older, so there is nothing to
+    write — and the step says so instead of rebooting the device for nothing."""
+    router, runner, events, _ = changer(tmp_path, "6.49.12", firmware="6.49.21",
+                                        routerboot=True)
+    assert runner.run().succeeded
+    assert "/system/routerboard/upgrade" not in router.log and router.reboots == 1
+    skipped = next(e for e in events if e.step == "apply.step.routerboot_current")
+    assert skipped.status == StepStatus.SKIPPED
+    assert "verify.routerboot" not in {c.code for c in runner.report.checks}
+
+
+def test_without_the_option_the_firmware_is_not_even_read(tmp_path):
+    router, runner, _events, _ = changer(tmp_path, "7.23.5")
+    assert runner.run().succeeded
+    assert "/system/routerboard/print" not in router.log
+    assert router.reboots == 1

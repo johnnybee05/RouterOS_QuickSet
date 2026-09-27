@@ -394,10 +394,12 @@ class ApplyPage(Page):
         self.version_button.setEnabled(False)
         self.apply_button.setEnabled(False)
 
+        routerboot = self.routerboot_check.isChecked()
+
         def task(token, report):
             ctx = build_version_context(
                 plan, session, on_event=report, profile=self.controller.profile,
-                cancelled=token.cancelled,
+                cancelled=token.cancelled, upgrade_routerboot=routerboot,
                 uploader_factory_builder=self.uploader_factory_builder,
                 reconnect_fn=self.reconnect_fn,
             )
@@ -451,7 +453,9 @@ class ApplyPage(Page):
         self.keep_users.setEnabled(reset)
         self.update_check.setEnabled(reset)
         self.update_dir_label.setEnabled(reset and self.update_check.isChecked())
-        self.routerboot_check.setEnabled(reset)
+        # RouterBOOT belongs to whatever installs a version: the reset's apply, or the
+        # version row on its own.
+        self.routerboot_check.setEnabled(reset or self.version_check.isChecked())
         self.version_check.setEnabled(self.session_provider() is not None)
         self.refresh_version_row()
         self.admin_password.setEnabled(reset)

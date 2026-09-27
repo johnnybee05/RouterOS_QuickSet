@@ -1096,3 +1096,24 @@ def test_qt_keeps_its_own_arguments(window, qtbot):
     assert rest == ["-style", "Fusion"]
     assert args.host == "10.0.0.1"
 
+
+def test_the_routerboot_switch_belongs_to_the_version_row_as_well(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    page.mode_buttons[ApplyMode.IMPORT].setChecked(True)
+    assert not page.routerboot_check.isEnabled()  # nothing installs a version here
+    page.version_check.setChecked(True)
+    assert page.routerboot_check.isEnabled()
+    page.version_combo.setCurrentIndex(0)  # 7.23.5, forward across the major version
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
+                    timeout=5000)
+    assert RecordingChanger.instances[-1].ctx.upgrade_routerboot
+
+    RecordingChanger.instances.clear()
+    page.version_check.setChecked(True)
+    page.routerboot_check.setChecked(False)
+    page.version_combo.setCurrentIndex(0)
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
+                    timeout=5000)
+    assert not RecordingChanger.instances[-1].ctx.upgrade_routerboot

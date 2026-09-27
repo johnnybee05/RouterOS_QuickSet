@@ -29,7 +29,8 @@ from mqs.apply.reconnect import (
     reconnect_hosts,
 )
 from mqs.apply.rollback import cancel_rollback, schedule_rollback
-from mqs.apply.update import firmware_newer, leftover_packages
+from mqs.apply.routerboot import RouterbootUpgrade
+from mqs.apply.update import leftover_packages
 from mqs.apply.verify import (
     CheckResult,
     check_import_script,
@@ -578,46 +579,25 @@ class ApplyOrchestrator:
         comes back where it answered, with the configuration it has. Both commands ask
         for a yes in the console; over the API and SSH exec that is NUTNO OVĚŘIT, as the
         reset was (it runs without one there).
+
+        The step itself lives in `apply/routerboot.py`, because a version change leaves
+        exactly the same firmware waiting and does it the same way.
         """
         if not self.ctx.options.upgrades_routerboot:
             return
+        step = RouterbootUpgrade(
+            transport=self.transport, event=self._event, warn=self._warn,
+            reconnect=self._reconnect_returning, checks=self.report.checks,
+            sleep=self.ctx.sleep, wait_s=ROUTERBOOT_REBOOT_WAIT_S,
+        )
         try:
-            rows = self.transport.execute("/system/routerboard/print")
-        except CommandError:
-            rows = []  # CHR and x86 have no RouterBOOT
-        board = rows[0] if rows else {}
-        current = board.get("current-firmware", "")
-        available = board.get("upgrade-firmware", "")
-        if not to_bool(board, "routerboard") or not firmware_newer(available, current):
-            self._event("apply.step.routerboot_current", StepStatus.SKIPPED,
-                        current=current or "-")
-            return
-        params = {"current": current, "version": available}
-        self._event("apply.step.routerboot", StepStatus.RUNNING, **params)
-        try:
-            self.transport.execute("/system/routerboard/upgrade")
-            with self.transport.reply_timeout(REBOOT_REPLY_S):
-                self.transport.execute("/system/reboot")
-        except (ConnectionLost, CommandTimeout):
-            pass  # the reboot takes the session along
+            self.report.transport = step.run()
         except TransportError as exc:
-            # The configuration is in place; the old RouterBOOT keeps running.
-            self._warn("apply.warning.routerboot", error=str(exc))
-            self.report.checks.append(CheckResult(
-                "verify.routerboot", False, {"expected": available, "actual": current}))
-            return
-        self.transport.close()
-        self._event("apply.step.routerboot", StepStatus.OK, **params)
-        self.ctx.sleep(ROUTERBOOT_REBOOT_WAIT_S)
-        self._reconnect_after_reboot()
-        try:
-            actual = self.transport.execute("/system/routerboard/print")[0].get(
-                "current-firmware", "")
-        except (TransportError, IndexError) as exc:
             raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
-        self.report.checks.append(CheckResult(
-            "verify.routerboot", actual == available,
-            {"expected": available, "actual": actual or "-"}))
+
+    def _reconnect_returning(self) -> Transport:
+        self._reconnect_after_reboot()
+        return self.transport
 
     def _reconnect_after_reboot(self) -> None:
         """Back to where the session answered: a reboot keeps the configuration, and with

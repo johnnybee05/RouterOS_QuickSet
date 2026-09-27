@@ -214,13 +214,39 @@ was — `_reconnect_after_reboot` covers it. Two exceptions:
 
 ### 5.5 RouterBOOT
 
-RouterBOOT is left alone, and **the `--routerboot-downgrade` option of the design was not
-built**: it turned out not to be needed. On 2026-09-27 RouterOS 6.49.12 ran on RouterBOOT
-6.49.21 and booted normally, and after the downgrade `upgrade-firmware` reads *older* than
-`current-firmware` (6.49.12 next to 6.49.21), so `firmware_newer()` makes the existing
-RouterBOOT step skip itself. `/console inspect`, which the design meant to probe the command
-with, does not exist on RouterOS 6 at all ("bad command name inspect"). The `--routerboot`
-upgrade keeps working unchanged and is still the natural last step of the v6 → v7 route.
+**The `--routerboot-downgrade` option of the design was not built**: it turned out not to be
+needed. On 2026-09-27 RouterOS 6.49.12 ran on RouterBOOT 6.49.21 and booted normally, and
+after a downgrade `upgrade-firmware` reads *older* than `current-firmware` (6.49.12 next to
+6.49.21), so nothing is written. `/console inspect`, which the design meant to probe the
+command with, does not exist on RouterOS 6 at all ("bad command name inspect").
+
+What *is* built, since 2026-09-27, is the other half: **the version change ends with the same
+*Aktualizovat RouterBOOT* step an apply ends with**. RouterBOOT comes with RouterOS, so a new
+package leaves a new firmware image in `upgrade-firmware` — after the move to 7.23.7 the mmips
+board offered 7.23.7 while still running RouterBOOT 6.49.21 — and before this the only way to
+write it was a full *Reset + aplikovat*.
+
+The step itself lives in `apply/routerboot.py` and both callers use it unchanged:
+
+| Where | How it is asked for | When it runs |
+|---|---|---|
+| apply (`ApplyOrchestrator`) | the *Aktualizovat RouterBOOT* switch, `--routerboot`, `--mode reset` | last, after the configuration is verified |
+| version change (`VersionChanger`) | the same switch; `mqs.cli version --routerboot` | once, after the **last** hop — an in-between version's firmware is of no interest |
+| nothing to install | `mqs.cli version --routerboot` with no `--to`, or `--to` the running version | on its own: one reboot, no configuration touched (`version.routerboot_pending` / `version.routerboot_none`) |
+
+`RouterbootUpgrade` reads the state itself rather than trusting the inventory, decides from
+`firmware_newer(upgrade, current)`, and reports through the caller's own event and check
+machinery, so a downgrade ends with `apply.step.routerboot_current` and **no** extra reboot.
+A refused write is a failed check, not a reboot. The plan says in advance what is coming
+(`version.routerboot_after`, INFO) whenever the route goes up on a routerboard.
+
+Two things follow from "the step belongs to whatever runs last":
+
+- `apply --to X --routerboot` leaves it to the apply, not to the version change, or the
+  firmware would be written before the reset instead of after it.
+- Going **down** never writes firmware, so a board that went v7 → v6 keeps its v7 RouterBOOT.
+  That is harmless (a newer RouterBOOT runs older RouterOS, OVĚŘENO) and there is no way back
+  down, which is why it is never done as a side effect of anything.
 
 ## 6. Combining with "Reset + aplikovat"
 
@@ -329,6 +355,7 @@ Still NUTNO OVĚŘIT, and the reason each is still open:
 | 2 | the MAC ladder of §5.4 *after a version change* | the one move that could have needed it (7.23.7 → v6) came back on its own address, so the ladder was never entered; it is verified after a reset, not after a downgrade |
 | 3 | what v7 → v6 does to a configuration actually **made on v7** | the board's configuration was v6-made, so this run does not answer it; it would take configuring something v6 has no notion of and going back |
 | 4 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
+| 5 | writing a **v7** RouterBOOT on the mmips board (`current-firmware` 6.49.21 → 7.23.7) | the write itself is verified inside RouterOS 6 (6.49.12 → 6.49.21, one reboot, check passed); across the major version it is the one step with no way back, so it waits for a deliberate go-ahead |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 

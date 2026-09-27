@@ -23,7 +23,10 @@ docs/DIALECT_NOTES.md): `/system package downgrade` asks nothing over SSH exec, 
 session in a second and installs the package on the reboot that follows; it **reboots even
 with nothing to install**, so the package is confirmed in `/file` before it is issued; a
 plain `/system reboot` installs a newer package without any reset; RouterOS deletes a
-package once it has installed it; and RouterBOOT is left alone by all of this.
+package once it has installed it; and the new RouterOS leaves its RouterBOOT firmware
+waiting in `upgrade-firmware` (7.23.7 next to `current-firmware` 6.49.21 after the move to
+v7), which is why the route can end with the same *Aktualizovat RouterBOOT* step an apply
+ends with — see `apply/routerboot.py`.
 """
 
 from __future__ import annotations
@@ -50,6 +53,10 @@ from mqs.apply.packages import (
     issue as _issue,
 )
 from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget
+from mqs.apply.routerboot import (
+    REBOOT_WAIT_S as ROUTERBOOT_REBOOT_WAIT_S,
+)
+from mqs.apply.routerboot import RouterbootUpgrade, state_from_inventory
 from mqs.apply.verify import CheckResult, check_routeros_version
 from mqs.generator.ir import Find, cmd
 from mqs.issues import Issue, Severity
@@ -193,13 +200,15 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
     arch = package_arch(inventory)
     if arch is None:
         return stop("version.unknown_arch", arch=device_arch or "?")
+    # The version it already runs needs no file: asking for it is not an error even when
+    # the directory has no package for it, and "nothing to install" is the whole answer.
+    if target == current:
+        return stop("version.same", Severity.INFO, version=str(current))
     mains = main_packages(found, arch)
     wanted = next((p for p in mains if p.version == target), None)
     if wanted is None:
         return stop("version.no_package", version=str(target), arch=device_arch or "?",
                     dir=str(found.directory))
-    if target == current:
-        return stop("version.same", Severity.INFO, version=str(current))
 
     going_back = target < current
     if going_back and floor is not None and target < floor:
@@ -241,6 +250,12 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
         if no_room is not None:
             return VersionPlan(current, target, (), floor, (*notes, no_room))
 
+    # RouterBOOT comes with RouterOS: going up leaves a newer firmware waiting, going down
+    # leaves an older one, which the step then skips of its own accord.
+    board = state_from_inventory(inventory)
+    if board.is_routerboard and target > current:
+        notes.append(_issue("version.routerboot_after", Severity.INFO, version=str(target),
+                            current=board.current or "?"))
     planned = _issue("version.planned", Severity.INFO, current=str(current),
                      version=str(target), reboots=len(hops),
                      files=", ".join(h.file_names for h in hops))
@@ -299,6 +314,10 @@ class VersionContext:
     ssh_port: int = 22
     reboot_wait_s: float = REBOOT_WAIT_S
     reconnect_timeout_s: float = 300.0
+    # "Aktualizovat RouterBOOT", the same step the apply ends with: the new RouterOS leaves
+    # its firmware in `upgrade-firmware`, and this writes it after the last hop.
+    upgrade_routerboot: bool = False
+    routerboot_wait_s: float = ROUTERBOOT_REBOOT_WAIT_S
 
 
 @dataclass
@@ -361,11 +380,9 @@ class VersionChanger:
     # ---------------------------------------------------------------- flow
 
     def run(self) -> VersionReport:
-        plan = self.ctx.plan
-        if not plan.changes:
-            self.report.succeeded = True
-            return self.report
-        for hop in plan.hops:
+        """Every hop, then the firmware. A route with no hops is allowed: it is how the
+        RouterBOOT step alone is run on a device already on the version it should have."""
+        for hop in self.ctx.plan.hops:
             self._check_cancel()
             uploader = self.ctx.uploader_factory(self.transport)
             try:
@@ -376,8 +393,33 @@ class VersionChanger:
             self._install(hop)
             self._reconnect()
             self._verify(hop)
+        self._routerboot()
         self.report.succeeded = all(c.ok for c in self.report.checks)
         return self.report
+
+    def _routerboot(self) -> None:
+        """"Aktualizovat RouterBOOT", once, after the last hop.
+
+        Not between hops: the firmware of an in-between version is of no interest, and a
+        reboot per hop is enough. The shared step decides whether there is anything to
+        write, so a downgrade ends with `apply.step.routerboot_current` and no reboot.
+        """
+        if not self.ctx.upgrade_routerboot:
+            return
+        self._check_cancel()
+        step = RouterbootUpgrade(
+            transport=self.transport, event=self._event, warn=self._warn,
+            reconnect=self._reconnect_returning, checks=self.report.checks,
+            sleep=self.ctx.sleep, wait_s=self.ctx.routerboot_wait_s,
+        )
+        try:
+            self.report.transport = step.run()
+        except TransportError as exc:
+            raise self._abort("apply.failed.verify", repr(exc), error=str(exc)) from exc
+
+    def _reconnect_returning(self) -> Transport:
+        self._reconnect()
+        return self.transport
 
     def _upload(self, hop: Hop, uploader: FileUploader) -> None:
         """The packages go to the file root, where a reboot installs them from.
