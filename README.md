@@ -172,11 +172,13 @@ Jak to funguje:
    s něčím starším aplikace nepošle nikam naslepo: naplánuje **dva kroky**, nejdřív na
    nejnovější v6 z adresáře, pak na v7. Když v adresáři takový balíček není, odmítne to
    a řekne, který soubor chybí.
-4. **Konfigurace se nepřevádí**, zpět z v7 na v6 už vůbec. Aplikace ji taky nepřevádí —
-   generuje ji pro cílovou verzi znovu, takže po přechodu je správný druhý krok *Reset +
-   aplikovat* (v CLI jedním příkazem `apply --to`). Po přechodu zařízení znovu přečte,
-   protože se změní balíčky, ipv6, wireless, jméno switch čipu i to, jestli soubory leží
-   ve `flash/`.
+4. **Konfiguraci převádí RouterOS, a jen nahoru.** Z v6 na v7 ji převede sám při
+   restartu (na hEX S mmips zůstaly identity, služby a jejich porty, adresy i uživatelé),
+   zpět z v7 na v6 ji nepřevádí — co jste nastavil na v7, se nemusí zachovat. Aplikace
+   konfiguraci nepřevádí nikdy: generuje ji pro cílovou verzi znovu, takže po přechodu je
+   správný druhý krok *Reset + aplikovat* (v CLI jedním příkazem `apply --to`). Po
+   přechodu zařízení znovu přečte, protože se změní balíčky, ipv6, wireless, jméno switch
+   čipu i to, jestli soubory leží ve `flash/`.
 5. **Než se zařízení ohlásí zpět**, hledá ho aplikace na adrese, na které odpovídalo,
    pak na adresách z profilu a nakonec přes MAC. Po přechodu z v7 na v6 se totiž může
    ohlásit jinde, nebo vůbec — pak zbývá Netinstall, což dialog říká předem.

@@ -224,6 +224,9 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
         if dropped:
             notes.append(_issue("version.extras_dropped", Severity.WARNING,
                                 names=", ".join(sorted(dropped)), version=str(target)))
+    if target.major == 7 and current.major == 6:
+        notes.append(_issue("version.v7_config_converted", Severity.WARNING,
+                            version=str(target)))
     if target.major == 6 and current.major == 7:
         notes.append(_issue("version.v6_config_lost", Severity.WARNING, version=str(target)))
     hops.append(_hop(inventory, found, arch, wanted,

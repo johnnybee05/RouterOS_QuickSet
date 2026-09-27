@@ -286,7 +286,7 @@ DIALECT_MISMATCH_CONFIRM = "Skript pro jinou hlavní verzi RouterOS aplikovat p�
 VERSION_TITLE = "Přechod na jinou verzi RouterOS"
 VERSION_TEXT = (
     "Na zařízení {identity} se nainstaluje RouterOS {version} (teď {current}). "
-    "Restartů: {reboots}. Konfigurace se nepřevádí a zařízení se po restartu nemusí "
+    "Restartů: {reboots}. Po přechodu nastavení překontrolujte; zařízení se nemusí "
     "ohlásit na stejné adrese.\n\nPro potvrzení opište identity zařízení:"
 )
 RESET_TITLE = "Reset konfigurace zařízení"

@@ -328,10 +328,14 @@ MESSAGES: dict[str, str] = {
     "V adresáři {dir} ale není balíček v6 ve verzi {gate} nebo novější, kterým by se přechod "
     "udělal ve dvou krocích.",
     "version.crosses_major": "Přechod mezi RouterOS 6 a 7 (z {current} na {version}): "
-    "konfigurace se nepřevádí, po přechodu nastavte zařízení znovu (Reset + aplikovat).",
-    "version.v6_config_lost": "Z RouterOS 7 zpět na {version} se konfigurace nepřevádí. "
-    "Zařízení se po restartu nemusí ohlásit na stejné adrese – aplikace ho zkusí najít i "
-    "přes MAC, jinak zbývá Netinstall.",
+    "mění se hlavní verze RouterOS, po přechodu nastavení překontrolujte.",
+    "version.v7_config_converted": "Z RouterOS 6 na {version} převede konfiguraci RouterOS "
+    "sám při restartu, takže adresy i služby zůstávají a zařízení se ohlásí na stejném "
+    "místě. Co RouterOS 7 nezná, ale nepřejde – projděte nastavení, nebo zařízení nastavte "
+    "znovu (Reset + aplikovat).",
+    "version.v6_config_lost": "Z RouterOS 7 zpět na {version} se konfigurace nepřevádí – "
+    "co jste nastavil na v7, se nemusí zachovat. Zařízení se po restartu nemusí ohlásit na "
+    "stejné adrese – aplikace ho zkusí najít i přes MAC, jinak zbývá Netinstall.",
     "version.extras_dropped": "Balíčky {names} v RouterOS {version} nebudou: napříč hlavní "
     "verzí se nepřenášejí a po přechodu je na zařízení doinstalujte znovu.",
     "version.extra_missing": "Na zařízení je balíček {name} {installed}, ale v adresáři Update "

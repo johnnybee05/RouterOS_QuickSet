@@ -147,7 +147,9 @@ def test_v6_below_the_gate_goes_in_two_hops(tmp_path):
     assert [h.install for h in plan.hops] == [Install.BY_REBOOT, Install.BY_REBOOT]
     assert [h.crosses_major for h in plan.hops] == [False, True]
     assert plan.reboots == 2 and plan.crosses_major and plan.needs_confirmation
-    assert "version.crosses_major" in codes(plan.issues)
+    assert {"version.crosses_major", "version.v7_config_converted"} <= codes(plan.issues)
+    # The way up converts the configuration; only the way down loses it.
+    assert "version.v6_config_lost" not in codes(plan.issues)
 
 
 def test_v6_at_the_gate_crosses_in_one_hop(tmp_path):
@@ -178,6 +180,7 @@ def test_v7_back_to_v6_is_one_downgrade_with_the_configuration_lost(tmp_path):
     assert [h.install for h in plan.hops] == [Install.BY_DOWNGRADE]
     assert plan.hops[0].crosses_major and plan.needs_confirmation
     assert {"version.crosses_major", "version.v6_config_lost"} <= codes(plan.issues)
+    assert "version.v7_config_converted" not in codes(plan.issues)
 
 
 # ------------------------------------------------------------------ extra packages
