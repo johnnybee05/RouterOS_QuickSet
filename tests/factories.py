@@ -33,6 +33,8 @@ def make_inventory(
     default_names: Mapping[str, str] | None = None,
     architecture: str = "",
     free_hdd_space: int = 0,
+    free_memory: int = 0,
+    has_flash_dir: bool = False,
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
     ``default_names`` a renamed port → its default-name (others are not renamed)."""
@@ -41,7 +43,9 @@ def make_inventory(
     default_names = default_names or {}
     return DeviceInventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
-                              architecture=architecture, free_hdd_space=free_hdd_space),
+                              architecture=architecture, free_hdd_space=free_hdd_space,
+                              free_memory=free_memory),
+        has_flash_dir=has_flash_dir,
         identity="MikroTik",
         interfaces=[
             InterfaceInfo(

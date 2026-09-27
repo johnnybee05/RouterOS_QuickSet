@@ -156,6 +156,18 @@ class DeviceInventory(BaseModel):
         return chip.type if chip else None
 
     @property
+    def package_space(self) -> int:
+        """Room for a package uploaded to the file root, where a reboot installs it from.
+
+        A board that keeps its files under `flash/` has a RAM disk for a root, and takes
+        the package into memory: the flash is written only when the reboot installs it.
+        OVĚŘENO on the hEX S 6.49.10 (2026-09-27), where a 10.1 MB package went up with
+        4.6 MB free flash, `free-hdd-space` did not move and `free-memory` fell by the
+        same 10.3 MB. Where there is no `flash/`, the root is the flash itself.
+        """
+        return self.resource.free_memory if self.has_flash_dir else self.resource.free_hdd_space
+
+    @property
     def ipv6_package_state(self) -> Ipv6PackageState:
         if self.version.major >= 7:
             return Ipv6PackageState.BUILTIN

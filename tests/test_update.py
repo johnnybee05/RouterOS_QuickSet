@@ -43,6 +43,7 @@ REAL_MMIPS_V6_HEADER = bytes.fromhex(
 
 
 npk = make_npk
+MB = 1024 * 1024
 
 
 def write(directory: Path, file: str, data: bytes) -> Path:
@@ -111,12 +112,15 @@ def device(version: str = "7.20.7", arch: str = "arm", packages=(), free: int = 
         PackageInfo(name="routeros", version=version), *packages])
 
 
-def v6_device(version: str = "6.49.10", arch: str = "mmips", free: int = 64 * 1024 * 1024):
-    """A v6 hEX S as it prints itself: the bundle, then every package in it."""
+def v6_device(version: str = "6.49.10", arch: str = "mmips", free_ram: int = 227 * MB):
+    """A v6 hEX S as it prints itself: the bundle, then every package in it, and a
+    `flash/` directory, which means the file root is a RAM disk. The 4.6 MB of free
+    flash are the board's own, and are not what a package has to fit into."""
     bundle = f"routeros-{arch}"
     members = ("system", "ipv6", "wireless", "hotspot", "mpls", "routing", "ppp", "dhcp",
                "security", "advanced-tools")
-    return make_inventory(version, architecture=arch, free_hdd_space=free, packages=[
+    return make_inventory(version, architecture=arch, has_flash_dir=True,
+                          free_hdd_space=4636 * 1024, free_memory=free_ram, packages=[
         PackageInfo(name=bundle, version=version),
         *(PackageInfo(name=m, version=version, bundle=bundle) for m in members)])
 
@@ -246,15 +250,29 @@ def test_a_v6_device_is_not_moved_to_v7(tmp_path):
     assert plan.issues[0].params["version"] == "7.23.7"
 
 
-def test_a_package_that_does_not_fit_is_not_uploaded(tmp_path):
+def test_a_ram_disk_board_measures_the_package_against_its_memory(tmp_path):
+    # hEX S 6.49.10, 2026-09-27: a 10.1 MB package went up with 4.6 MB of free flash,
+    # free-hdd-space did not move, and free-memory fell by the same amount.
     data = npk("routeros-mmips", (6, 49, 21), "mmips", bundle=True)
-    fits = plan_update(v6_device(free=len(data)), found_in(tmp_path, ("a.npk", data)))
-    assert fits.installs
-    plan = plan_update(v6_device(free=len(data) - 1), found_in(tmp_path, ("a.npk", data)))
-    assert not plan.installs and codes(plan.issues) == {"update.no_space"}
+    found = found_in(tmp_path, ("a.npk", data))
+    assert plan_update(v6_device(free_ram=len(data)), found).installs
+    plan = plan_update(v6_device(free_ram=len(data) - 1), found)
+    assert not plan.installs and codes(plan.issues) == {"update.no_ram"}
     assert plan.issues[0].params["version"] == "6.49.21"
     # A device that does not say how much room it has is not stopped.
-    assert plan_update(v6_device(free=0), found_in(tmp_path, ("a.npk", data))).installs
+    assert plan_update(v6_device(free_ram=0), found).installs
+
+
+def test_a_board_without_a_flash_directory_measures_it_against_the_flash(tmp_path):
+    data = npk()
+    found = found_in(tmp_path, ("a.npk", data))
+    # Plenty of memory, no room in the flash the root sits on.
+    cramped = make_inventory("7.20.7", architecture="arm", free_hdd_space=len(data) - 1,
+                             free_memory=512 * MB,
+                             packages=[PackageInfo(name="routeros", version="7.20.7")])
+    plan = plan_update(cramped, found)
+    assert not plan.installs and codes(plan.issues) == {"update.no_space"}
+    assert plan_update(device(free=len(data)), found).installs
 
 
 def test_packages_only_offered_for_download_are_not_missing(tmp_path):

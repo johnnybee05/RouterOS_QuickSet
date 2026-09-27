@@ -280,6 +280,9 @@ MESSAGES: dict[str, str] = {
     "update.no_space": "Na zařízení není dost místa pro RouterOS {version}: balíčky mají "
     "{size} MB, volného místa je {free} MB. RouterOS se nebude aktualizovat – uvolněte místo "
     "ve Files, nebo použijte Netinstall.",
+    "update.no_ram": "Na zařízení není dost volné paměti pro RouterOS {version}: balíčky "
+    "mají {size} MB, volné paměti je {free} MB. Zařízení nahrává balíček do RAM (soubory "
+    "má ve flash/), RouterOS se nebude aktualizovat – zkuste to po restartu.",
     "update.unknown_arch": "Architekturu zařízení „{arch}“ aplikace nezná, RouterOS se nebude "
     "aktualizovat.",
     "update.no_package": "V adresáři {dir} není balíček RouterOS pro architekturu {arch}, "

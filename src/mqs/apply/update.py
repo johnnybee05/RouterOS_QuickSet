@@ -246,15 +246,15 @@ def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
         else:
             packages.append(match)
 
-    # The packages go to the device's file system and stay there until the reboot
-    # installs them, so they have to fit next to what is already on it. A 16 MiB board
-    # on v6 has no room for a full package (hEX S 6.49.10: 4.8 MiB free, 10.1 MiB
-    # package), and an upload that fills the flash is worse than one that never starts.
+    # The packages go to the file root and stay there until the reboot installs them, so
+    # they have to fit. What they have to fit into is not the same everywhere: a board
+    # with a `flash/` directory has a RAM disk for a root and takes them into memory
+    # (`DeviceInventory.package_space`), which is how a 16 MiB v6 board updates at all.
     needed = sum(p.size for p in packages)
-    free = inventory.resource.free_hdd_space
+    free = inventory.package_space
     if free and needed > free:
-        return skip("update.no_space", version=str(newest.version),
-                    size=_mb(needed), free=_mb(free))
+        return skip("update.no_ram" if inventory.has_flash_dir else "update.no_space",
+                    version=str(newest.version), size=_mb(needed), free=_mb(free))
 
     planned = _issue("update.planned", Severity.INFO, version=str(newest.version),
                      current=str(current), files=", ".join(p.file_name for p in packages))
