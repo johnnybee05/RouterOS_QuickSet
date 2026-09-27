@@ -8,10 +8,10 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from mqs.apply.events import ApplyEvent, StepStatus
 from mqs.apply.plan import (
     ROLLBACK_JOB,
     ApplyMode,
@@ -41,7 +41,6 @@ from mqs.generator.base import GenerationResult
 from mqs.generator.ir import Command, Find, KeepOwnFirst, RawLine, cmd
 from mqs.generator.render import render_inline
 from mqs.issues import Issue, Severity
-from mqs.messages_cs import format_message
 from mqs.model.inventory import DeviceInventory
 from mqs.model.ports import names_after
 from mqs.model.profile import DeviceProfile
@@ -67,26 +66,6 @@ FILE_NOT_READY = "cannot use file"
 # reconnecting, so the device is down and not caught still shutting down (NUTNO OVĚŘIT).
 REBOOT_REPLY_S = 10.0
 ROUTERBOOT_REBOOT_WAIT_S = 20.0
-
-
-class StepStatus(StrEnum):
-    RUNNING = "running"
-    OK = "ok"
-    WARNING = "warning"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-
-
-@dataclass(frozen=True)
-class ApplyEvent:
-    step: str  # message code, e.g. "apply.step.backup"
-    status: StepStatus
-    params: dict[str, Any] = field(default_factory=dict)
-    detail: str = ""  # technical detail for the log
-
-    @property
-    def message(self) -> str:
-        return format_message(self.step, self.params)
 
 
 @dataclass

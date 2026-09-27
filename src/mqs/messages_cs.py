@@ -310,6 +310,58 @@ MESSAGES: dict[str, str] = {
     "apply.step.routerboot_current": "RouterBOOT {current} je aktuální",
     "apply.warning.routerboot": "RouterBOOT se nepodařilo aktualizovat, konfigurace zůstává: "
     "{error}",
+    # Přechod na jinou verzi RouterOS (downgrade, v6 <-> v7)
+    "version.planned": "Přechod z RouterOS {current} na {version}: {reboots}x restart, "
+    "nahraje se {files}.",
+    "version.no_dir": "Adresář s balíčky {dir} neexistuje, přejít na jinou verzi nelze.",
+    "version.unknown_arch": "Architekturu zařízení „{arch}“ aplikace nezná, přejít na jinou "
+    "verzi nelze.",
+    "version.no_package": "V adresáři {dir} není balíček RouterOS {version} pro architekturu "
+    "{arch}.",
+    "version.same": "Zařízení už má RouterOS {version}.",
+    "version.below_factory": "RouterOS {version} je starší než verze, se kterou byla deska "
+    "vyrobena ({floor}). Níž než na {floor} se tohle zařízení dostat nedá.",
+    "version.no_factory_firmware": "Zařízení neuvádí, se kterou verzí bylo vyrobeno "
+    "(factory-firmware ani factory-software), takže nejnižší možnou verzi aplikace nezná. "
+    "Downgrade na {version} může zařízení odmítnout.",
+    "version.v7_needs_649": "Na RouterOS 7 se dá přejít až z {gate}, zařízení má {current}. "
+    "V adresáři {dir} ale není balíček v6 ve verzi {gate} nebo novější, kterým by se přechod "
+    "udělal ve dvou krocích.",
+    "version.crosses_major": "Přechod mezi RouterOS 6 a 7 (z {current} na {version}): "
+    "konfigurace se nepřevádí, po přechodu nastavte zařízení znovu (Reset + aplikovat).",
+    "version.v6_config_lost": "Z RouterOS 7 zpět na {version} se konfigurace nepřevádí. "
+    "Zařízení se po restartu nemusí ohlásit na stejné adrese – aplikace ho zkusí najít i "
+    "přes MAC, jinak zbývá Netinstall.",
+    "version.extras_dropped": "Balíčky {names} v RouterOS {version} nebudou: napříč hlavní "
+    "verzí se nepřenášejí a po přechodu je na zařízení doinstalujte znovu.",
+    "version.extra_missing": "Na zařízení je balíček {name} {installed}, ale v adresáři Update "
+    "pro něj chybí verze {version} ({arch}). Po přechodu nemusí fungovat.",
+    "version.no_space": "Na zařízení není dost místa pro RouterOS {version}: balíčky mají "
+    "{size} MB, volného místa je {free} MB. Uvolněte místo ve Files, nebo použijte Netinstall.",
+    "version.no_ram": "Na zařízení není dost volné paměti pro RouterOS {version}: balíčky "
+    "mají {size} MB, volné paměti je {free} MB. Zařízení nahrává balíček do RAM (soubory má "
+    "ve flash/) – zkuste to po restartu.",
+    "version.unreadable": "Soubor {file} v adresáři s balíčky se nedá použít: {error}",
+    "apply.step.version_upload": "Nahrání balíčku {file} ({size} MB, způsob: {strategy})",
+    "apply.step.version_install_reboot": "Instalace RouterOS {version} restartem",
+    "apply.step.version_install_downgrade": "Downgrade na RouterOS {version} (zařízení má "
+    "{current}) a restart",
+    "apply.step.version_installed": "Zařízení má RouterOS {version}",
+    "apply.step.version_withdrawn": "Nahraný balíček smazán ze zařízení: {files}",
+    "apply.failed.version_upload": "Balíček {file} se nepodařilo nahrát, na zařízení se nic "
+    "nezměnilo: {error}",
+    "apply.failed.version_missing_file": "Balíček {files} na zařízení není, i když nahrávání "
+    "skončilo bez chyby. Instalace se nespustí: příkaz downgrade restartuje zařízení i "
+    "tehdy, když nemá co nainstalovat.",
+    "apply.failed.version_install": "Instalaci RouterOS se nepodařilo spustit: {error}",
+    "apply.failed.version_not_installed": "Zařízení se vrátilo s RouterOS {actual}, čekala se "
+    "{expected}. Balíček se nenainstaloval a aplikace ho ze zařízení smazala.",
+    "apply.failed.version_reconnect": "Po restartu se spojení nepodařilo obnovit ({attempts} "
+    "pokusů, api-ssl {api_port}, SSH {ssh_port}): {error}",
+    "apply.warning.version_leftover": "Balíček {files} zůstal po restartu na zařízení "
+    "(nenainstaloval se), aplikace ho smazala.",
+    "apply.warning.version_left": "Balíček {files} zůstal na zařízení a nainstaluje se při "
+    "příštím restartu. Smažte ho ve Files: {error}",
     "verify.routeros_version": "RouterOS {expected} (na zařízení {actual})",
     "verify.routerboot": "RouterBOOT {expected} (na zařízení {actual})",
     "verify.reset_script": "Skript po resetu doběhl do konce (chyba: {error})",

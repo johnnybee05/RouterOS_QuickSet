@@ -20,13 +20,15 @@ from pathlib import Path
 from mqs.apply.packages import (
     NpkPackage,
     UpdateDir,
-    issue as _issue,
     main_packages,
     match_extras,
     package_arch,
     scan_update_dir,
     space_issue,
     unreadable_issues,
+)
+from mqs.apply.packages import (
+    issue as _issue,
 )
 from mqs.issues import Issue, Severity
 from mqs.model.inventory import DeviceInventory
