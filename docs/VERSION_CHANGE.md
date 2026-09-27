@@ -1,11 +1,12 @@
 # Changing the RouterOS version on a device (design)
 
 Status: **implemented** (`apply/version_change.py`, `mqs.cli version`, the window's
-*Přejít na jinou verzi RouterOS*) and verified on the mmips hEX S on 2026-09-27 in **every
-direction**: up and down inside RouterOS 6, 6.49.21 to 7.23.7 across the major version, and
-7.23.7 back to 6.49.21. RouterOS converted the configuration on the way up and the board
-kept it on the way back as well, so it answered on the same address each time; §11 says what
-that leaves open. Where the design below
+*Přejít na jinou verzi RouterOS*) and verified on the mmips hEX S on 2026-09-27 on **every
+route it can plan**: up and down inside RouterOS 6, 6.49.21 to 7.23.7 across the major
+version, 7.23.7 back to 6.49.21, and the **two-hop route 6.49.12 → 6.49.21 → 7.23.7** in one
+command. RouterOS converted the configuration on the way up and the board kept it on the way
+back as well, so it answered on the same address every time; §11 says what that leaves open.
+Where the design below
 differs from what was built, the built thing is described here and the reason given.
 
 Today the application can only move a device *forward inside its own major version*
@@ -317,6 +318,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 7 | the whole feature through `mqs.cli version` | 6.49.21 → 6.49.12 and back, checklist OK both ways |
 | 8 | 6.49.21 → 7.23.7 | one reboot, RouterOS converted the configuration, the device answered on the same address, one `routeros` package where the v6 bundle had eleven |
 | 9 | 7.23.7 → 6.49.21 | one `/system package downgrade`, back on the same address with identity, services, addresses, bridge, users and the disabled `ipv6` package all in place; api-ssl refused the login once before SSH took over |
+| 10 | the two-hop route 6.49.12 → 6.49.21 → 7.23.7 in one command | both hops walked in order, each uploaded only after the one before it had rebooted, each reconnected and verified on its own, two rows in the checklist; `version.planned` named both files and `2x restart` up front |
 
 Still NUTNO OVĚŘIT, and the reason each is still open:
 
@@ -325,8 +327,7 @@ Still NUTNO OVĚŘIT, and the reason each is still open:
 | 1 | that the device itself refuses a package below `factory-firmware` | no package older than 6.42.4 is on this PC; the planner refuses it first either way |
 | 2 | the MAC ladder of §5.4 *after a version change* | the one move that could have needed it (7.23.7 → v6) came back on its own address, so the ladder was never entered; it is verified after a reset, not after a downgrade |
 | 3 | what v7 → v6 does to a configuration actually **made on v7** | the board's configuration was v6-made, so this run does not answer it; it would take configuring something v6 has no notion of and going back |
-| 4 | the two-hop route (6.49.12 → 6.49.21 → 7.23.7) end to end | both hops are verified on their own; only their sequence is not |
-| 5 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
+| 4 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 
