@@ -97,6 +97,7 @@ def collect_inventory(
             routerboard=to_bool(rb, "routerboard"),
             model=rb.get("model", ""),
             serial_number=rb.get("serial-number", ""),
+            factory_firmware=rb.get("factory-firmware", ""),
             current_firmware=rb.get("current-firmware", ""),
             upgrade_firmware=rb.get("upgrade-firmware", ""),
         )
@@ -159,6 +160,7 @@ def collect_inventory(
             board_name=resource.get("board-name", ""),
             architecture=resource.get("architecture-name", ""),
             uptime=resource.get("uptime", ""),
+            factory_software=resource.get("factory-software", ""),
             free_memory=to_bytes(resource.get("free-memory")),
             total_memory=to_bytes(resource.get("total-memory")),
             free_hdd_space=to_bytes(resource.get("free-hdd-space")),

@@ -10,6 +10,7 @@ from mqs.model.inventory import (
     InterfaceInfo,
     PackageInfo,
     ResourceInfo,
+    RouterboardInfo,
     ServiceInfo,
     SwitchChip,
 )
@@ -35,6 +36,8 @@ def make_inventory(
     free_hdd_space: int = 0,
     free_memory: int = 0,
     has_flash_dir: bool = False,
+    factory_firmware: str = "",
+    factory_software: str = "",
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
     ``default_names`` a renamed port → its default-name (others are not renamed)."""
@@ -44,7 +47,11 @@ def make_inventory(
     return DeviceInventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
                               architecture=architecture, free_hdd_space=free_hdd_space,
-                              free_memory=free_memory),
+                              free_memory=free_memory, factory_software=factory_software),
+        routerboard=RouterboardInfo(routerboard=True, model=board_name,
+                                    factory_firmware=factory_firmware,
+                                    current_firmware=version, upgrade_firmware=version)
+        if factory_firmware else None,
         has_flash_dir=has_flash_dir,
         identity="MikroTik",
         interfaces=[

@@ -11,6 +11,7 @@ from mqs.model.inventory import Ipv6PackageState, PackageInfo
 from mqs.model.network import Ipv4Range, usable_host
 from mqs.model.profile import DeviceProfile
 from mqs.model.services import DEFAULT_HARDENING_V7, ServicesConfig
+from mqs.model.version import RosVersion
 from mqs.model.wan import PppoeWan, WanConfig, WanType
 
 
@@ -113,6 +114,19 @@ def test_inventory_ipv6_state():
     assert enabled.ipv6_package_state == Ipv6PackageState.ENABLED
     disabled = make_inventory("6.49", packages=[PackageInfo(name="ipv6", disabled=True)])
     assert disabled.ipv6_package_state == Ipv6PackageState.DISABLED
+
+
+def test_inventory_version_floor():
+    """No downgrade below the version the board was shipped with (both fields, 2026-09-27)."""
+    mmips = make_inventory("6.49.21", factory_firmware="6.42.4", factory_software="6.42.4")
+    assert mmips.version_floor == RosVersion.parse("6.42.4")
+    # The arm hEX S: the resource field drops the patch, the firmware one keeps it.
+    arm = make_inventory("7.23.5", factory_firmware="7.20.7", factory_software="7.20")
+    assert arm.version_floor == RosVersion.parse("7.20.7")
+    assert make_inventory("7.23.5", factory_software="7.20").version_floor == \
+        RosVersion.parse("7.20")
+    # CHR and x86 say neither, so no floor is known and nothing may be assumed.
+    assert make_inventory("7.23.5").version_floor is None
 
 
 def test_inventory_ports_and_switches():

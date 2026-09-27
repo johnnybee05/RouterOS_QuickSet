@@ -23,11 +23,12 @@ def rb4011_v7_api() -> dict:
         "/system/resource/print": [{
             "version": "7.15.3 (stable)", "board-name": "RB4011iGS+",
             "architecture-name": "arm", "uptime": "3d2h", "free-memory": "812345344",
-            "total-memory": "1073741824", "cpu": "ARMv7",
+            "total-memory": "1073741824", "cpu": "ARMv7", "factory-software": "6.44",
         }],
         "/system/identity/print": [{"name": "MikroTik"}],
         "/system/routerboard/print": [{"routerboard": "yes", "model": "RB4011iGS+",
                                        "serial-number": "ABC", "current-firmware": "7.15.3",
+                                       "factory-firmware": "6.44.6",
                                        "upgrade-firmware": "7.15.3"}],
         "/interface/print": [
             *({"name": p, "type": "ether", "default-name": p, "running": "yes",
@@ -71,6 +72,10 @@ def test_collect_inventory_v7_api():
     assert inv.resource.board_name == "RB4011iGS+"
     assert inv.resource.free_memory == 812345344
     assert inv.routerboard.routerboard and inv.routerboard.model == "RB4011iGS+"
+    # The floor of a downgrade: the firmware field wins, it carries the patch number.
+    assert inv.routerboard.factory_firmware == "6.44.6"
+    assert inv.resource.factory_software == "6.44"
+    assert inv.version_floor == RosVersion.parse("6.44.6")
     assert inv.interface("ether7").switch == "switch2"
     assert inv.interface("sfp-sfpplus1").switch is None
     assert inv.interface("ether1").running

@@ -79,6 +79,11 @@ class ResourceInfo(BaseModel):
     board_name: str = ""
     architecture: str = ""
     uptime: str = ""
+    # The RouterOS version the board was shipped with, and the floor of any downgrade.
+    # `/system resource factory-software` (6.42.4 on the mmips RB760iGS, 7.20 on the arm
+    # hEX S E60iUGS, 2026-09-27). The RouterBOOT side of it is `factory-firmware`, which
+    # carries the patch number the resource field leaves out on v7.
+    factory_software: str = ""
     free_memory: int = 0
     total_memory: int = 0
     free_hdd_space: int = 0
@@ -91,6 +96,9 @@ class RouterboardInfo(BaseModel):
     routerboard: bool = False
     model: str = ""
     serial_number: str = ""
+    # The firmware the board left the factory with: no RouterOS older than this goes on
+    # it (6.42.4 on the mmips RB760iGS, 7.20.7 on the arm hEX S, 2026-09-27).
+    factory_firmware: str = ""
     current_firmware: str = ""
     upgrade_firmware: str = ""
 
@@ -166,6 +174,26 @@ class DeviceInventory(BaseModel):
         same 10.3 MB. Where there is no `flash/`, the root is the flash itself.
         """
         return self.resource.free_memory if self.has_flash_dir else self.resource.free_hdd_space
+
+    @property
+    def version_floor(self) -> RosVersion | None:
+        """The oldest RouterOS this board takes, or None when it does not say.
+
+        MikroTik allows no downgrade below the version the board was shipped with. Two
+        fields carry it and they agree where both are complete: `factory-firmware` from
+        `/system routerboard print` (6.42.4 on the mmips RB760iGS) and `factory-software`
+        from `/system resource print` (the same 6.42.4, but 7.20 next to a
+        `factory-firmware` of 7.20.7 on the arm hEX S, 2026-09-27). The firmware field
+        wins for its patch number; a board with neither, such as CHR, has no floor here.
+        """
+        board = self.routerboard
+        for text in (board.factory_firmware if board else "", self.resource.factory_software):
+            if text:
+                try:
+                    return RosVersion.parse(text)
+                except ValueError:
+                    continue
+        return None
 
     @property
     def ipv6_package_state(self) -> Ipv6PackageState:
