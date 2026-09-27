@@ -11,6 +11,7 @@ prompt, so they stay out of the shell history and out of the process list.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import os
 import sys
@@ -504,7 +505,23 @@ COMMANDS: dict[str, Callable[..., int]] = {
 }
 
 
+def tolerate_unencodable(stream: Any) -> Any:
+    """Let ``stream`` write a character its encoding does not have, as "?".
+
+    The messages are written for the window, which shows anything; a console is not.
+    A Czech Windows console is cp1250, which has no "→", and printing the RouterBOOT
+    step of an apply raised UnicodeEncodeError in the middle of a reset that had
+    already updated the device (2026-09-27). Output is never worth an aborted apply.
+    """
+    # Not every stream is a reconfigurable text stream: a StringIO in the tests, a pipe.
+    with contextlib.suppress(AttributeError, OSError, ValueError):
+        stream.reconfigure(errors="replace")
+    return stream
+
+
 def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> int:
+    out = tolerate_unencodable(out if out is not None else sys.stdout)
+    tolerate_unencodable(sys.stderr)
     args = build_parser().parse_args(argv)
     mac = getattr(args, "mac", None)
     if args.command == "connect" and not args.host and not mac:
@@ -526,7 +543,7 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
         print("--routerboot needs --mode reset", file=sys.stderr)
         return BLOCKED
     try:
-        return COMMANDS[args.command](args, out or sys.stdout, **deps)
+        return COMMANDS[args.command](args, out, **deps)
     except CliError as exc:
         print(str(exc), file=sys.stderr)
         return FAILED

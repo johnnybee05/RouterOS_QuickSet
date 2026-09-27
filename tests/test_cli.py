@@ -16,6 +16,7 @@ from mqs.apply.plan import ApplyMode
 from mqs.apply.session import DeviceSession
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
+from mqs.messages_cs import MESSAGES, format_message
 from mqs.model.bridge import ProtocolMode
 from mqs.model.inventory import PackageInfo
 from mqs.model.presets import apply_preset
@@ -455,3 +456,34 @@ def test_routerboot_needs_a_reset(profile_file, capsys):
                      "--mode", "import", "--routerboot"])
     assert code == cli.BLOCKED
     assert "--routerboot needs --mode reset" in capsys.readouterr().err
+
+
+def test_a_console_that_cannot_show_an_arrow_does_not_stop_an_apply():
+    """cp1250, the Czech Windows console, has no "→"; three messages carry one, and the
+    RouterBOOT step's ended a reset that had already updated the device (2026-09-27)."""
+    unencodable = [code for code, text in MESSAGES.items()
+                   if not _encodable(text, "cp1250")]
+    assert "apply.step.routerboot" in unencodable  # the one that did it
+
+    def console() -> tuple[io.BytesIO, io.TextIOWrapper]:
+        raw = io.BytesIO()
+        return raw, io.TextIOWrapper(raw, encoding="cp1250", newline="")
+
+    step = format_message("apply.step.routerboot",
+                          {"current": "6.49.12", "version": "6.49.21"})
+    _, plain = console()
+    with pytest.raises(UnicodeEncodeError):
+        print(step, file=plain, flush=True)
+
+    raw, stream = console()
+    print(step, file=cli.tolerate_unencodable(stream), flush=True)
+    shown = raw.getvalue().decode("cp1250")
+    assert "RouterBOOT" in shown and "6.49.21" in shown
+
+
+def _encodable(text: str, encoding: str) -> bool:
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        return False
+    return True
