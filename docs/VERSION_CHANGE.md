@@ -1,7 +1,10 @@
 # Changing the RouterOS version on a device (design)
 
-Status: **proposal, no code written.** Everything marked NUTNO OVĚŘIT is checked on the two
-test devices before it is relied on (§11).
+Status: **implemented** (`apply/version_change.py`, `mqs.cli version`, the window's
+*Přejít na jinou verzi RouterOS*), and **verified on the mmips hEX S in both directions
+inside RouterOS 6** on 2026-09-27. The move between v6 and v7 is implemented and planned
+but **not yet run on hardware**; §11 says what that leaves open. Where the design below
+differs from what was built, the built thing is described here and the reason given.
 
 Today the application can only move a device *forward inside its own major version*
 (`apply/update.py`, `--update`): the packages are uploaded to the file root and the reset's
@@ -54,7 +57,7 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 - **v6 → v7 only from 6.49.21 or newer.** Implemented as one constant,
   `V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=21)`, and read as a **minimum**, not as
   an exact version: a device on 6.49.22 goes straight to v7, it is not sent down to 6.49.21
-  first. (Confirm this reading — §11 Q1.)
+  first (decided 2026-09-27).
 - A device below the gate is not refused: the planner returns a **two-hop route**, first to the
   newest 6.49.x ≥ 6.49.21 in the Update directory, then to the v7 package. Without such a
   package in the directory it is refused with a message naming the file that is missing.
@@ -203,25 +206,27 @@ was — `_reconnect_after_reboot` covers it. Two exceptions:
 
 ### 5.5 RouterBOOT
 
-RouterBOOT is not downgraded with RouterOS: after 7.23.5 → 6.49.21 the board keeps
-`current-firmware=7.23.5`. A newer RouterBOOT running an older RouterOS is expected to be
-harmless, but for the v6 direction it is NUTNO OVĚŘIT, and RouterOS appears to offer
-`/system routerboard downgrade` for it. It is therefore an **option of its own, default off**
-(`--routerboot-downgrade`), whose existence is probed with `/console inspect` before it is used —
-never guessed. The existing `--routerboot` upgrade keeps working unchanged and is the natural last
-step of the v6 → v7 route.
+RouterBOOT is left alone, and **the `--routerboot-downgrade` option of the design was not
+built**: it turned out not to be needed. On 2026-09-27 RouterOS 6.49.12 ran on RouterBOOT
+6.49.21 and booted normally, and after the downgrade `upgrade-firmware` reads *older* than
+`current-firmware` (6.49.12 next to 6.49.21), so `firmware_newer()` makes the existing
+RouterBOOT step skip itself. `/console inspect`, which the design meant to probe the command
+with, does not exist on RouterOS 6 at all ("bad command name inspect"). The `--routerboot`
+upgrade keeps working unchanged and is still the natural last step of the v6 → v7 route.
 
 ## 6. Combining with "Reset + aplikovat"
 
 - The reset is what makes the configuration match the target version, so a version change is
-  normally run **with** it, and the planner puts the apply last.
-- **One upgrade hop and nothing else** = today's `--update`: the planner folds it into the reset's
-  reboot instead of spending a reboot of its own (`Install.BY_REBOOT`, `folded=True`). This keeps
-  the two hardware-verified runs (7.20.7 → 7.23.7, 6.49.12 → 6.49.21) on exactly the path they
-  were verified on.
-- A version change **without** an apply is a first-class use (`--mode generate` / the GUI's own
-  button): the device is left on the new version with the configuration it happened to have, which
-  is what a downgrade before a manual job wants.
+  normally run **with** it: `mqs.cli apply --to <version> --mode reset` walks the route, reads
+  the device again and then applies the configuration generated for what came back.
+- **Nothing is folded into the reset's reboot.** The design would have folded a single upgrade
+  hop into it to save a reboot; the built code does not, because it would have meant two ways of
+  installing one package and a plan that means different things in different modes. The update
+  checkbox (`--update`) is still exactly that fold, unchanged and hardware-verified, and it is
+  the cheaper answer whenever the newest version in the directory is what is wanted.
+- A version change **without** an apply is a first-class use: the window's own button, or
+  `mqs.cli version --to`. The device is left on the new version with the configuration it
+  happened to have, which is what a downgrade before a manual job wants.
 
 ## 7. GUI
 
@@ -238,11 +243,13 @@ switches:
 
 - The combo lists what `available_versions` found, blocked entries greyed out with their reason in
   the tooltip; the two switches are mutually exclusive.
-- The line under it is the plan in words: hops, reboots, and whether the configuration survives.
-- A plan with `needs_confirmation` opens the reset dialog's sibling: current → target, the floor,
-  the number of reboots, "konfigurace se nepřenáší", and the identity typed by hand. For a
-  cross-major downgrade the dialog also states that Netinstall may be the only way back.
-- The preflight shows every issue of the plan, as it already does for the update.
+- The line under it is the plan in words, with the floor underneath.
+- A plan with `needs_confirmation` opens the reset dialog's sibling (`IdentityDialog`, now shared
+  by both): current, target, the number of reboots, that the configuration is not carried over,
+  and the identity typed by hand. An upgrade inside the major version asks a plain question.
+- **The window runs the version change on its own button**, not as part of an apply: the combined
+  flow lives in the CLI (`apply --to`), where the re-read between the two is straightforward.
+  Afterwards the device page reads the device again and the user presses *Aplikovat*.
 
 ## 8. CLI
 
@@ -287,26 +294,30 @@ covers it, but the RouterBOOT step already proved this is worth avoiding).
 
 ## 11. Open questions and what has to be verified on hardware
 
-Q1 (needs an answer before the planner is written): is "v7 only from 6.49.21" a **minimum**
-(6.49.22 goes straight across, as designed here) or the **exact** version MikroTik requires?
-The second reading means a device on 6.49.22 must first be downgraded to 6.49.21, which the floor
-rule may forbid outright — it changes the route planner, so it is worth one sentence now.
+Both questions the design asked were answered on 2026-09-27: the gate is a **minimum**, and
+**v7 → v6 is offered**, gated and warned, with the MAC ladder of §5.4.
 
-Q2: is a v7 → v6 downgrade something the application should offer at all, or should it name
-Netinstall and stop? The design offers it, gated and warned; the opposite decision deletes §5.4's
-MAC ladder and half the risk.
+Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 
-NUTNO OVĚŘIT on the test devices (both are available: mmips RB760iGS 6.49.21 and arm hEX S 7.23.x):
-
-| # | What | How |
+| # | What | Result |
 |---|---|---|
-| 1 | `factory-firmware` on both boards, and that it parses as a version | `/system routerboard print` |
-| 2 | `/system package downgrade`: its parameters, whether it asks a question over SSH exec and over the API, and that it reboots by itself | `/console inspect request=child path=system,package,downgrade`, then a real 6.49.21 → 6.49.12 on the mmips board |
-| 3 | that a downgrade below `factory-firmware` is refused by the device, and how | the same board, one version below its floor |
-| 4 | whether `/system routerboard downgrade` exists and what it does | `/console inspect` |
-| 5 | v6 → v7 on the mmips board from 6.49.21, including whether the configuration, the addresses and api-ssl/ssh survive the conversion | a full run, with the backup in hand |
-| 6 | v7 → v6 on the same board: where it comes back, and whether the MAC ladder reaches it | the run after 5, with a console cable's equivalent (Netinstall) ready |
-| 7 | what happens to extra packages across a major | `/system package print` before and after 5 and 6 |
+| 1 | `factory-firmware` / `factory-software` on both boards | 6.42.4 on the mmips RB760iGS, 7.20.7 / 7.20 on the arm E60iUGS; both parse, the firmware field wins |
+| 2 | `/system package downgrade` over SSH exec | no question, no output, the session drops in 1 s, one reboot, 84 s, the `.npk` deleted, the configuration untouched |
+| 3 | the same command with nothing to install | **reboots anyway** (40 s), version unchanged — hence `_confirm_uploaded` |
+| 4 | `/console inspect` on RouterOS 6 | does not exist, so nothing on v6 can be probed that way |
+| 5 | a newer package by a plain `/system reboot`, no reset | installs, 102 s, the `.npk` deleted |
+| 6 | RouterBOOT across a RouterOS downgrade | untouched, and `upgrade-firmware` then reads older than `current-firmware` |
+| 7 | the whole feature through `mqs.cli version` | 6.49.21 → 6.49.12 and back, checklist OK both ways |
+
+Still NUTNO OVĚŘIT, and the reason each is still open:
+
+| # | What | Why it is not done |
+|---|---|---|
+| 1 | that the device itself refuses a package below `factory-firmware` | no package older than 6.42.4 is on this PC; the planner refuses it first either way |
+| 2 | v6 → v7 on the mmips board from 6.49.21: whether the configuration, the addresses and api-ssl/ssh survive RouterOS's own conversion | it takes the only v6 test device across, and getting it back rests on the v7 → v6 path below |
+| 3 | v7 → v6 on the same board: where it comes back, and whether the MAC ladder reaches it | the risk is a test bed that needs Netinstall; worth doing deliberately, with the backup in hand |
+| 4 | what RouterOS does with extra packages across a major version | follows from 2 and 3 |
+| 5 | the two-hop route (6.49.12 → 6.49.21 → 7.23.5) end to end | the second hop is 2 |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 

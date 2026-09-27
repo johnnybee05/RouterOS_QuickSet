@@ -124,8 +124,8 @@ přeskočí.
 Co se nainstaluje, ukážou kontroly před aplikací i dry-run, např. *Po resetu se nainstaluje
 RouterOS 7.23.7 (zařízení má 7.20.7): routeros-7.23.7-arm.npk.* Aktualizace se přeskočí
 (s upozorněním, reset proběhne dál), když adresář chybí, pro architekturu v něm balíček
-není, zařízení už stejnou nebo novější verzi má, nebo jde o přechod mezi v6 a v7 (ten
-aplikace nedělá). Pokud se balíček nepodaří nahrát, aplikace skončí dřív, než cokoliv
+není, zařízení už stejnou nebo novější verzi má, nebo jde o přechod mezi v6 a v7 (na ten
+je samostatná funkce, viz níže). Pokud se balíček nepodaří nahrát, aplikace skončí dřív, než cokoliv
 změní; pokud se nahraje, ale reset neproběhne, balíček ze zařízení zase smaže.
 
 Nové verze stačí nahrát do `Update` (staré můžou zůstat, bere se nejnovější). Má-li
@@ -138,6 +138,61 @@ zdrojů se používá `dist\Update`. V CLI `--update` (volitelně `--update-dir`
 >
 > **Ověřeno 24. 9. 2026** na hEX S (7.20.7 → 7.23.7): jeden restart balíček nainstaluje,
 > smaže ho ze souborů a spustí skript. Podrobnosti v `docs/DIALECT_NOTES.md`.
+
+### Přechod na jinou verzi RouterOS (downgrade, v6 <-> v7)
+
+Aktualizace výše umí jen dopředu a jen v rámci hlavní verze, protože ji dělá restart po
+resetu. Když chcete **konkrétní verzi** — starší, nebo z druhé hlavní verze — je na to
+samostatná funkce: na stránce *Aplikovat* zaškrtávátko **Přejít na jinou verzi RouterOS**,
+seznam verzí z adresáře `Update` a tlačítko *Přejít na verzi…*; v CLI příkaz `version`.
+
+```powershell
+# co adresář Update umí na tohle zařízení nainstalovat (nic nemění)
+.\.venv\Scripts\python.exe -m mqs.cli version --host 192.168.55.129 --user bee --key $HOME\.ssh\id_rsa --transport ssh --ssh-port 122
+
+# downgrade; jméno zařízení potvrzuje, že to myslíte vážně
+.\.venv\Scripts\python.exe -m mqs.cli version --host 192.168.55.129 ... --to 6.49.12 --yes --confirm-identity v6-ap
+
+# verze a hned po ní konfigurace pro ni
+.\.venv\Scripts\python.exe -m mqs.cli apply --host 192.168.55.129 ... --mode reset --to 7.23.5 --confirm-identity v6-ap --yes
+```
+
+Jak to funguje:
+
+1. **Novější balíček** nainstaluje obyčejný restart, **starší** příkaz
+   `/system package downgrade`, který restartuje sám. Balíček musí být před tím vidět
+   v `/file` — příkaz totiž restartuje i tehdy, když nemá co nainstalovat, a nepovedené
+   nahrání by tak stálo restart pro nic.
+2. **Níž než na „factory firmware" se jít nedá.** Verzi, se kterou byla deska vyrobena,
+   hlásí `/system routerboard` (`factory-firmware`) i `/system resource`
+   (`factory-software`) a aplikace ji bere jako dno: mmips hEX S RB760iGS má 6.42.4, arm
+   hEX S E60iUGS 7.20.7 — a **na v6 se tedy nikdy nedostane**. V seznamu verzí taková verze
+   zůstane, jen nejde vybrat a v bublině je důvod.
+3. **Na v7 se přechází až z 6.49.21** (bráno jako minimum, 6.49.22 jde přímo). Zařízení
+   s něčím starším aplikace nepošle nikam naslepo: naplánuje **dva kroky**, nejdřív na
+   nejnovější v6 z adresáře, pak na v7. Když v adresáři takový balíček není, odmítne to
+   a řekne, který soubor chybí.
+4. **Konfigurace se nepřevádí**, zpět z v7 na v6 už vůbec. Aplikace ji taky nepřevádí —
+   generuje ji pro cílovou verzi znovu, takže po přechodu je správný druhý krok *Reset +
+   aplikovat* (v CLI jedním příkazem `apply --to`). Po přechodu zařízení znovu přečte,
+   protože se změní balíčky, ipv6, wireless, jméno switch čipu i to, jestli soubory leží
+   ve `flash/`.
+5. **Než se zařízení ohlásí zpět**, hledá ho aplikace na adrese, na které odpovídalo,
+   pak na adresách z profilu a nakonec přes MAC. Po přechodu z v7 na v6 se totiž může
+   ohlásit jinde, nebo vůbec — pak zbývá Netinstall, což dialog říká předem.
+6. **RouterBOOT se nesnižuje.** RouterOS 6.49.12 běžel na RouterBOOTu 6.49.21 bez potíží
+   a `upgrade-firmware` je po downgradu starší než `current-firmware`, takže krok
+   *Aktualizovat RouterBOOT* sám nic neudělá.
+
+Downgrade a přechod mezi v6 a v7 potvrzujete opsáním identity zařízení, stejně jako reset;
+v CLI `--confirm-identity`.
+
+> **Ověřeno 27. 9. 2026** na hEX S RB760iGS oběma směry: 6.49.21 → 6.49.12 příkazem
+> `/system package downgrade` (jeden restart, 84 s, konfigurace i uživatelé zůstali,
+> balíček zařízení samo smazalo) a zpět 6.49.12 → 6.49.21 obyčejným restartem. Přechod
+> mezi v6 a v7 na železe ověřený **není** — podrobnosti a co ještě chybí v
+> `docs/DIALECT_NOTES.md` a `docs/VERSION_CHANGE.md`.
+
 
 V okně je předvolený režim *Reset + aplikovat*. Po úspěšné aplikaci (všechny kontroly
 prošly) se aplikace od zařízení sama odpojí a vrátí případnou dočasnou adresu z připojení
