@@ -7,16 +7,18 @@ from pathlib import Path
 import pytest
 
 from factories import make_inventory, make_npk
-from mqs.apply.update import (
+from mqs.apply.packages import (
     ARCHITECTURES,
     NpkError,
     UpdateDir,
+    read_npk,
+    scan_update_dir,
+)
+from mqs.apply.update import (
     firmware_newer,
     leftover_packages,
     plan_update,
-    read_npk,
     routerboot_note,
-    scan_update_dir,
 )
 from mqs.issues import Severity, codes
 from mqs.model.inventory import PackageInfo, RouterboardInfo
