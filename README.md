@@ -199,8 +199,10 @@ Jak to funguje:
 6. **RouterBOOT jde s RouterOS, a jen nahoru.** Nová verze RouterOS položí nový firmware
    do `upgrade-firmware` a krok *Aktualizovat RouterBOOT* ho zapíše — po přechodu tedy
    běží, stejně jako po resetu s aplikací (v CLI `version --routerboot`). Po downgradu je
-   `upgrade-firmware` starší než `current-firmware`, takže krok sám nic neudělá a řekne to;
-   RouterOS 6.49.12 běžel na RouterBOOTu 6.49.21 bez potíží. Když už je zařízení na správné
+   `upgrade-firmware` starší než `current-firmware`, takže krok sám nic neudělá a řekne to.
+   Starší RouterOS pod novějším RouterBOOTem běží bez potíží, i napříč hlavní verzí (6.49.21
+   pod RouterBOOTem 7.23.7, ověřeno). Samo zařízení by starší firmware zapsat umělo, aplikace
+   to ale nedělá: snižovat bootloader mimochodem u downgradu RouterOS není co si přát. Když už je zařízení na správné
    verzi a firmware jen čeká, zapíše ho `version --routerboot` samotné (jeden restart,
    konfigurace se nemění).
 
