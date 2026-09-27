@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from mqs.generator.ir import Command, Find
+from mqs.model.version import RosVersion
 from mqs.transport.base import (
     CommandError,
     CommandTimeout,
@@ -188,6 +189,13 @@ class FakeRouter:
             self.reboots += 1
             if self.firmware_written:
                 self.firmware["current-firmware"] = self.firmware_written
+            self._install_packages()
+            raise ConnectionLost("rebooting")
+        if word == "/system/package/downgrade":
+            # Reboots whether or not there is anything to install (OVĚŘENO 2026-09-27).
+            session.alive = False
+            self.reboots += 1
+            self._install_packages(downgrade=True)
             raise ConnectionLost("rebooting")
         if word == "/ip/service/print":
             ports = {"telnet": 23, "ftp": 21, "www": 80, "ssh": s.ssh_port, "www-ssl": 443,
@@ -210,10 +218,19 @@ class FakeRouter:
                     for g in s.default_gateways]
         raise CommandError(word, "bad command name")
 
-    def _install_packages(self) -> None:
+    def _install_packages(self, *, downgrade: bool = False) -> None:
+        """What a reboot does with the packages lying in the file root.
+
+        A plain reboot installs a newer package and leaves an older one alone; only
+        `/system package downgrade` installs an older one. Either way the device deletes
+        a package it has installed.
+        """
         if not self.installs_packages:
             return
         for name in [n for n in self.files if n in self.installable]:
+            target = RosVersion.parse(self.installable[name])
+            if not downgrade and target < RosVersion.parse(self.version):
+                continue
             self.version = f"{self.installable[name]} (long-term)"
             self.firmware["upgrade-firmware"] = self.installable[name]
             self.files.pop(name)

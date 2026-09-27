@@ -8,16 +8,24 @@ import pytest
 
 from factories import make_inventory
 from factories import make_npk as npk
+from fake_router import FakeRouter, RouterUploader
+from mqs.apply.events import StepStatus
 from mqs.apply.packages import scan_update_dir
 from mqs.apply.version_change import (
     V6_TO_V7_FROM,
     Install,
+    VersionChangeAborted,
+    VersionChanger,
+    VersionContext,
     available_versions,
     plan_version,
 )
 from mqs.issues import Severity, codes
 from mqs.model.inventory import PackageInfo
 from mqs.model.version import RosVersion
+from mqs.transport.factory import ConnectOutcome
+from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
+from mqs.transport.upload import UploadResult, UploadStrategy
 
 MB = 1024 * 1024
 V = RosVersion.parse
@@ -281,3 +289,131 @@ def test_the_versions_offered_for_a_board_shipped_with_v7(tmp_path):
     assert [o.available for o in offers] == [False, True, False]
     blocked = next(o for o in offers if o.version == V("6.49.21"))
     assert blocked.blocked_by is not None and blocked.blocked_by.code == "version.below_factory"
+
+
+# ------------------------------------------------------------------ walking the route
+
+
+NOW_HOSTS = ("192.168.55.129",)
+
+
+class SilentUploader(RouterUploader):
+    """Reports success and writes nothing: a transfer that lied about its outcome."""
+
+    def upload(self, data, remote_path):
+        self.uploaded.append(remote_path)
+        return UploadResult(UploadStrategy.SFTP, remote_path)
+
+
+def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
+            installs: bool = True, reconnect=None, versions=()):
+    router = FakeRouter()
+    router.version = f"{current} (long-term)"
+    router.installs_packages = installs
+    inventory = mmips(current)
+    found = scan_update_dir(mmips_dir(tmp_path, *versions))
+    plan = plan_version(inventory, found, V(target))
+    router.installable = {p.file_name: str(p.version)
+                          for hop in plan.hops for p in hop.packages if p.is_main}
+    events: list = []
+    targets: list = []
+
+    def default_reconnect(request):
+        targets.append(request)
+        return router.session(port=request.api_port)
+
+    ctx = VersionContext(
+        plan=plan, inventory=inventory, transport=router.session(),
+        uploader_factory=lambda transport: uploader or RouterUploader(router),
+        reconnect=reconnect(router, targets) if reconnect else default_reconnect,
+        on_event=events.append, sleep=lambda seconds: None, alternatives=NOW_HOSTS,
+    )
+    return router, VersionChanger(ctx), events, targets
+
+
+def test_a_downgrade_is_installed_and_checked(tmp_path):
+    router, runner, _events, targets = changer(tmp_path, "6.49.12")
+    report = runner.run()
+    assert report.succeeded and [str(v) for v in report.installed] == ["6.49.12"]
+    assert router.version.startswith("6.49.12") and router.reboots == 1
+    # The older package takes the downgrade command, not a reboot, and the device deletes
+    # it once it has installed it.
+    assert "/system/package/downgrade" in router.log
+    assert "/system/reboot" not in router.log
+    assert not [name for name in router.files if name.endswith(".npk")]
+    assert [c.ok for c in report.checks] == [True]
+    assert len(targets) == 1 and targets[0].alternatives == NOW_HOSTS
+
+
+def test_an_upgrade_is_installed_by_a_plain_reboot(tmp_path):
+    router, runner, events, _ = changer(tmp_path, "6.49.21", current="6.49.12")
+    assert runner.run().succeeded
+    assert "/system/reboot" in router.log and "/system/package/downgrade" not in router.log
+    assert router.version.startswith("6.49.21")
+    assert {e.step for e in events if e.step.endswith(("_reboot", "_downgrade"))} == {
+        "apply.step.version_install_reboot"}
+
+
+def test_two_hops_are_two_reboots(tmp_path):
+    router, runner, events, targets = changer(tmp_path, "7.23.5", current="6.49.12")
+    report = runner.run()
+    assert [str(v) for v in report.installed] == ["6.49.21", "7.23.5"]
+    assert router.reboots == 2 and len(targets) == 2
+    # The second package is uploaded after the first hop has rebooted, not before it.
+    uploads = [e.params["file"] for e in events
+               if e.step == "apply.step.version_upload" and e.status == StepStatus.OK]
+    assert uploads == ["routeros-mmips-6.49.21.npk", "routeros-7.23.5-mmips.npk"]
+    assert len(report.checks) == 2
+
+
+def test_a_package_the_device_ignores_stops_the_route(tmp_path):
+    router, runner, _events, _ = changer(tmp_path, "6.49.12", installs=False)
+    with pytest.raises(VersionChangeAborted) as raised:
+        runner.run()
+    assert raised.value.issue.code == "apply.failed.version_not_installed"
+    assert "6.49.21" in raised.value.issue.message  # what came back instead
+    # Left where it was, the package would install on whatever reboot comes next.
+    assert not [name for name in router.files if name.endswith(".npk")]
+    assert codes(raised.value.report.issues) == {"apply.warning.version_leftover",
+                                                "apply.failed.version_not_installed"}
+
+
+def test_nothing_is_installed_before_the_package_is_seen_on_the_device(tmp_path):
+    router, runner, _events, _ = changer(tmp_path, "6.49.12",
+                                         uploader=SilentUploader(FakeRouter()))
+    with pytest.raises(VersionChangeAborted) as raised:
+        runner.run()
+    assert raised.value.issue.code == "apply.failed.version_missing_file"
+    # The downgrade command reboots even with nothing to install, so it is never issued.
+    assert router.reboots == 0 and "/system/package/downgrade" not in router.log
+
+
+def test_an_upload_that_fails_changes_nothing(tmp_path):
+    router, runner, _events, _ = changer(tmp_path, "6.49.12",
+                                         uploader=RouterUploader(FakeRouter(), fail=True))
+    with pytest.raises(VersionChangeAborted) as raised:
+        runner.run()
+    assert raised.value.issue.code == "apply.failed.version_upload"
+    assert router.reboots == 0 and router.version.startswith("6.49.21")
+
+
+def test_a_device_found_again_by_mac(tmp_path):
+    def by_mac(router, targets):
+        def reconnect(request):
+            targets.append(request)
+            return MacConnectResult(ConnectOutcome(router.session()),
+                                    MacConnectMethod.MAC_TELNET,
+                                    temp_address="192.168.55.254/24", host="192.168.55.254")
+        return reconnect
+
+    _router, runner, _events, _targets = changer(tmp_path, "6.49.12", reconnect=by_mac)
+    report = runner.run()
+    assert report.succeeded and report.mac_method == "mac-telnet"
+    assert report.temp_address == "192.168.55.254/24"
+
+
+def test_a_route_with_nothing_to_do_touches_nothing(tmp_path):
+    router, runner, events, _ = changer(tmp_path, "6.49.21")
+    report = runner.run()
+    assert report.succeeded and not report.installed and not events
+    assert router.reboots == 0 and not router.log
