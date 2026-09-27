@@ -34,6 +34,7 @@ from mqs.apply.session import (
     find_session_port,
     open_mac_session,
     session_after_apply,
+    session_after_version_change,
 )
 from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
@@ -514,6 +515,23 @@ class DevicePage(Page):
             log.warning("temporary address not given back: %s", exc)
         self.connect_status.setText(text)
         self._update_buttons()
+
+    def adopt_version_change(self, report: object) -> None:
+        """After a version change the device is read again, not patched up from a report.
+
+        A device that has changed its major version is a different device: the packages,
+        the ipv6 package, the wireless stack, the switch chip's name and the flash layout
+        are all its own to tell, and the configuration that follows is generated from what
+        it says.
+        """
+        if self.session is None:
+            return
+        session_after_version_change(self.session, report)
+        session = self.session
+        self._show_session(session)
+        self.runner.start(
+            lambda token, step: self._discover_session(session.transport, session.params, step),
+            on_finished=self._connected, on_failed=self._connect_failed)
 
     def adopt_apply(self, report: ApplyReport) -> None:
         """After apply the session may run over a new connection (new SSH port, reboot),

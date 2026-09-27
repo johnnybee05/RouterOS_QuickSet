@@ -257,6 +257,21 @@ APPLY_ROUTERBOOT_TIP = (
     "zařízení, pokud je novější než ten, který běží (i bez aktualizace RouterOS). Zařízení "
     "se kvůli tomu ještě jednou restartuje."
 )
+APPLY_VERSION = "Přejít na jinou verzi RouterOS (samostatně, bez resetu)"
+APPLY_VERSION_TIP = (
+    "Nainstaluje verzi z adresáře Update, kterou vyberete: novější restartem, starší "
+    "příkazem /system package downgrade. Konfigurace zařízení zůstane, jak je – po "
+    "přechodu ji nastavte znovu (Reset + aplikovat). Níž než na verzi, se kterou byla "
+    "deska vyrobena, se jít nedá."
+)
+APPLY_VERSION_BUTTON = "Přejít na verzi…"
+APPLY_VERSION_FLOOR = "Nejnižší možná verze: {floor}"
+APPLY_VERSION_FLOOR_UNKNOWN = "Zařízení neuvádí, se kterou verzí bylo vyrobeno."
+APPLY_VERSION_CURRENT = "{version} – verze na zařízení"
+APPLY_VERSION_BLOCKED = "{version} – nelze"
+APPLY_VERSION_NONE = "V adresáři Update není balíček pro toto zařízení"
+APPLY_VERSION_DONE = "Zařízení má RouterOS {version}. Konfiguraci teď nastavte znovu."
+APPLY_VERSION_FAILED = "Přechod na jinou verzi se nedokončil: {error}"
 APPLY_PREFLIGHT = "Kontroly před aplikací"
 APPLY_DRY_RUN = "Dry-run a aplikovat…"
 APPLY_BUTTON = "Aplikovat"
@@ -268,6 +283,12 @@ APPLY_CHECK_FAIL = "CHYBA"
 DRY_RUN_TITLE = "Dry-run – přesně toto se pošle na zařízení"
 DRY_RUN_CONFIRM = "Rozumím, aplikovat"
 DIALECT_MISMATCH_CONFIRM = "Skript pro jinou hlavní verzi RouterOS aplikovat přesto"
+VERSION_TITLE = "Přechod na jinou verzi RouterOS"
+VERSION_TEXT = (
+    "Na zařízení {identity} se nainstaluje RouterOS {version} (teď {current}). "
+    "Restartů: {reboots}. Konfigurace se nepřevádí a zařízení se po restartu nemusí "
+    "ohlásit na stejné adrese.\n\nPro potvrzení opište identity zařízení:"
+)
 RESET_TITLE = "Reset konfigurace zařízení"
 RESET_TEXT = (
     "Zařízení {identity} se resetuje bez výchozí konfigurace, restartuje a po startu "

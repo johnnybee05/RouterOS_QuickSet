@@ -14,6 +14,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -47,12 +48,29 @@ from mqs.apply.plan import (
 )
 from mqs.apply.preflight import collect_existing, preflight, prepare_import
 from mqs.apply.reconnect import reconnect_with_retry
-from mqs.apply.session import DeviceSession, build_apply_context, build_uploader_factory
+from mqs.apply.session import (
+    DeviceSession,
+    build_apply_context,
+    build_uploader_factory,
+    build_version_context,
+)
 from mqs.apply.update import UpdatePlan, plan_from_dir
 from mqs.apply.verify import CheckResult
+from mqs.apply.version_change import (
+    VersionChangeAborted,
+    VersionChanger,
+    VersionOffer,
+    VersionPlan,
+    VersionReport,
+    offers_from_dir,
+)
+from mqs.apply.version_change import (
+    plan_from_dir as plan_version_from_dir,
+)
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import STEP_PREFIX
 from mqs.model.inventory import DeviceInventory
+from mqs.model.version import RosVersion
 from mqs.paths import backups_dir
 from mqs.paths import update_dir as default_update_dir
 from mqs.transport.base import Transport
@@ -70,6 +88,8 @@ IDENTITY_CHECKED_IN_DIALOG = "apply.reset_identity_mismatch"
 
 class ApplyPage(Page):
     applied = Signal(object)  # ApplyReport, also of an aborted apply
+    # VersionReport: the device runs another RouterOS now, so it is read again.
+    version_changed = Signal(object)
     # Nothing is left to do on the device: applied cleanly, or the rollback confirmed.
     finished_with_device = Signal()
 
@@ -89,12 +109,19 @@ class ApplyPage(Page):
         now: Callable[[], datetime] = datetime.now,
         update_dir: Path | None = None,
         plan_update_fn: Callable[[Path, DeviceInventory], UpdatePlan] = plan_from_dir,
+        offers_fn: Callable[[Path, DeviceInventory], list[VersionOffer]] = offers_from_dir,
+        plan_version_fn: Callable[..., VersionPlan] = plan_version_from_dir,
+        changer_factory: Callable[..., Any] = VersionChanger,
     ) -> None:
         super().__init__(controller, parent)
         self.runner, self.dialogs, self.session_provider = runner, dialogs, session_provider
         self.save_script = save_script
         self.update_dir = update_dir if update_dir is not None else default_update_dir()
         self.plan_update_fn = plan_update_fn
+        self.offers_fn = offers_fn
+        self.plan_version_fn = plan_version_fn
+        self.changer_factory = changer_factory
+        self.offers: list[VersionOffer] = []
         self.orchestrator_factory = orchestrator_factory
         self.collect_existing_fn = collect_existing_fn
         self.uploader_factory_builder = uploader_factory_builder
@@ -198,7 +225,7 @@ class ApplyPage(Page):
         self.update_check = QCheckBox(S.APPLY_UPDATE)
         self.update_check.setChecked(True)
         self.update_check.setToolTip(S.APPLY_UPDATE_TIP)
-        self.update_check.toggled.connect(lambda _: self.refresh())
+        self.update_check.toggled.connect(self._update_toggled)
         form.addRow(self.update_check)
         self.update_dir_label = QLabel(S.APPLY_UPDATE_DIR.format(dir=self.update_dir))
         self.update_dir_label.setWordWrap(True)
@@ -209,6 +236,23 @@ class ApplyPage(Page):
         self.routerboot_check.setToolTip(S.APPLY_ROUTERBOOT_TIP)
         self.routerboot_check.toggled.connect(lambda _: self.refresh())
         form.addRow(self.routerboot_check)
+        # Changing the version is not an option of the apply: it happens before one, on its
+        # own button, and the update above (which rides the reset's reboot) is then off.
+        self.version_check = QCheckBox(S.APPLY_VERSION)
+        self.version_check.setToolTip(S.APPLY_VERSION_TIP)
+        self.version_check.toggled.connect(self._version_toggled)
+        form.addRow(self.version_check)
+        version_row = QHBoxLayout()
+        self.version_combo = QComboBox()
+        self.version_combo.currentIndexChanged.connect(lambda _: self.refresh())
+        self.version_button = QPushButton(S.APPLY_VERSION_BUTTON)
+        self.version_button.clicked.connect(self.start_version_change)
+        version_row.addWidget(self.version_combo, 1)
+        version_row.addWidget(self.version_button)
+        form.addRow("", version_row)
+        self.version_note = QLabel()
+        self.version_note.setWordWrap(True)
+        form.addRow("", self.version_note)
         return box
 
     # ------------------------------------------------------------ state
@@ -248,6 +292,143 @@ class ApplyPage(Page):
         self.refresh()
 
     def on_inventory(self, inventory) -> None:
+        self.fill_versions()
+        self.refresh()
+
+    # ------------------------------------------------------------ another version
+
+    def _update_toggled(self, on: bool) -> None:
+        if on:
+            self.version_check.setChecked(False)
+        self.refresh()
+
+    def _version_toggled(self, on: bool) -> None:
+        if on:
+            self.update_check.setChecked(False)  # one or the other, never both
+        self.refresh()
+
+    def fill_versions(self) -> None:
+        """The versions the Update directory holds for this device, blocked ones included.
+
+        Kept out of `refresh`, which runs on every keystroke: this reads the directory,
+        and rebuilding the list would throw away what the user picked in it.
+        """
+        session = self.session_provider()
+        self.offers = [] if session is None else self.offers_fn(self.update_dir,
+                                                                session.inventory)
+        self.version_combo.clear()
+        for index, offer in enumerate(self.offers):
+            if offer.current:
+                label = S.APPLY_VERSION_CURRENT.format(version=offer.version)
+            elif offer.blocked_by is not None:
+                label = S.APPLY_VERSION_BLOCKED.format(version=offer.version)
+            else:
+                label = f"{offer.version}  ({offer.package.file_name})"
+            self.version_combo.addItem(label, str(offer.version))
+            if not offer.available:
+                # Left in the list on purpose, with the reason: hiding it would leave the
+                # user wondering why RouterOS 6 is not on offer for a board built with v7.
+                self.version_combo.setItemData(index, False, Qt.ItemDataRole.UserRole - 1)
+                if offer.blocked_by is not None:
+                    self.version_combo.setItemData(index, offer.blocked_by.message,
+                                                   Qt.ItemDataRole.ToolTipRole)
+        first = next((i for i, o in enumerate(self.offers) if o.available), -1)
+        self.version_combo.setCurrentIndex(first)
+
+    @property
+    def chosen_version(self) -> str:
+        return str(self.version_combo.currentData() or "")
+
+    def version_plan(self) -> VersionPlan | None:
+        """The route to the version picked in the combo, None while none is picked."""
+        session = self.session_provider()
+        if session is None or not self.chosen_version:
+            return None
+        return self.plan_version_fn(self.update_dir, session.inventory,
+                                    RosVersion.parse(self.chosen_version))
+
+    def refresh_version_row(self) -> None:
+        on = self.version_check.isChecked()
+        session = self.session_provider()
+        self.version_combo.setEnabled(on and bool(self.offers))
+        self.version_note.setEnabled(on)
+        plan = self.version_plan() if on else None
+        if session is None:
+            self.version_note.setText("")
+        elif not self.offers:
+            self.version_note.setText(S.APPLY_VERSION_NONE)
+        elif plan is None:
+            self.version_note.setText("")
+        else:
+            floor = plan.floor
+            note = [i.message for i in plan.issues]
+            note.append(S.APPLY_VERSION_FLOOR.format(floor=floor) if floor
+                        else S.APPLY_VERSION_FLOOR_UNKNOWN)
+            self.version_note.setText(" ".join(note))
+        self.version_button.setEnabled(
+            on and plan is not None and plan.changes and not plan.blocked
+            and not self.runner.busy)
+
+    def start_version_change(self) -> None:
+        session = self.session_provider()
+        plan = self.version_plan()
+        if session is None:
+            self.dialogs.error(self, S.APPLY_NOT_CONNECTED)
+            return
+        if plan is None or not plan.changes or plan.blocked:
+            return
+        if plan.needs_confirmation:
+            typed = self.dialogs.ask_version_identity(
+                self, session.inventory.identity, version=str(plan.target),
+                current=str(plan.current), reboots=plan.reboots)
+            if typed != session.inventory.identity:
+                self.refresh()
+                return
+        elif not self.dialogs.question(self, S.VERSION_TITLE, S.VERSION_TEXT.format(
+                identity=session.inventory.identity, version=plan.target,
+                current=plan.current, reboots=plan.reboots)):
+            self.refresh()
+            return
+        self.checklist.setRowCount(0)
+        self.result_label.setText("")
+        self.version_button.setEnabled(False)
+        self.apply_button.setEnabled(False)
+
+        def task(token, report):
+            ctx = build_version_context(
+                plan, session, on_event=report, profile=self.controller.profile,
+                cancelled=token.cancelled,
+                uploader_factory_builder=self.uploader_factory_builder,
+                reconnect_fn=self.reconnect_fn,
+            )
+            return self.changer_factory(ctx).run()
+
+        self.runner.start(task, on_finished=self._version_finished,
+                          on_failed=self._version_failed, on_progress=self._event)
+
+    def _version_finished(self, report: VersionReport) -> None:
+        self.show_checklist(report.checks)
+        for issue in report.issues:
+            self.log_view.append_line(issue.message)
+        installed = report.installed[-1] if report.installed else None
+        self.result_label.setText(S.APPLY_VERSION_DONE.format(version=installed)
+                                  if installed else S.APPLY_DONE_WITH_WARNINGS)
+        self.version_check.setChecked(False)
+        self.version_changed.emit(report)
+        self.refresh()
+
+    def _version_failed(self, exc: BaseException) -> None:
+        if isinstance(exc, VersionChangeAborted):
+            self.show_checklist(exc.report.checks)
+            for issue in exc.report.issues:
+                self.log_view.append_line(issue.message)
+            # The device may be on another version already, or on the same one: either way
+            # the session has moved and the device is read again before anything else.
+            self.version_changed.emit(exc.report)
+        message = exc.issue.message if isinstance(exc, VersionChangeAborted) else \
+            f"{type(exc).__name__}: {exc}"
+        self.result_label.setText(S.APPLY_VERSION_FAILED.format(error=message))
+        self.dialogs.error(self, message)
         self.refresh()
 
     def preflight_issues(self, *, existing: Any = None,
@@ -271,6 +452,8 @@ class ApplyPage(Page):
         self.update_check.setEnabled(reset)
         self.update_dir_label.setEnabled(reset and self.update_check.isChecked())
         self.routerboot_check.setEnabled(reset)
+        self.version_check.setEnabled(self.session_provider() is not None)
+        self.refresh_version_row()
         self.admin_password.setEnabled(reset)
         self.admin_password.setPlaceholderText(
             S.APPLY_ADMIN_PASSWORD_KEEP if reset and self.keep_users.isChecked() else "")

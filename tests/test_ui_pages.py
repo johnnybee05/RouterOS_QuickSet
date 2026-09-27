@@ -18,8 +18,9 @@ from mqs.apply.plan import DEFAULT_PASSWORD, ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.update import plan_from_dir
 from mqs.apply.verify import CheckResult
+from mqs.apply.version_change import VersionReport
 from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
-from mqs.model.inventory import Ipv6PackageState
+from mqs.model.inventory import Ipv6PackageState, PackageInfo
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import AuthError, ConnectionLost, ConnectionParams
@@ -74,6 +75,11 @@ class FakeDialogs:
 
     def ask_reset_identity(self, parent, identity, *, keep_users=False):
         self.reset_keep_users = keep_users
+        return self.answers.get("identity", identity)
+
+    def ask_version_identity(self, parent, identity, *, version, current, reboots):
+        self.version_asked = {"identity": identity, "version": version, "current": current,
+                              "reboots": reboots}
         return self.answers.get("identity", identity)
 
 
@@ -904,3 +910,139 @@ def test_a_renamed_device_shows_its_names_everywhere(window, qtbot):
     analysis = window.controller.recompute()
     assert not {"bridge.port_unknown", "wan.interface_unknown"} & {
         i.code for i in analysis.all_issues}
+
+
+# ---------------------------------------------------------------- another RouterOS version
+
+
+V6_MEMBERS = ("system", "ipv6", "wireless", "hotspot", "mpls", "routing", "ppp", "dhcp",
+              "security", "advanced-tools")
+
+
+def mmips_inventory(version="6.49.21"):
+    """The v6 hEX S: mmips, a RAM-disk file root, and factory-firmware 6.42.4."""
+    return make_inventory(version, TEN_PORTS[:5], architecture="mmips", has_flash_dir=True,
+                          free_memory=227 * 1024 * 1024, free_hdd_space=4636 * 1024,
+                          factory_firmware="6.42.4", factory_software="6.42.4",
+                          board_name="hEX S",
+                          packages=[PackageInfo(name="routeros-mmips", version=version),
+                                    *(PackageInfo(name=m, version=version,
+                                                  bundle="routeros-mmips")
+                                      for m in V6_MEMBERS)])
+
+
+def mmips_packages(tmp_path, *versions):
+    folder = tmp_path / "Update"
+    folder.mkdir(exist_ok=True)
+    for version in versions or ((6, 40, 9), (6, 49, 12), (6, 49, 21), (7, 23, 5)):
+        dotted = ".".join(str(part) for part in version)
+        if version[0] == 6:
+            (folder / f"routeros-mmips-{dotted}.npk").write_bytes(
+                make_npk("routeros-mmips", version, "mmips", bundle=True))
+        else:
+            (folder / f"routeros-{dotted}-mmips.npk").write_bytes(
+                make_npk("system", version, "mmips"))
+    return folder
+
+
+class RecordingChanger:
+    instances: ClassVar[list[RecordingChanger]] = []
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+        RecordingChanger.instances.append(self)
+
+    def run(self):
+        plan = self.ctx.plan
+        report = VersionReport(
+            transport=self.ctx.transport,
+            installed=[hop.version for hop in plan.hops],
+            checks=[CheckResult("verify.routeros_version", True,
+                                {"expected": str(plan.target), "actual": str(plan.target)})])
+        report.succeeded = True
+        return report
+
+
+def v6_window(window, qtbot, tmp_path, version="6.49.21"):
+    """A window connected to the v6 hEX S, with the packages in the Update directory."""
+    mmips_packages(tmp_path)
+    window.device_page.discover_fn = lambda transport, on_step: mmips_inventory(version)
+    page = window.apply_page
+    page.changer_factory = RecordingChanger
+    RecordingChanger.instances.clear()
+    connect(window, qtbot)
+    return page
+
+
+def test_the_versions_on_offer_include_the_ones_out_of_reach(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    page.version_check.setChecked(True)
+    labels = [page.version_combo.itemText(i) for i in range(page.version_combo.count())]
+    assert [label.split()[0] for label in labels] == ["7.23.5", "6.49.21", "6.49.12", "6.40.9"]
+    assert "verze na zařízení" in labels[1]  # 6.49.21 runs now
+    assert "nelze" in labels[3]  # 6.40.9 is below the factory firmware
+    blocked = page.version_combo.itemData(3, Qt.ItemDataRole.ToolTipRole)
+    assert "6.42.4" in blocked
+    assert page.chosen_version == "7.23.5"  # the first one it can have
+    assert "6.42.4" in page.version_note.text()
+
+
+def test_a_version_below_the_factory_one_cannot_be_started(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(3)  # 6.40.9
+    assert not page.version_button.isEnabled()
+    assert "version.below_factory" not in page.version_note.text()  # the message, not the code
+    assert "6.42.4" in page.version_note.text()
+
+
+def test_the_update_and_the_version_change_are_exclusive(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    assert page.update_check.isChecked()
+    page.version_check.setChecked(True)
+    assert not page.update_check.isChecked() and page.options().update is None
+    page.update_check.setChecked(True)
+    assert not page.version_check.isChecked()
+
+
+def test_a_downgrade_from_the_window(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(2)  # 6.49.12, one version back
+    assert page.version_button.isEnabled()
+    reports = []
+    page.version_changed.connect(reports.append)
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(reports) and not window.runner.busy, timeout=5000)
+    plan = RecordingChanger.instances[-1].ctx.plan
+    assert str(plan.target) == "6.49.12" and plan.reboots == 1
+    assert [str(v) for v in reports[0].installed] == ["6.49.12"]
+    # Confirmed by the device's own name, as a reset is.
+    assert window.test_dialogs.version_asked["version"] == "6.49.12"
+    assert not page.version_check.isChecked()  # done: the switch goes back off
+    assert "6.49.12" in page.result_label.text()
+
+
+def test_a_downgrade_the_user_does_not_confirm_is_not_run(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path)
+    window.test_dialogs.answers["identity"] = None  # Cancel in the dialog
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(2)
+    page.start_version_change()
+    assert not RecordingChanger.instances
+
+
+def test_an_upgrade_inside_the_major_version_asks_a_plain_question(window, qtbot, tmp_path):
+    page = v6_window(window, qtbot, tmp_path, version="6.49.12")
+    window.test_dialogs.answers["question"] = False
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(1)  # 6.49.21: newer, inside v6
+    plan = page.version_plan()
+    assert not plan.needs_confirmation
+    page.start_version_change()
+    assert not RecordingChanger.instances  # the question was answered with no
+    window.test_dialogs.answers["question"] = True
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
+                    timeout=5000)
+    assert str(RecordingChanger.instances[-1].ctx.plan.target) == "6.49.21"

@@ -51,17 +51,18 @@ class DryRunDialog(QDialog):
         layout.addWidget(buttons)
 
 
-class ResetIdentityDialog(QDialog):
-    def __init__(self, parent: QWidget | None, identity: str, *,
-                 keep_users: bool = False) -> None:
+class IdentityDialog(QDialog):
+    """Type the device's own name to confirm. A reset asks for it, and so does a move to
+    another RouterOS version: both are irreversible where it matters."""
+
+    def __init__(self, parent: QWidget | None, identity: str, title: str, text: str) -> None:
         super().__init__(parent)
-        self.setWindowTitle(S.RESET_TITLE)
+        self.setWindowTitle(title)
         layout = QVBoxLayout(self)
-        users = S.RESET_USERS_KEPT if keep_users else S.RESET_USERS_DELETED
-        text = QLabel(S.RESET_TEXT.format(identity=identity, users=users))
-        text.setWordWrap(True)
-        text.setProperty("role", "danger")
-        layout.addWidget(text)
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setProperty("role", "danger")
+        layout.addWidget(label)
         self.input = QLineEdit()
         layout.addWidget(self.input)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -72,6 +73,14 @@ class ResetIdentityDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+
+class ResetIdentityDialog(IdentityDialog):
+    def __init__(self, parent: QWidget | None, identity: str, *,
+                 keep_users: bool = False) -> None:
+        users = S.RESET_USERS_KEPT if keep_users else S.RESET_USERS_DELETED
+        super().__init__(parent, identity, S.RESET_TITLE,
+                         S.RESET_TEXT.format(identity=identity, users=users))
 
 
 class Dialogs:
@@ -116,6 +125,16 @@ class Dialogs:
     def ask_reset_identity(self, parent: QWidget | None, identity: str, *,
                            keep_users: bool = False) -> str | None:
         dialog = ResetIdentityDialog(parent, identity, keep_users=keep_users)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.input.text()
+
+    def ask_version_identity(self, parent: QWidget | None, identity: str, *, version: str,
+                             current: str, reboots: int) -> str | None:
+        """Confirm a downgrade, or a move between RouterOS 6 and 7, by the device's name."""
+        text = S.VERSION_TEXT.format(identity=identity, version=version, current=current,
+                                     reboots=reboots)
+        dialog = IdentityDialog(parent, identity, S.VERSION_TITLE, text)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.input.text()
