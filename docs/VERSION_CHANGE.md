@@ -1,9 +1,10 @@
 # Changing the RouterOS version on a device (design)
 
 Status: **implemented** (`apply/version_change.py`, `mqs.cli version`, the window's
-*Přejít na jinou verzi RouterOS*), and **verified on the mmips hEX S in both directions
-inside RouterOS 6** on 2026-09-27. The move between v6 and v7 is implemented and planned
-but **not yet run on hardware**; §11 says what that leaves open. Where the design below
+*Přejít na jinou verzi RouterOS*) and verified on the mmips hEX S on 2026-09-27: both
+directions inside RouterOS 6, and **6.49.21 to 7.23.7 across the major version**, where
+RouterOS converted the configuration and the device came back on the same address. The way
+back from v7 to v6 is the one path still unrun; §11 says what that leaves open. Where the design below
 differs from what was built, the built thing is described here and the reason given.
 
 Today the application can only move a device *forward inside its own major version*
@@ -194,8 +195,9 @@ a package RouterOS refused.
 Between hops nothing resets, so the device keeps its addresses and comes back where the session
 was — `_reconnect_after_reboot` covers it. Two exceptions:
 
-- **v6 → v7** converts the configuration. Ports 8729/22 and the addresses survive
-  (NUTNO OVĚŘIT on the mmips board), so the same reconnect is tried first.
+- **v6 → v7** converts the configuration, and **OVĚŘENO on the mmips board** (2026-09-27)
+  it keeps the identity, the services and their ports, the addresses and the users, so the
+  device answers where it did and the plain reconnect is enough.
 - **v7 → v6** has no configuration conversion backwards. The device may come back with its
   configuration partly or wholly gone, and then it is **not at the address it answered on**.
   The reconnect therefore takes the same ladder the post-reset reconnect uses — the profile's
@@ -314,10 +316,9 @@ Still NUTNO OVĚŘIT, and the reason each is still open:
 | # | What | Why it is not done |
 |---|---|---|
 | 1 | that the device itself refuses a package below `factory-firmware` | no package older than 6.42.4 is on this PC; the planner refuses it first either way |
-| 2 | v6 → v7 on the mmips board from 6.49.21: whether the configuration, the addresses and api-ssl/ssh survive RouterOS's own conversion | it takes the only v6 test device across, and getting it back rests on the v7 → v6 path below |
-| 3 | v7 → v6 on the same board: where it comes back, and whether the MAC ladder reaches it | the risk is a test bed that needs Netinstall; worth doing deliberately, with the backup in hand |
-| 4 | what RouterOS does with extra packages across a major version | follows from 2 and 3 |
-| 5 | the two-hop route (6.49.12 → 6.49.21 → 7.23.5) end to end | the second hop is 2 |
+| 2 | v7 → v6 on the mmips board: where it comes back, and whether the MAC ladder reaches it | the risk is a test bed that needs Netinstall; worth doing deliberately |
+| 3 | the two-hop route (6.49.12 → 6.49.21 → 7.23.7) end to end | both hops are verified on their own; only their sequence is not |
+| 4 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 
