@@ -319,6 +319,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 8 | 6.49.21 → 7.23.7 | one reboot, RouterOS converted the configuration, the device answered on the same address, one `routeros` package where the v6 bundle had eleven |
 | 9 | 7.23.7 → 6.49.21 | one `/system package downgrade`, back on the same address with identity, services, addresses, bridge, users and the disabled `ipv6` package all in place; api-ssl refused the login once before SSH took over |
 | 10 | the two-hop route 6.49.12 → 6.49.21 → 7.23.7 in one command | both hops walked in order, each uploaded only after the one before it had rebooted, each reconnected and verified on its own, two rows in the checklist; `version.planned` named both files and `2x restart` up front |
+| 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
 
 Still NUTNO OVĚŘIT, and the reason each is still open:
 
