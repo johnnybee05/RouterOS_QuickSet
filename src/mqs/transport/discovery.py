@@ -116,7 +116,8 @@ def collect_inventory(
     on_step("packages")
     packages = [
         PackageInfo(
-            name=p["name"], version=p.get("version", ""), disabled=to_bool(p, "disabled", "X")
+            name=p["name"], version=p.get("version", ""), disabled=to_bool(p, "disabled", "X"),
+            available=to_bool(p, "available", "A"),
         )
         for p in transport.execute("/system/package/print")
     ]

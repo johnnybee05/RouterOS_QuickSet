@@ -36,6 +36,17 @@ class PackageInfo(BaseModel):
     name: str
     version: str = ""
     disabled: bool = False
+    available: bool = False  # offered for download, not on the device (v7 flag "A")
+
+    @property
+    def installed(self) -> bool:
+        """On the device, as opposed to one RouterOS only offers to download.
+
+        7.23 lists every package MikroTik publishes for the board, the ones that are
+        not installed with the flags `XA` (`available=true`, `disabled=true`) and no
+        version; older versions list the installed packages alone.
+        """
+        return not self.available and bool(self.version)
 
 
 class ServiceInfo(BaseModel):

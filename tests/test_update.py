@@ -191,6 +191,18 @@ def test_extra_packages_go_along_when_the_directory_has_them(tmp_path):
     assert "wifi.npk" in plan.issues[0].message
 
 
+def test_packages_only_offered_for_download_are_not_missing(tmp_path):
+    # 7.23 lists every package MikroTik publishes for the board; the ones that are not
+    # installed come with the flags XA and no version, and need no file of their own.
+    inventory = device(packages=[PackageInfo(name="wireless", available=True, disabled=True),
+                                 PackageInfo(name="container", available=True, disabled=True),
+                                 PackageInfo(name="wifi-qcom", version="7.20.7")])
+    plan = plan_update(inventory, found_in(tmp_path, ("routeros.npk", npk()),
+                                           ("wifi.npk", npk("wifi-qcom"))))
+    assert [p.file_name for p in plan.packages] == ["routeros.npk", "wifi.npk"]
+    assert codes(plan.issues) == {"update.planned"}
+
+
 def test_leftover_packages_are_only_the_uploaded_ones(tmp_path):
     plan = plan_update(device(), found_in(tmp_path, ("routeros-7.23.7-arm.npk", npk())))
     assert leftover_packages(["routeros-7.23.7-arm.npk", "other.npk", "x.rsc"], plan) == [

@@ -227,7 +227,10 @@ def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
 
 
 def _extra_packages(inventory: DeviceInventory) -> list[PackageInfo]:
-    return [p for p in inventory.packages if p.name not in DEVICE_MAIN_PACKAGES]
+    """The packages installed next to the main one, without the ones 7.23 merely offers
+    for download (`PackageInfo.installed`), which need no file in the Update directory."""
+    return [p for p in inventory.packages
+            if p.installed and p.name not in DEVICE_MAIN_PACKAGES]
 
 
 def firmware_newer(available: str, current: str) -> bool:

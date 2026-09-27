@@ -44,7 +44,11 @@ def rb4011_v7_api() -> dict:
             *({"name": f"ether{i}", "switch": "switch2"} for i in range(6, 11)),
             {"name": "switch1-cpu", "switch": "switch1"},
         ],
-        "/system/package/print": [{"name": "routeros", "version": "7.15.3", "disabled": "no"}],
+        "/system/package/print": [
+            {"name": "routeros", "version": "7.15.3", "disabled": "no", "available": "false"},
+            # 7.23 lists what it could download next to what is installed.
+            {"name": "container", "version": "", "disabled": "true", "available": "true"},
+        ],
         "/ip/service/print": [
             {"name": "ssh", "port": "22", "disabled": "no", "address": "", "certificate": "none"},
             {"name": "api-ssl", "port": "8729", "disabled": "no", "certificate": "api-cert"},
@@ -73,6 +77,8 @@ def test_collect_inventory_v7_api():
     assert [s.type for s in inv.switches] == ["RTL8367", "RTL8367"]
     assert inv.wireless == WirelessStack.NONE
     assert inv.ipv6_package_state == Ipv6PackageState.BUILTIN
+    assert [p.name for p in inv.packages if p.installed] == ["routeros"]
+    assert next(p for p in inv.packages if p.name == "container").available
     ssh = next(s for s in inv.services if s.name == "ssh")
     assert ssh.port == 22 and ssh.certificate == ""
     assert next(s for s in inv.services if s.name == "api-ssl").certificate == "api-cert"
@@ -135,6 +141,19 @@ def test_chr_without_routerboard_and_switch():
     assert inv.routerboard is None
     assert inv.switches == [] and inv.interface("ether1").switch is None
     assert inv.wireless == WirelessStack.WIFI
+
+
+def test_packages_offered_for_download_over_ssh_carry_the_a_flag():
+    # hEX S 7.23.5 over SSH, 2026-09-27: the installed package alone has a version.
+    replies = dict(rb4011_v7_api())
+    replies["/system/package/print"] = [
+        {"_index": "0", "_flags": "", "name": "routeros", "version": "7.23.5"},
+        {"_index": "1", "_flags": "XA", "name": "wireless", "version": ""},
+    ]
+    inv = collect_inventory(FakeTransport(replies, kind=TransportKind.SSH))
+    wireless = next(p for p in inv.packages if p.name == "wireless")
+    assert wireless.available and wireless.disabled and not wireless.installed
+    assert next(p for p in inv.packages if p.name == "routeros").installed
 
 
 def test_detect_wireless_v7_legacy_package():
