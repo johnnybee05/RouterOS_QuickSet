@@ -17,7 +17,8 @@ from typing import Any
 
 from mqs.apply.orchestrator import ApplyContext, ApplyEvent, ApplyReport
 from mqs.apply.plan import ApplyMode, ApplyOptions
-from mqs.apply.reconnect import reconnect_with_retry
+from mqs.apply.reconnect import reconnect_hosts, reconnect_with_retry
+from mqs.apply.version_change import VersionContext, VersionPlan, VersionReport
 from mqs.generator.base import GenerationResult
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
@@ -88,6 +89,22 @@ def end_session(session: DeviceSession) -> None:
     finally:
         with contextlib.suppress(OSError, TransportError):
             session.transport.close()
+
+
+def session_after_version_change(session: DeviceSession, report: VersionReport) -> None:
+    """Carry over what the version change left: the connection it came back on, the
+    address it had to borrow to get there, and the version the device now runs.
+
+    The inventory is not patched up from the report: the caller reads the device again,
+    because a device that has changed its major version is a different device.
+    """
+    if report.transport is not session.transport:
+        session.transport = report.transport
+        session.params = report.transport.params
+        if report.mac_method is not None:
+            session.mac_method = report.mac_method
+    if report.temp_address is not None:
+        session.temp_address = report.temp_address
 
 
 def session_after_apply(session: DeviceSession, report: ApplyReport) -> None:
@@ -335,6 +352,54 @@ def build_apply_context(
         sleep=lambda seconds: None if cancelled() else sleep(seconds),
         cancelled=cancelled,
         on_event=on_event,
+    )
+
+
+# A package is a file: the line-by-line fallback cannot carry one, and a version change
+# has no `/import` to fall back to. RESET_AND_IMPORT is how that is said in ApplyOptions.
+PACKAGE_UPLOAD = ApplyOptions(mode=ApplyMode.RESET_AND_IMPORT)
+
+
+def build_version_context(
+    plan: VersionPlan,
+    session: DeviceSession,
+    *,
+    on_event: Callable[[ApplyEvent], None],
+    profile: DeviceProfile | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    cancelled: Callable[[], bool] = lambda: False,
+    reconnect_timeout_s: float = 300.0,
+    uploader_factory_builder: Callable[..., Any] = build_uploader_factory,
+    reconnect_fn: Callable[..., Transport] = reconnect_with_retry,
+) -> VersionContext:
+    """Everything a version change needs, assembled the one way the application does it.
+
+    Nothing resets here, so the device keeps its addresses and the one it answers on is
+    the first place to look afterwards. A move from v7 to v6 converts no configuration
+    back, though, so where a profile is at hand its addresses come next, and a device
+    reached by MAC is looked for by MAC first — that path needs no address at all.
+    """
+    services = {s.name: s for s in session.inventory.services}
+    api = services.get("api-ssl")
+    ssh = services.get("ssh")
+    alternatives = tuple(reconnect_hosts(profile, current_host=session.params.host,
+                                         session_port=session.session_port)
+                         if profile is not None else (session.params.host,))
+    return VersionContext(
+        plan=plan,
+        inventory=session.inventory,
+        transport=session.transport,
+        uploader_factory=uploader_factory_builder(session, PACKAGE_UPLOAD),
+        reconnect=lambda target: reconnect_fn(target, timeout_s=reconnect_timeout_s,
+                                              cancelled=cancelled),
+        on_event=on_event,
+        sleep=lambda seconds: None if cancelled() else sleep(seconds),
+        cancelled=cancelled,
+        alternatives=alternatives,
+        mac_route=session.reached_by_mac,
+        api_port=api.port if api else 8729,
+        ssh_port=ssh.port if ssh else 22,
+        reconnect_timeout_s=reconnect_timeout_s,
     )
 
 

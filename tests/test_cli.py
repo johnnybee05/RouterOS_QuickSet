@@ -14,6 +14,7 @@ from mqs import cli
 from mqs.apply.orchestrator import ApplyOrchestrator
 from mqs.apply.plan import ApplyMode
 from mqs.apply.session import DeviceSession
+from mqs.apply.version_change import VersionChanger
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.messages_cs import MESSAGES, format_message
@@ -487,3 +488,150 @@ def _encodable(text: str, encoding: str) -> bool:
     except UnicodeEncodeError:
         return False
     return True
+
+
+# ---------------------------------------------------------------- a named RouterOS version
+
+
+V6_MEMBERS = ("system", "ipv6", "wireless", "hotspot", "mpls", "routing", "ppp", "dhcp",
+              "security", "advanced-tools")
+
+
+def v6_inventory(version="6.49.21", factory="6.42.4"):
+    """The mmips hEX S: the bundle and its members, a RAM-disk file root, factory 6.42.4."""
+    return make_inventory(version, PORTS, architecture="mmips", has_flash_dir=True,
+                          free_memory=227 * 1024 * 1024, free_hdd_space=4636 * 1024,
+                          factory_firmware=factory, factory_software=factory,
+                          packages=[PackageInfo(name="routeros-mmips", version=version),
+                                    *(PackageInfo(name=m, version=version,
+                                                  bundle="routeros-mmips")
+                                      for m in V6_MEMBERS)])
+
+
+def v6_packages(tmp_path, *versions):
+    folder = tmp_path / "Update"
+    folder.mkdir(exist_ok=True)
+    for version in versions or ((6, 49, 12), (6, 49, 21), (7, 23, 5)):
+        dotted = ".".join(str(part) for part in version)
+        if version[0] == 6:
+            (folder / f"routeros-mmips-{dotted}.npk").write_bytes(
+                make_npk("routeros-mmips", version, "mmips", bundle=True))
+        else:
+            (folder / f"routeros-{dotted}-mmips.npk").write_bytes(
+                make_npk("system", version, "mmips"))
+    return folder
+
+
+def version_offline(router):
+    """A version change that neither sleeps nor reaches the network."""
+
+    def factory(ctx):
+        ctx.uploader_factory = lambda transport: RouterUploader(router)
+        ctx.sleep = lambda seconds: None
+        ctx.reconnect = lambda target: router.session(port=target.api_port)
+        return VersionChanger(ctx)
+
+    return factory
+
+
+def run_version(argv, router, inventory, **extra):
+    out = io.StringIO()
+    session = DeviceSession(ConnectionParams(host="10.0.0.1", username="admin"),
+                            router.session(), inventory, {}, "ether9")
+    deps = dict(connect=lambda *a, **k: session, changer_factory=version_offline(router))
+    deps.update(extra)
+    return cli.main(argv, out=out, **deps), out.getvalue()
+
+
+def test_version_lists_what_the_directory_can_put_on_the_device(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder)],
+                            router, v6_inventory())
+    assert code == cli.OK, out
+    assert "6.49.12   ok" in out and "7.23.5    ok" in out
+    assert "6.49.21   device" in out  # what it runs now
+    assert "lowest possible : 6.42.4" in out
+    assert not router.log  # nothing but the listing happened
+
+
+def test_version_says_why_a_version_is_out_of_reach(router, tmp_path):
+    folder = v6_packages(tmp_path, (6, 40, 9), (6, 49, 21))
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder)],
+                            router, v6_inventory())
+    assert code == cli.OK, out
+    assert "6.40.9    no" in out and "6.42.4" in out
+
+
+def test_a_downgrade_needs_the_device_name(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.49.12", "--yes"], router, v6_inventory())
+    assert code == cli.BLOCKED, out
+    assert "version.identity_mismatch" in out
+    assert router.reboots == 0 and "/system/package/downgrade" not in router.log
+
+
+def test_a_downgrade_from_the_command_line(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    router.version = "6.49.21 (long-term)"
+    router.installable = {"routeros-mmips-6.49.12.npk": "6.49.12"}
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.49.12", "--yes", "--confirm-identity", "MikroTik"],
+                            router, v6_inventory())
+    assert code == cli.OK, out
+    assert "version.planned" in out and "OK   RouterOS 6.49.12" in out
+    assert router.version.startswith("6.49.12") and router.reboots == 1
+    assert "/system/package/downgrade" in router.log
+
+
+def test_a_version_below_the_factory_one_is_refused_before_anything_happens(router, tmp_path):
+    folder = v6_packages(tmp_path, (6, 40, 9), (6, 49, 21))
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.40.9", "--yes", "--confirm-identity", "MikroTik"],
+                            router, v6_inventory())
+    assert code == cli.BLOCKED, out
+    assert "version.below_factory" in out and "6.42.4" in out
+    assert router.reboots == 0
+
+
+def test_a_target_that_is_not_a_version(router, tmp_path, capsys):
+    folder = v6_packages(tmp_path)
+    code, _ = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                           "--to", "yesterday", "--yes"], router, v6_inventory())
+    assert code == cli.FAILED
+    assert "--to yesterday" in capsys.readouterr().err
+
+
+def test_version_needs_a_device(capsys):
+    assert cli.main(["version", "--to", "6.49.12"]) == cli.BLOCKED
+    assert "--host or --mac is required" in capsys.readouterr().err
+
+
+def test_the_version_change_runs_before_the_apply(router, profile_file, tmp_path, monkeypatch):
+    """--to then --mode reset: the package goes on first, the configuration is generated
+    for the version that will be running, and the device is read again in between."""
+    monkeypatch.setenv("MQS_ADMIN_PASSWORD", "N3w")
+    folder = tmp_path / "Update"
+    folder.mkdir()
+    (folder / "routeros-7.23.5-arm.npk").write_bytes(make_npk("system", (7, 23, 5), "arm"))
+    router.installable = {"routeros-7.23.5-arm.npk": "7.23.5"}
+    inventory = make_inventory("7.15.3", PORTS, architecture="arm", factory_firmware="7.15.3",
+                               packages=[PackageInfo(name="routeros", version="7.15.3")])
+    reads: list[str] = []
+
+    def rediscover(session, out):
+        reads.append(str(session.inventory.version))
+        return session
+
+    code, out = run_version(["apply", "--host", "10.0.0.1", "--profile-file", str(profile_file),
+                             "--mode", "reset", "--to", "7.23.5", "--update-dir", str(folder),
+                             "--confirm-identity", "MikroTik", "--yes"],
+                            router, inventory, rediscover=rediscover,
+                            orchestrator_factory=reset_offline(router),
+                            collect_existing_fn=lambda transport: None)
+    assert code == cli.OK, out
+    # Read again between the two, while the inventory still says what it said before.
+    assert reads == ["7.15.3"]
+    assert router.version.startswith("7.23.5")
+    assert router.log.index("/system/reboot") < router.log.index("/system/reset-configuration")
+    assert "OK   RouterOS 7.23.5" in out

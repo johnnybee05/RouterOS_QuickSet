@@ -25,6 +25,7 @@ from typing import Any
 from pydantic import SecretStr
 
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
+from mqs.apply.packages import scan_update_dir
 from mqs.apply.plan import (
     DEFAULT_KEEP_BACKUPS,
     ApplyMode,
@@ -37,13 +38,22 @@ from mqs.apply.session import (
     DeviceSession,
     TempAddressLeft,
     build_apply_context,
+    build_version_context,
+    discover_session,
     end_session,
     open_mac_session,
     open_session,
     probe_summary,
     session_after_apply,
+    session_after_version_change,
 )
 from mqs.apply.update import plan_from_dir
+from mqs.apply.version_change import (
+    VersionChangeAborted,
+    VersionChanger,
+    available_versions,
+    plan_version,
+)
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
@@ -51,6 +61,7 @@ from mqs.messages_cs import STEP_PREFIX
 from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
+from mqs.model.version import RosVersion
 from mqs.model.wan import PppoeWan
 from mqs.paths import profiles_dir, update_dir
 from mqs.profiles.store import ProfileStore, import_profile
@@ -174,18 +185,22 @@ def build_options(args: argparse.Namespace, mode: ApplyMode) -> ApplyOptions:
     )
 
 
-def confirmed(args: argparse.Namespace, options: ApplyOptions, session: DeviceSession) -> bool:
+def confirmed_action(args: argparse.Namespace, session: DeviceSession, what: str) -> bool:
     if args.yes:
         return True
     if not sys.stdin.isatty():
         print("refusing to change the device: pass --yes", file=sys.stderr)
         return False
     try:
-        answer = input(f"{options.mode.value} on {session.inventory.identity}"
+        answer = input(f"{what} on {session.inventory.identity}"
                        f" ({session.params.host}) — type yes: ")
     except EOFError:  # redirected stdin that still claims to be a terminal
         return False
     return answer.strip().lower() == "yes"
+
+
+def confirmed(args: argparse.Namespace, options: ApplyOptions, session: DeviceSession) -> bool:
+    return confirmed_action(args, session, options.mode.value)
 
 
 # ------------------------------------------------------------------ commands
@@ -297,12 +312,119 @@ def _generate_offline(args: argparse.Namespace, out: Any) -> int:
     return BLOCKED if any(i.severity == Severity.ERROR for i in issues) else OK
 
 
+def _step_printer(args: argparse.Namespace, out: Any) -> Callable[[ApplyEvent], None]:
+    def on_event(event: ApplyEvent) -> None:
+        line = f"[{STEP_PREFIX[event.status]}] {event.message}"
+        if args.verbose and event.detail:
+            line += f"   ({event.detail})"
+        print(line, file=out, flush=True)
+
+    return on_event
+
+
+def _print_checks(checks: Sequence[Any], issues: Sequence[Issue], out: Any) -> None:
+    if checks:
+        print("\nchecklist:", file=out)
+        for check in checks:
+            print(f"  {'OK  ' if check.ok else 'FAIL'} {check.message}", file=out)
+    print_issues(issues, out)
+
+
+def packages_dir(args: argparse.Namespace) -> Path:
+    return Path(args.update_dir) if args.update_dir else update_dir()
+
+
+def cmd_version(args: argparse.Namespace, out: Any, *,
+                changer_factory: Callable[..., Any] = VersionChanger, **deps: Any) -> int:
+    """Show which RouterOS versions the Update directory can put on the device, or put
+    one of them on it."""
+    session = open_device(args, out, **deps)
+    try:
+        describe_session(session, out)
+        if not args.to:
+            _print_offers(session, scan_update_dir(packages_dir(args)), out)
+            return OK
+        return run_version_change(session, args, out, changer_factory=changer_factory)
+    finally:
+        hang_up(session, out)
+
+
+def _print_offers(session: DeviceSession, found: Any, out: Any) -> None:
+    """Every version in the directory, the ones out of reach included, with the reason."""
+    print(f"\nversions in {found.directory}:", file=out)
+    offers = available_versions(session.inventory, found)
+    if not offers:
+        print("  none for this architecture", file=out)
+    for offer in offers:
+        mark = "device" if offer.current else ("ok" if offer.available else "no")
+        why = f"   {offer.blocked_by.message}" if offer.blocked_by else ""
+        print(f"  {offer.version!s:9} {mark:7}{offer.package.file_name}{why}", file=out)
+    floor = session.inventory.version_floor
+    print(f"  lowest possible : {floor or 'unknown, the board does not say'}", file=out)
+
+
+def run_version_change(session: DeviceSession, args: argparse.Namespace, out: Any, *,
+                       profile: DeviceProfile | None = None,
+                       changer_factory: Callable[..., Any] = VersionChanger) -> int:
+    """Plan the route, ask, walk it. Nothing touches the device before the last of those."""
+    try:
+        target = RosVersion.parse(args.to)
+    except ValueError as exc:
+        raise CliError(f"--to {args.to}: {exc}") from exc
+    plan = plan_version(session.inventory, scan_update_dir(packages_dir(args)), target)
+    print(f"\nversion change {plan.current} to {target}:", file=out)
+    print_issues(plan.issues, out)
+    if plan.blocked:
+        return BLOCKED
+    if not plan.changes:
+        return OK
+    # A downgrade, and a move between v6 and v7, is confirmed by the device's own name,
+    # the way a reset is: --yes alone is not enough for either.
+    if plan.needs_confirmation and args.confirm_identity != session.inventory.identity:
+        print_issues([Issue("version.identity_mismatch", Severity.ERROR, "",
+                            {"identity": session.inventory.identity})], out)
+        return BLOCKED
+    if not confirmed_action(args, session, f"RouterOS {target}"):
+        return REFUSED
+    print(f"\nchanging the version, {plan.reboots} reboot(s):", file=out)
+    ctx = build_version_context(plan, session, on_event=_step_printer(args, out),
+                                profile=profile)
+    try:
+        report = changer_factory(ctx).run()
+    except VersionChangeAborted as exc:
+        session_after_version_change(session, exc.report)
+        _print_checks(exc.report.checks, exc.report.issues, out)
+        print(f"aborted: {exc}", file=sys.stderr)
+        return FAILED
+    session_after_version_change(session, report)
+    _print_checks(report.checks, report.issues, out)
+    return OK if report.succeeded else FAILED
+
+
+def rediscovered(session: DeviceSession, out: Any) -> DeviceSession:
+    """Read the device again: on another major version it is a different device.
+
+    The package list, the ipv6 package, the wireless stack, what the switch chip calls
+    itself and whether the files live under `flash/` are all read from the device, and a
+    move between v6 and v7 changes them. The configuration that follows is then generated
+    for what came back instead of for what was guessed before the reboot.
+    """
+    print("\nreading the device again:", file=out)
+    return discover_session(
+        session.transport, session.params,
+        on_step=lambda step: print(f"  … {step}", file=out, flush=True),
+        fell_back=session.fell_back, temp_address=session.temp_address,
+        mac_method=session.mac_method, mac_route=session.mac_route)
+
+
 def cmd_apply(
     args: argparse.Namespace,
     out: Any,
     *,
     collect_existing_fn: Callable[..., Any] = collect_existing,
     orchestrator_factory: Callable[..., Any] = ApplyOrchestrator,
+    changer_factory: Callable[..., Any] = VersionChanger,
+    rediscover: Callable[..., DeviceSession] = rediscovered,
     now: Callable[[], datetime] = datetime.now,
     **deps: Any,
 ) -> int:
@@ -314,6 +436,15 @@ def cmd_apply(
     options = build_options(args, mode)
     session = open_device(args, out, **deps)
     try:
+        if args.to:
+            # The version first: the configuration is generated for the one that will be
+            # running, and after a move between v6 and v7 the device is read again.
+            describe_session(session, out)
+            code = run_version_change(session, args, out, profile=profile,
+                                      changer_factory=changer_factory)
+            if code != OK:
+                return code
+            session = rediscover(session, out)
         return _apply_to(session, profile, options, args, out,
                          collect_existing_fn=collect_existing_fn,
                          orchestrator_factory=orchestrator_factory, now=now)
@@ -383,14 +514,8 @@ def _apply_to(
         return REFUSED
 
     print(f"\napplying in mode {mode.value}:", file=out)
-
-    def on_event(event: ApplyEvent) -> None:
-        line = f"[{STEP_PREFIX[event.status]}] {event.message}"
-        if args.verbose and event.detail:
-            line += f"   ({event.detail})"
-        print(line, file=out, flush=True)
-
-    ctx = build_apply_context(profile, result, options, session, on_event=on_event, now=now)
+    ctx = build_apply_context(profile, result, options, session,
+                              on_event=_step_printer(args, out), now=now)
     try:
         report: ApplyReport = orchestrator_factory(ctx).run()
     except ApplyAborted as exc:
@@ -402,10 +527,7 @@ def _apply_to(
         return FAILED
     session_after_apply(session, report)
 
-    print("\nchecklist:", file=out)
-    for check in report.checks:
-        print(f"  {'OK  ' if check.ok else 'FAIL'} {check.message}", file=out)
-    print_issues(report.issues, out)
+    _print_checks(report.checks, report.issues, out)
     if report.downloaded:
         print(f"downloaded: {', '.join(str(p) for p in report.downloaded)}", file=out)
     return OK if report.succeeded else FAILED
@@ -485,6 +607,10 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--update-dir", metavar="DIR",
                            help=f"with --update: where the packages are (default "
                            f"{update_dir()})")
+    apply_cmd.add_argument("--to", metavar="VERSION",
+                           help="put this RouterOS version on the device first (the "
+                           "`version` command lists them), then apply the configuration "
+                           "generated for it")
     apply_cmd.add_argument("--confirm-identity", metavar="IDENTITY",
                            help="the device identity, required by reset")
     apply_cmd.add_argument("--allow-dialect-mismatch", action="store_true")
@@ -495,6 +621,23 @@ def build_parser() -> argparse.ArgumentParser:
                            help="do not ask before changing the device")
     apply_cmd.add_argument("-v", "--verbose", action="store_true",
                            help="add the technical detail of each step")
+
+    version_cmd = sub.add_parser("version", allow_abbrev=False,
+                                 help="list the RouterOS versions the Update directory can "
+                                 "put on this device, or put one of them on it")
+    _add_connection_args(version_cmd, host_required=False)
+    version_cmd.add_argument("--to", metavar="VERSION",
+                             help="the RouterOS version to install; without it the versions "
+                             "on offer are listed and the device is not touched")
+    version_cmd.add_argument("--update-dir", metavar="DIR",
+                             help=f"where the packages are (default {update_dir()})")
+    version_cmd.add_argument("--confirm-identity", metavar="IDENTITY", default="",
+                             help="the device identity, required by a downgrade and by a "
+                             "move between RouterOS 6 and 7")
+    version_cmd.add_argument("-y", "--yes", action="store_true",
+                             help="do not ask before changing the device")
+    version_cmd.add_argument("-v", "--verbose", action="store_true",
+                             help="add the technical detail of each step")
     return parser
 
 
@@ -502,6 +645,7 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "discover": cmd_discover,
     "connect": cmd_connect,
     "apply": cmd_apply,
+    "version": cmd_version,
 }
 
 
@@ -524,7 +668,7 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
     tolerate_unencodable(sys.stderr)
     args = build_parser().parse_args(argv)
     mac = getattr(args, "mac", None)
-    if args.command == "connect" and not args.host and not mac:
+    if args.command in ("connect", "version") and not args.host and not mac:
         print("--host or --mac is required", file=sys.stderr)
         return BLOCKED
     if args.command == "apply" and args.mode != ApplyMode.GENERATE_ONLY.value \
