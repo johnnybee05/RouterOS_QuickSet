@@ -345,6 +345,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 8 | 6.49.21 → 7.23.7 | one reboot, RouterOS converted the configuration, the device answered on the same address, one `routeros` package where the v6 bundle had eleven |
 | 9 | 7.23.7 → 6.49.21 | one `/system package downgrade`, back on the same address with identity, services, addresses, bridge, users and the disabled `ipv6` package all in place; api-ssl refused the login once before SSH took over |
 | 10 | the two-hop route 6.49.12 → 6.49.21 → 7.23.7 in one command | both hops walked in order, each uploaded only after the one before it had rebooted, each reconnected and verified on its own, two rows in the checklist; `version.planned` named both files and `2x restart` up front |
+| 11a | writing the firmware across the major version, on its own | `version --routerboot` with no `--to` on a board left with `current-firmware 6.49.21` under RouterOS 7.23.7: `version.routerboot_pending`, one reboot, `OK RouterBOOT 7.23.7`, the configuration untouched |
 | 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
 
 Still NUTNO OVĚŘIT, and the reason each is still open:
@@ -355,7 +356,7 @@ Still NUTNO OVĚŘIT, and the reason each is still open:
 | 2 | the MAC ladder of §5.4 *after a version change* | the one move that could have needed it (7.23.7 → v6) came back on its own address, so the ladder was never entered; it is verified after a reset, not after a downgrade |
 | 3 | what v7 → v6 does to a configuration actually **made on v7** | the board's configuration was v6-made, so this run does not answer it; it would take configuring something v6 has no notion of and going back |
 | 4 | why 7.23.7 on the mmips board lists no downloadable (`XA`) packages while 7.23.5 on the arm one lists seventeen | noticed in passing, and it only affects how many `extra_missing` warnings an update can raise |
-| 5 | writing a **v7** RouterBOOT on the mmips board (`current-firmware` 6.49.21 → 7.23.7) | the write itself is verified inside RouterOS 6 (6.49.12 → 6.49.21, one reboot, check passed); across the major version it is the one step with no way back, so it waits for a deliberate go-ahead |
+| 5 | how RouterOS **6** behaves under a **v7** RouterBOOT | the board now has RouterBOOT 7.23.7 (written 2026-09-27); a newer RouterBOOT ran older RouterOS inside v6, but v6 under a v7 bootloader has not been tried, and the firmware cannot be put back |
 
 Each answer goes into `docs/DIALECT_NOTES.md` as a log row, as the update's did.
 
