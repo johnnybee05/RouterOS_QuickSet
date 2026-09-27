@@ -13,6 +13,7 @@ from PySide6.QtGui import QGuiApplication
 
 from factories import make_inventory, make_npk
 from fake_transport import FakeTransport
+from mqs.app import parse_args, prefill
 from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import DEFAULT_PASSWORD, ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
@@ -1046,3 +1047,52 @@ def test_an_upgrade_inside_the_major_version_asks_a_plain_question(window, qtbot
     qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
                     timeout=5000)
     assert str(RecordingChanger.instances[-1].ctx.plan.target) == "6.49.21"
+
+
+# ------------------------------------------------------------- the window's own command line
+
+
+def parsed(*argv):
+    args, rest = parse_args(argv)
+    return args, rest
+
+
+def test_the_command_line_fills_the_connect_form(window, qtbot):
+    args, rest = parsed("--host", "192.168.55.129", "--user", "bee", "--key", "k.pem",
+                        "--transport", "ssh", "--ssh-port", "122", "--connect")
+    page = window.device_page
+    assert prefill(page, args) is True
+    assert rest == []
+    assert (page.host.text(), page.user.text(), page.key_file.text()) == (
+        "192.168.55.129", "bee", "k.pem")
+    assert page.ssh_port.value() == 122
+    assert page.transport_choice.currentData() == TransportChoice.SSH
+    # Untouched: the page keeps what it chose itself.
+    assert page.password.text() == DEFAULT_PASSWORD
+    assert page.api_port.value() == 8729
+
+
+def test_without_connect_or_a_host_nothing_is_connected(window, qtbot):
+    args, _ = parsed("--host", "192.168.55.129")
+    assert prefill(window.device_page, args) is False
+    args, _ = parsed("--connect")  # no address to connect to
+    assert prefill(window.device_page, args) is False
+
+
+def test_the_password_comes_from_the_environment_only(window, qtbot):
+    page = window.device_page
+    args, _ = parsed("--password-env", "MQS_TEST_PASSWORD")
+    prefill(page, args, env={"MQS_TEST_PASSWORD": "s3cret"})
+    assert page.password.text() == "s3cret"
+    prefill(page, args, env={"MQS_TEST_PASSWORD": ""})  # a key-only run says "none"
+    assert page.password.text() == ""
+    page.password.setText("typed by hand")
+    prefill(page, args, env={})  # the variable is not there: leave the field be
+    assert page.password.text() == "typed by hand"
+
+
+def test_qt_keeps_its_own_arguments(window, qtbot):
+    args, rest = parsed("--host", "10.0.0.1", "-style", "Fusion")
+    assert rest == ["-style", "Fusion"]
+    assert args.host == "10.0.0.1"
+

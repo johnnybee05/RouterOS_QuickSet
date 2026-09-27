@@ -23,6 +23,20 @@ Stačí spustit `MikrotikQuickSetPlus.exe`. Python není potřeba, nic se neinst
 exe může být adresář `Update` s balíčky RouterOS (viz
 [Aktualizace RouterOS při resetu](#aktualizace-routeros-při-resetu)).
 
+Okno umí formulář *Připojit* předplnit z příkazové řádky, což se hodí, když pořád
+sedíte u stejného zařízení:
+
+```powershell
+MikrotikQuickSetPlus.exe --host 192.168.55.129 --user bee --key $HOME\.ssh\id_rsa `
+    --transport ssh --ssh-port 122 --connect
+```
+
+`--connect` stiskne *Připojit* samo, hned jak je okno na obrazovce (bez `--host` nemá co
+dělat, takže neudělá nic). Heslo se na příkazovou řádku nepíše — `--password-env JMENO`
+ho vezme z proměnné prostředí, stejně jako `mqs.cli`. Ostatní argumenty (`-style`,
+`-platform`) si přebere Qt. Celý seznam: `MikrotikQuickSetPlus.exe --help` (ze zdrojů
+`python -m mqs --help`).
+
 Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
 
 | Složka | Obsah |
