@@ -209,6 +209,16 @@ Jak to funguje:
    verzi a firmware jen čeká, zapíše ho `version --routerboot` samotné (jeden restart,
    konfigurace se nemění).
 
+**Zálohu udělá i samotný přechod na jinou verzi.** Než na zařízení půjde první balíček,
+uloží na něj `pre-quickset-<datum-čas>.backup` a export `pre-quickset-<datum-čas>.rsc`
+a podle zaškrtávátka *Stáhnout zálohu* je stáhne do zvoleného adresáře — úplně stejně jako
+aplikace konfigurace, protože tady je záloha potřeba nejvíc: downgrade konfiguraci zahodí
+a mezi v6 a v7 ji RouterOS převádí jen jedním směrem. Binární zálohu obnovíte jen na té
+verzi RouterOS, která ji zapsala, takže napříč hlavní verzí zbývá čitelný export — proto
+se ukládají obě. Když se záloha nepovede, přechod vůbec nezačne a na zařízení se nic
+nezmění. V CLI `version --download-dir` (bez něj zůstane záloha jen na zařízení)
+a `--keep-backups`.
+
 Downgrade a přechod mezi v6 a v7 potvrzujete opsáním identity zařízení, stejně jako reset;
 v CLI `--confirm-identity`.
 

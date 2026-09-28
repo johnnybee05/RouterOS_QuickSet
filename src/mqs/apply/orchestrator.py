@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mqs.apply.backup import DeviceBackup
 from mqs.apply.events import ApplyEvent, StepStatus
 from mqs.apply.plan import (
     ROLLBACK_JOB,
@@ -19,7 +20,6 @@ from mqs.apply.plan import (
     ApplyOptions,
     build_upload_script,
     make_names,
-    old_backups,
     result_for_mode,
 )
 from mqs.apply.reconnect import (
@@ -244,33 +244,24 @@ class ApplyOrchestrator:
         finally:
             uploader.release()  # also on the failure paths
 
+    @property
+    def _backup_step(self) -> DeviceBackup:
+        """The shared backup step, on whatever connection the flow is on right now.
+
+        Built fresh each time because the transport is replaced by every reconnect; the
+        list it fills is the report's own, so a download shows up there as it always did.
+        """
+        return DeviceBackup(
+            transport=self.transport, names=self.names, event=self._event, warn=self._warn,
+            fail=self._abort, download_dir=self.ctx.options.download_dir,
+            keep=self.ctx.options.keep_backups, downloaded=self.report.downloaded,
+        )
+
     def _backup(self) -> None:
-        name = self.names.backup_name
-        self._event("apply.step.backup", StepStatus.RUNNING, name=name)
-        try:
-            # Encryption prompts / parameters differ per version: NUTNO OVĚŘIT.
-            self.transport.execute("/system/backup/save", name=name)
-            self.transport.execute("/export", file=name)
-        except TransportError as exc:
-            raise self._abort("apply.failed.backup", repr(exc), error=str(exc)) from exc
-        self._event("apply.step.backup", StepStatus.OK, name=name)
+        self._backup_step.save()
 
     def _download_backups(self, uploader: FileUploader) -> None:
-        target_dir = self.ctx.options.download_dir
-        if target_dir is None:
-            self._event("apply.step.download", StepStatus.SKIPPED, dir="-")
-            return
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for remote in (self.names.backup_file, self.names.export_file):
-            local = target_dir / remote.rsplit("/", 1)[-1]
-            try:
-                uploader.download(remote, local)
-            except UploadFailed as exc:
-                self._warn("apply.warning.download", file=remote, error=str(exc))
-                continue
-            self.report.downloaded.append(local)
-        if self.report.downloaded:
-            self._event("apply.step.download", StepStatus.OK, dir=str(target_dir))
+        self._backup_step.download(uploader)
 
     def _upload_update(self, uploader: FileUploader) -> None:
         """Put the RouterOS packages in the device's file root for the reset's reboot.
@@ -556,20 +547,7 @@ class ApplyOrchestrator:
 
     def _prune_backups(self) -> None:
         """Delete all but the newest pre-apply backups; every apply leaves one behind."""
-        keep = self.ctx.options.keep_backups
-        if keep <= 0:
-            return
-        try:
-            files = [f.get("name", "") for f in self.transport.execute("/file/print")]
-            doomed = old_backups(files, keep, self.names.stamp)
-            for name in doomed:
-                self.transport.execute_command(cmd("/file", "remove",
-                                                   selector=Find.by(name=name)))
-        except TransportError as exc:
-            self._warn("apply.warning.prune", error=str(exc))
-            return
-        if doomed:
-            self._event("apply.step.prune", StepStatus.OK, count=len(doomed), keep=keep)
+        self._backup_step.prune()
 
     def _upgrade_routerboot(self) -> None:
         """RouterBOOT to the firmware the RouterOS on the device brings, when it is newer.

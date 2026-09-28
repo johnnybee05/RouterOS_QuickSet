@@ -1026,6 +1026,29 @@ def test_a_downgrade_from_the_window(window, qtbot, tmp_path):
     assert "6.49.12" in page.result_label.text()
 
 
+def test_the_version_change_takes_the_backup_the_apply_options_ask_for(window, qtbot,
+                                                                       tmp_path):
+    """"Stáhnout zálohu" and the number of backups kept are the apply's own switches, and
+    the version change reads them the same way: it is the same safety net."""
+    page = v6_window(window, qtbot, tmp_path)
+    page.download.setChecked(True)
+    page.download_dir.setText(str(tmp_path / "Zálohy"))
+    page.keep_backups.setValue(5)
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(3)  # 6.49.12
+    page.start_version_change()
+    qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
+                    timeout=5000)
+    ctx = RecordingChanger.instances[-1].ctx
+    assert ctx.download_dir == tmp_path / "Zálohy" and ctx.keep_backups == 5
+    page.download.setChecked(False)
+    page.version_check.setChecked(True)
+    page.version_combo.setCurrentIndex(3)
+    page.start_version_change()
+    qtbot.waitUntil(lambda: not window.runner.busy, timeout=5000)
+    assert RecordingChanger.instances[-1].ctx.download_dir is None  # device only
+
+
 def test_a_downgrade_the_user_does_not_confirm_is_not_run(window, qtbot, tmp_path):
     page = v6_window(window, qtbot, tmp_path)
     window.test_dialogs.answers["identity"] = None  # Cancel in the dialog

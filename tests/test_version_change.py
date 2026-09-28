@@ -11,6 +11,7 @@ from factories import make_npk as npk
 from fake_router import FakeRouter, RouterUploader
 from mqs.apply.events import StepStatus
 from mqs.apply.packages import scan_update_dir
+from mqs.apply.plan import DEFAULT_KEEP_BACKUPS
 from mqs.apply.routerboot import RouterbootState
 from mqs.apply.version_change import (
     V6_TO_V7_FROM,
@@ -323,7 +324,8 @@ class SilentUploader(RouterUploader):
 
 def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
             installs: bool = True, reconnect=None, versions=(), routerboot=False,
-            routerboot_down=False, firmware: str = "6.42.4"):
+            routerboot_down=False, firmware: str = "6.42.4", download_dir=None,
+            keep_backups: int = DEFAULT_KEEP_BACKUPS):
     router = FakeRouter()
     router.version = f"{current} (long-term)"
     router.installs_packages = installs
@@ -348,8 +350,62 @@ def changer(tmp_path, target: str, current: str = "6.49.21", *, uploader=None,
         reconnect=reconnect(router, targets) if reconnect else default_reconnect,
         on_event=events.append, sleep=lambda seconds: None, alternatives=NOW_HOSTS,
         upgrade_routerboot=routerboot, routerboot_downgrade=routerboot_down,
+        download_dir=download_dir, keep_backups=keep_backups,
     )
     return router, VersionChanger(ctx), events, targets
+
+
+# ------------------------------------------------------------------ the backup first
+
+
+def test_the_device_is_backed_up_before_the_first_package(tmp_path):
+    """The same backup an apply takes, and needed here at least as much: a downgrade
+    drops the configuration and a move across the major version converts it one way."""
+    folder = tmp_path / "Zálohy"
+    router, runner, events, _ = changer(tmp_path, "6.49.12", download_dir=folder)
+    report = runner.run()
+    assert report.succeeded
+    steps = [e.step for e in events]
+    assert steps.index("apply.step.backup") < steps.index("apply.step.version_upload")
+    assert "/system/backup/save" in router.log and "/export" in router.log
+    # Both halves stay on the device, under flash/, where the reboot cannot lose them ...
+    kept = sorted(n for n in router.files if n.startswith("flash/pre-quickset-"))
+    assert [n.rsplit(".", 1)[-1] for n in kept] == ["backup", "rsc"]
+    # ... and both are fetched to this PC, because a .backup restores only on the
+    # RouterOS that wrote it: across the version the export is what is left.
+    assert sorted(p.suffix for p in report.downloaded) == [".backup", ".rsc"]
+    assert all(p.parent == folder and p.exists() for p in report.downloaded)
+
+
+def test_without_a_download_directory_the_backup_still_goes_on_the_device(tmp_path):
+    router, runner, events, _ = changer(tmp_path, "6.49.12")
+    report = runner.run()
+    assert report.succeeded and not report.downloaded
+    assert "/system/backup/save" in router.log
+    assert next(e for e in events
+                if e.step == "apply.step.download").status == StepStatus.SKIPPED
+
+
+def test_a_backup_that_cannot_be_written_stops_the_version_change(tmp_path):
+    """Nothing has been uploaded and nothing rebooted yet, so stopping costs nothing."""
+    router, runner, _events, _ = changer(tmp_path, "6.49.12")
+    router.fail["/system/backup/save"] = "not enough space"
+    with pytest.raises(VersionChangeAborted) as raised:
+        runner.run()
+    assert raised.value.issue.code == "apply.failed.backup"
+    assert router.reboots == 0 and "/system/package/downgrade" not in router.log
+    assert not [name for name in router.files if name.endswith(".npk")]
+
+
+def test_the_firmware_step_on_its_own_takes_no_backup(tmp_path):
+    """A route with no hops installs nothing and leaves the configuration where it is."""
+    router, runner, _events, _ = changer(tmp_path, "6.49.21", current="6.49.21",
+                                         routerboot=True)
+    router.firmware.update({"current-firmware": "6.42.4", "upgrade-firmware": "6.49.21"})
+    report = runner.run()
+    assert report.succeeded and not report.installed
+    assert "/system/routerboard/upgrade" in router.log
+    assert "/system/backup/save" not in router.log
 
 
 def test_a_downgrade_is_installed_and_checked(tmp_path):

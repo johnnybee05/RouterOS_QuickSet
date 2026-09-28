@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyContext, ApplyEvent, ApplyReport
-from mqs.apply.plan import ApplyMode, ApplyOptions
+from mqs.apply.plan import DEFAULT_KEEP_BACKUPS, ApplyMode, ApplyOptions
 from mqs.apply.reconnect import reconnect_hosts, reconnect_with_retry
 from mqs.apply.version_change import VersionContext, VersionPlan, VersionReport
 from mqs.generator.base import GenerationResult
@@ -489,6 +489,9 @@ def build_version_context(
     reconnect_timeout_s: float = 300.0,
     upgrade_routerboot: bool = False,
     routerboot_downgrade: bool = False,
+    download_dir: Path | None = None,
+    keep_backups: int = DEFAULT_KEEP_BACKUPS,
+    now: Callable[[], datetime] = datetime.now,
     uploader_factory_builder: Callable[..., Any] = build_uploader_factory,
     reconnect_fn: Callable[..., Transport] = reconnect_with_retry,
 ) -> VersionContext:
@@ -498,6 +501,10 @@ def build_version_context(
     the first place to look afterwards. A move from v7 to v6 converts no configuration
     back, though, so where a profile is at hand its addresses come next, and a device
     reached by MAC is looked for by MAC first — that path needs no address at all.
+
+    The configuration itself is backed up first, exactly as an apply backs it up, and
+    ``download_dir`` is where that copy lands on this PC — the same directory and the
+    same switch the apply uses, because it is the same safety net.
     """
     services = {s.name: s for s in session.inventory.services}
     api = services.get("api-ssl")
@@ -522,6 +529,9 @@ def build_version_context(
         reconnect_timeout_s=reconnect_timeout_s,
         upgrade_routerboot=upgrade_routerboot,
         routerboot_downgrade=routerboot_downgrade,
+        download_dir=download_dir,
+        keep_backups=keep_backups,
+        now=now,
     )
 
 

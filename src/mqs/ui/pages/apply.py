@@ -401,12 +401,18 @@ class ApplyPage(Page):
 
         routerboot = self.routerboot_check.isChecked()
         routerboot_down = self.routerboot_down_check.isChecked()
+        # The same backup an apply takes, with the same switch and the same directory:
+        # the version underneath the configuration is about to move, and a downgrade or a
+        # crossing move is where it is needed most.
+        download_dir = Path(self.download_dir.text()) if self.download.isChecked() else None
+        keep_backups = self.keep_backups.value()
 
         def task(token, report):
             ctx = build_version_context(
                 plan, session, on_event=report, profile=self.controller.profile,
                 cancelled=token.cancelled, upgrade_routerboot=routerboot,
                 routerboot_downgrade=routerboot_down,
+                download_dir=download_dir, keep_backups=keep_backups, now=self.now,
                 uploader_factory_builder=self.uploader_factory_builder,
                 reconnect_fn=self.reconnect_fn,
             )

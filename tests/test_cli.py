@@ -584,6 +584,21 @@ def test_a_downgrade_from_the_command_line(router, tmp_path):
     assert "/system/package/downgrade" in router.log
 
 
+def test_the_version_change_backs_the_device_up_first(router, tmp_path):
+    folder = v6_packages(tmp_path)
+    into = tmp_path / "Zálohy"
+    router.version = "6.49.21 (long-term)"
+    router.installable = {"routeros-mmips-6.49.12.npk": "6.49.12"}
+    code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),
+                             "--to", "6.49.12", "--yes", "--confirm-identity", "MikroTik",
+                             "--download-dir", str(into)], router, v6_inventory())
+    assert code == cli.OK, out
+    assert (router.log.index("/system/backup/save")
+            < router.log.index("/system/package/downgrade"))
+    assert sorted(p.suffix for p in into.iterdir()) == [".backup", ".rsc"]
+    assert "downloaded:" in out and str(into) in out
+
+
 def test_a_version_below_the_factory_one_is_refused_before_anything_happens(router, tmp_path):
     folder = v6_packages(tmp_path, (6, 40, 9), (6, 49, 21))
     code, out = run_version(["version", "--host", "10.0.0.1", "--update-dir", str(folder),

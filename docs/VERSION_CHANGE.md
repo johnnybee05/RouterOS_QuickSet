@@ -173,6 +173,27 @@ backup + download        (the existing apply steps, unchanged, on the version th
             └─ the existing apply (reset + import), with update=None
 ```
 
+The backup is the version change's **own first step** since 2026-09-28, and no longer
+something an apply happened to have done earlier. Until then it was only ever taken by
+`ApplyOrchestrator`, so the route walked from the window's *Přejít na jinou verzi RouterOS
+(samostatně, bez resetu)* button — and from `mqs.cli version --to`, which is the same flow —
+rebooted the device into another RouterOS with **nothing saved**, which is exactly where it is
+needed most: a downgrade drops the configuration and a move across the major version converts
+it one way only. The step now lives in `apply/backup.py` and both flows run the same one, the
+way they already share `apply/routerboot.py`:
+
+| | apply | version change |
+|---|---|---|
+| when | first, before anything is uploaded | first, before the **first hop** is uploaded; skipped when the route has no hops (the RouterBOOT step on its own changes no configuration) |
+| what | `/system backup save` + `/export`, both under `flash/` where there is one | the same, the same names (`pre-quickset-<stamp>`) and the same codes |
+| copy here | the *Stáhnout zálohu* switch and its directory, `--download-dir` | the same switch and directory in the window; `mqs.cli version --download-dir` |
+| kept on the device | *Ponechat záloh*, `--keep-backups` (pruned at the end of the run) | the same, pruned right after the copy, which also frees room for the packages |
+| when it fails | `apply.failed.backup`, the run stops before the device is changed | the same code, the same stop — nothing is uploaded and nothing has rebooted |
+
+The `.backup` file restores only on the RouterOS that wrote it, so across a major version the
+readable `.rsc` export is what is left of the configuration; that is why both halves are
+written and both are fetched.
+
 It is a phase of its own and not a step inside `ApplyOrchestrator.run()`, because it ends by
 **re-running discovery**: the version, the package list, the wireless stack, the switch chip
 strings and the `flash/` layout all change under a cross-major hop, and the generator then works
@@ -312,6 +333,7 @@ switches:
 ```
 python -m mqs.cli version --host 192.168.55.68 --list
 python -m mqs.cli version --host 192.168.55.68 --to 6.49.12 [--update-dir DIR]
+                          [--download-dir DIR] [--keep-backups N]
                           [--routerboot-downgrade] [--confirm-identity NAME] [-y]
 python -m mqs.cli apply --mode reset --to 7.23.5 ...   # version change, then the apply
 ```
@@ -374,6 +396,8 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 13 | the release just below the moved gate: 6.49.21 → 6.49.22 → 7.23.7 (2026-09-28) | the same command that crossed in **one** hop the day before planned `2x restart` and walked both, each verified on its own. What 6.49.21 gets is the ordinary route of a release below the gate, on hardware as well as in the planner's tests |
 | 12 | the moved gate, end to end: 6.49.12 → 6.49.22 → 7.23.7 (2026-09-28) | the plan named `routeros-mmips-6.49.22.npk` as the first hop with 6.49.21 sitting in the same directory, `2x restart` up front, both hops uploaded, installed, reconnected and verified on 192.168.55.254:122, the configuration converted on the way up and one `routeros 7.23.7` package at the end. Getting there took the way down first: 7.23.7 → 6.49.12 in one `/system package downgrade`, configuration intact |
 | 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
+
+| 14 | the backup the standalone route takes, on hardware (2026-09-28) | `version --to 6.49.21 --download-dir …` on the board at 192.168.55.254, running 6.49.12: `flash/pre-quickset-20260928-194704.backup` and `.rsc` written and fetched here (17 453 B and 1 443 B, the export headed `by RouterOS 6.49.12`, `model = RB760iGS`), two older backup files pruned, and only then the package, the reboot, the reconnect and `OK RouterOS 6.49.21`. Before this the same command saved nothing at all |
 
 Still NUTNO OVĚŘIT, and the reason each is still open:
 

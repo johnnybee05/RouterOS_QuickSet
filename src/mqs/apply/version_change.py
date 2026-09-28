@@ -34,9 +34,11 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
+from mqs.apply.backup import DeviceBackup
 from mqs.apply.events import ApplyEvent, StepStatus
 from mqs.apply.packages import (
     NpkPackage,
@@ -52,6 +54,7 @@ from mqs.apply.packages import (
 from mqs.apply.packages import (
     issue as _issue,
 )
+from mqs.apply.plan import DEFAULT_KEEP_BACKUPS, make_names
 from mqs.apply.reconnect import ReconnectFailed, ReconnectTarget
 from mqs.apply.routerboot import (
     REBOOT_WAIT_S as ROUTERBOOT_REBOOT_WAIT_S,
@@ -312,6 +315,12 @@ class VersionContext:
     on_event: Callable[[ApplyEvent], None] = lambda event: None
     sleep: Callable[[float], None] = time.sleep
     cancelled: Callable[[], bool] = lambda: False
+    # The backup before the first hop: `now` names its files the way an apply names its
+    # own, `download_dir` is where the copy on this PC goes (None = device only), and
+    # `keep_backups` is how many stay on the device, the new one included (0 = all).
+    now: Callable[[], datetime] = datetime.now
+    download_dir: Path | None = None
+    keep_backups: int = DEFAULT_KEEP_BACKUPS
     # Where to look for the device once it comes back. The address it answers on is tried
     # first; a crossing downgrade may leave it somewhere else, so the caller adds what it
     # knows (the profile's addresses) and the MAC route, which needs no address at all.
@@ -335,6 +344,8 @@ class VersionReport:
     installed: list[RosVersion] = field(default_factory=list)
     checks: list[CheckResult] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
+    # The backup and the export fetched to this PC before the first hop.
+    downloaded: list[Path] = field(default_factory=list)
     temp_address: str | None = None
     mac_method: str | None = None
     succeeded: bool = False
@@ -350,7 +361,7 @@ class VersionChangeAborted(Exception):
 
 
 class VersionChanger:
-    """Upload, install, reconnect and check, once per hop.
+    """One backup, then upload, install, reconnect and check, once per hop.
 
     Nothing is folded into anything else: each hop is one reboot of its own, and the
     version read afterwards is what says it worked. A hop that comes back on the old
@@ -389,8 +400,10 @@ class VersionChanger:
     # ---------------------------------------------------------------- flow
 
     def run(self) -> VersionReport:
-        """Every hop, then the firmware. A route with no hops is allowed: it is how the
-        RouterBOOT step alone is run on a device already on the version it should have."""
+        """The backup, every hop, then the firmware. A route with no hops is allowed: it
+        is how the RouterBOOT step alone is run on a device already on the version it
+        should have."""
+        self._backup()
         for hop in self.ctx.plan.hops:
             self._check_cancel()
             uploader = self.ctx.uploader_factory(self.transport)
@@ -405,6 +418,34 @@ class VersionChanger:
         self._routerboot()
         self.report.succeeded = all(c.ok for c in self.report.checks)
         return self.report
+
+    def _backup(self) -> None:
+        """`/system backup save` and `/export`, before the first package is uploaded.
+
+        The same step an apply starts with (`apply/backup.py`), and this flow needs it at
+        least as much: a downgrade drops the configuration, and a move between v6 and v7
+        converts it one way only. The .backup file restores on the RouterOS that wrote it
+        and no other, so after a move across the major version the readable export is all
+        that is left — which is why both are written, and both are fetched here.
+
+        A route with no hops installs nothing (the RouterBOOT step run on its own), and
+        leaves the configuration exactly where it was: nothing to back up against.
+        """
+        if not self.ctx.plan.hops:
+            return
+        self._check_cancel()
+        step = DeviceBackup(
+            transport=self.transport,
+            names=make_names(self.ctx.now(), self.ctx.inventory.has_flash_dir),
+            event=self._event, warn=self._warn, fail=self._abort,
+            download_dir=self.ctx.download_dir, keep=self.ctx.keep_backups,
+            downloaded=self.report.downloaded,
+        )
+        uploader = self.ctx.uploader_factory(self.transport)
+        try:
+            step.run(uploader)
+        finally:
+            uploader.release()
 
     def _routerboot(self) -> None:
         """"Aktualizovat RouterBOOT", once, after the last hop.

@@ -325,6 +325,11 @@ def _step_printer(args: argparse.Namespace, out: Any) -> Callable[[ApplyEvent], 
     return on_event
 
 
+def _print_downloaded(paths: Sequence[Path], out: Any) -> None:
+    if paths:
+        print(f"downloaded: {', '.join(str(p) for p in paths)}", file=out)
+
+
 def _print_checks(checks: Sequence[Any], issues: Sequence[Issue], out: Any) -> None:
     if checks:
         print("\nchecklist:", file=out)
@@ -410,16 +415,22 @@ def run_version_change(session: DeviceSession, args: argparse.Namespace, out: An
     print(f"\nchanging the version, {plan.reboots} reboot(s):", file=out)
     ctx = build_version_context(plan, session, on_event=_step_printer(args, out),
                                 profile=profile, upgrade_routerboot=routerboot,
-                                routerboot_downgrade=routerboot_downgrade)
+                                routerboot_downgrade=routerboot_downgrade,
+                                download_dir=Path(args.download_dir) if args.download_dir
+                                else None,
+                                keep_backups=args.keep_backups)
     try:
         report = changer_factory(ctx).run()
     except VersionChangeAborted as exc:
         session_after_version_change(session, exc.report)
         _print_checks(exc.report.checks, exc.report.issues, out)
+        # The backup comes first, so an aborted run usually has one to say where it is.
+        _print_downloaded(exc.report.downloaded, out)
         print(f"aborted: {exc}", file=sys.stderr)
         return FAILED
     session_after_version_change(session, report)
     _print_checks(report.checks, report.issues, out)
+    _print_downloaded(report.downloaded, out)
     return OK if report.succeeded else FAILED
 
 
@@ -587,8 +598,7 @@ def _apply_to(
     session_after_apply(session, report)
 
     _print_checks(report.checks, report.issues, out)
-    if report.downloaded:
-        print(f"downloaded: {', '.join(str(p) for p in report.downloaded)}", file=out)
+    _print_downloaded(report.downloaded, out)
     return OK if report.succeeded else FAILED
 
 
@@ -694,6 +704,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "on offer are listed and the device is not touched")
     version_cmd.add_argument("--update-dir", metavar="DIR",
                              help=f"where the packages are (default {update_dir()})")
+    version_cmd.add_argument("--download-dir",
+                             help="where to put the backup and export taken before the "
+                             "version is changed (they are written on the device either way)")
+    version_cmd.add_argument("--keep-backups", type=int, default=DEFAULT_KEEP_BACKUPS,
+                             metavar="N",
+                             help="backups to keep on the device, the new one included "
+                             f"(default {DEFAULT_KEEP_BACKUPS}; 0 keeps all)")
     version_cmd.add_argument("--confirm-identity", metavar="IDENTITY", default="",
                              help="the device identity, required by a downgrade and by a "
                              "move between RouterOS 6 and 7")
