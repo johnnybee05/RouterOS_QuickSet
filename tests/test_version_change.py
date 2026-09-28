@@ -46,7 +46,7 @@ def v6_npk(version: tuple[int, int, int], arch: str = "mmips") -> bytes:
 def mmips_dir(tmp_path: Path, *versions: tuple[int, int, int]) -> Path:
     """The Update directory as it stands on this PC: v6 and v7 for the same board."""
     folder = tmp_path / "Update"
-    for version in versions or ((6, 49, 12), (6, 49, 21), (7, 23, 5)):
+    for version in versions or ((6, 49, 12), (6, 49, 21), (6, 49, 22), (7, 23, 5)):
         if version[0] == 6:
             write(folder, f"routeros-mmips-{version[0]}.{version[1]}.{version[2]}.npk",
                   v6_npk(version))
@@ -145,7 +145,7 @@ def test_the_floor_does_not_stand_in_the_way_of_an_upgrade(tmp_path):
 
 def test_v6_below_the_gate_goes_in_two_hops(tmp_path):
     plan = plan_version(mmips("6.49.12"), scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
-    assert [str(h.version) for h in plan.hops] == ["6.49.21", "7.23.5"]
+    assert [str(h.version) for h in plan.hops] == ["6.49.22", "7.23.5"]
     assert [h.install for h in plan.hops] == [Install.BY_REBOOT, Install.BY_REBOOT]
     assert [h.crosses_major for h in plan.hops] == [False, True]
     assert plan.reboots == 2 and plan.crosses_major and plan.needs_confirmation
@@ -155,25 +155,35 @@ def test_v6_below_the_gate_goes_in_two_hops(tmp_path):
 
 
 def test_v6_at_the_gate_crosses_in_one_hop(tmp_path):
-    plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    plan = plan_version(mmips("6.49.22"), scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
     assert [str(h.version) for h in plan.hops] == ["7.23.5"]
     assert plan.hops[0].crosses_major
 
 
-def test_v6_past_the_gate_crosses_in_one_hop(tmp_path):
-    """The gate is a minimum: 6.49.22 goes straight over, it is not sent back to 6.49.21."""
-    folder = mmips_dir(tmp_path, (6, 49, 21), (7, 23, 5))
-    plan = plan_version(mmips("6.49.22"), scan_update_dir(folder), V("7.23.5"))
+def test_the_release_below_the_gate_no_longer_crosses_by_itself(tmp_path):
+    """6.49.21 used to go straight over; since 2026-09-28 only 6.49.22 does, so the board
+    is taken up to it first."""
+    plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    assert [str(h.version) for h in plan.hops] == ["6.49.22", "7.23.5"]
+    assert V("6.49.22") == V6_TO_V7_FROM
+
+
+def test_past_the_gate_would_cross_in_one_hop(tmp_path):
+    """The gate stays a minimum: nothing newer than 6.49.22 exists today, but a release
+    that did would cross by itself instead of being sent back to 6.49.22."""
+    folder = mmips_dir(tmp_path, (6, 49, 22), (6, 49, 23), (7, 23, 5))
+    plan = plan_version(mmips("6.49.23"), scan_update_dir(folder), V("7.23.5"))
     assert [str(h.version) for h in plan.hops] == ["7.23.5"]
-    assert V("6.49.21") == V6_TO_V7_FROM
 
 
-def test_without_the_gate_package_v7_is_refused(tmp_path):
-    folder = mmips_dir(tmp_path, (6, 49, 12), (7, 23, 5))
+@pytest.mark.parametrize("held", [(6, 49, 12), (6, 49, 21)])
+def test_without_the_gate_package_v7_is_refused(tmp_path, held):
+    """Not even 6.49.21 will do as the first hop any more."""
+    folder = mmips_dir(tmp_path, held, (7, 23, 5))
     plan = plan_version(mmips("6.49.12"), scan_update_dir(folder), V("7.23.5"))
     assert plan.blocked and not plan.changes
     assert codes(plan.issues) == {"version.v7_needs_649"}
-    assert "6.49.21" in plan.issues[0].message
+    assert "6.49.22" in plan.issues[0].message
 
 
 def test_v7_back_to_v6_is_one_downgrade_with_the_configuration_lost(tmp_path):
@@ -279,8 +289,8 @@ def test_an_unreadable_file_is_mentioned_but_does_not_stop_the_move(tmp_path):
 
 def test_the_versions_offered_for_a_v6_board(tmp_path):
     offers = available_versions(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)))
-    assert [str(o.version) for o in offers] == ["7.23.5", "6.49.21", "6.49.12"]
-    assert [o.available for o in offers] == [True, False, True]
+    assert [str(o.version) for o in offers] == ["7.23.5", "6.49.22", "6.49.21", "6.49.12"]
+    assert [o.available for o in offers] == [True, True, False, True]
     assert next(o for o in offers if o.current).version == V("6.49.21")
     assert all(o.blocked_by is None for o in offers)
 
@@ -368,12 +378,12 @@ def test_an_upgrade_is_installed_by_a_plain_reboot(tmp_path):
 def test_two_hops_are_two_reboots(tmp_path):
     router, runner, events, targets = changer(tmp_path, "7.23.5", current="6.49.12")
     report = runner.run()
-    assert [str(v) for v in report.installed] == ["6.49.21", "7.23.5"]
+    assert [str(v) for v in report.installed] == ["6.49.22", "7.23.5"]
     assert router.reboots == 2 and len(targets) == 2
     # The second package is uploaded after the first hop has rebooted, not before it.
     uploads = [e.params["file"] for e in events
                if e.step == "apply.step.version_upload" and e.status == StepStatus.OK]
-    assert uploads == ["routeros-mmips-6.49.21.npk", "routeros-7.23.5-mmips.npk"]
+    assert uploads == ["routeros-mmips-6.49.22.npk", "routeros-7.23.5-mmips.npk"]
     assert len(report.checks) == 2
 
 
@@ -483,7 +493,7 @@ def test_a_downgrade_leaves_routerboot_alone_even_when_asked(tmp_path):
 
 
 def test_without_the_option_the_firmware_is_not_even_read(tmp_path):
-    router, runner, _events, _ = changer(tmp_path, "7.23.5")
+    router, runner, _events, _ = changer(tmp_path, "7.23.5", current="6.49.22")
     assert runner.run().succeeded
     assert "/system/routerboard/print" not in router.log
     assert router.reboots == 1

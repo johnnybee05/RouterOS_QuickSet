@@ -7,7 +7,7 @@ is here, and it differs in every part that matters:
 * the **target is named by the user** — a downgrade is never implicit,
 * an older package installs by `/system package downgrade`, which reboots by itself,
 * the board's **factory version is a floor**: nothing older goes on it,
-* v6 → v7 is allowed only from 6.49.21 (`V6_TO_V7_FROM`), so a device below that takes
+* v6 → v7 is allowed only from 6.49.22 (`V6_TO_V7_FROM`), so a device below that takes
   **two hops**,
 * and the configuration is not converted downwards, so a device that goes from v7 to v6
   may come back somewhere else entirely — or nowhere this PC can reach.
@@ -73,10 +73,11 @@ from mqs.transport.base import (
 from mqs.transport.mac_connect import MacConnectResult, MacRoute
 from mqs.transport.upload import FileUploader, UploadFailed
 
-# RouterOS 7 is reached from 6.49.21 and no earlier release. Read as a minimum: a device
-# on 6.49.22 crosses straight over and is not sent down to 6.49.21 first (decision of
-# 2026-09-27).
-V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=21)
+# RouterOS 7 is reached from 6.49.22 and no earlier release: MikroTik moved the gate up to
+# the last v6 release (2026-09-28), so 6.49.21 no longer crosses. Still read as a minimum
+# and not as an exact version — a v6 release newer than 6.49.22, should one ever appear,
+# would cross straight over instead of being sent back to 6.49.22 first.
+V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=22)
 # After the command that installs: how long to wait for an answer that cannot come, then
 # how long to leave the device alone before reconnecting. Installing a package took the
 # mmips board 84 s to come back, a bare reboot 40 s.
@@ -184,7 +185,7 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
     """The route to ``target``, or the reason there is none.
 
     Refuses rather than guesses: an unknown architecture, a missing package, a target
-    below the board's floor or one that would need a 6.49.21 the directory does not hold
+    below the board's floor or one that would need a 6.49.22 the directory does not hold
     all come back as errors, before anything is uploaded and long before a reboot.
     """
     current = inventory.version
@@ -218,7 +219,7 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
         notes.append(_issue("version.no_factory_firmware", Severity.WARNING,
                             version=str(target)))
 
-    # The route. Only the move up to 6.49.21 ever adds a hop of its own.
+    # The route. Only the move up to 6.49.22 ever adds a hop of its own.
     hops: list[Hop] = []
     if current.major == 6 and target.major == 7 and current < V6_TO_V7_FROM:
         gate = next((p for p in mains if p.version.major == 6

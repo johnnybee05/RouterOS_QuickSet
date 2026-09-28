@@ -511,7 +511,7 @@ def v6_inventory(version="6.49.21", factory="6.42.4"):
 def v6_packages(tmp_path, *versions):
     folder = tmp_path / "Update"
     folder.mkdir(exist_ok=True)
-    for version in versions or ((6, 49, 12), (6, 49, 21), (7, 23, 5)):
+    for version in versions or ((6, 49, 12), (6, 49, 21), (6, 49, 22), (7, 23, 5)):
         dotted = ".".join(str(part) for part in version)
         if version[0] == 6:
             (folder / f"routeros-mmips-{dotted}.npk").write_bytes(

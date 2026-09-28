@@ -935,7 +935,8 @@ def mmips_inventory(version="6.49.21"):
 def mmips_packages(tmp_path, *versions):
     folder = tmp_path / "Update"
     folder.mkdir(exist_ok=True)
-    for version in versions or ((6, 40, 9), (6, 49, 12), (6, 49, 21), (7, 23, 5)):
+    for version in versions or ((6, 40, 9), (6, 49, 12), (6, 49, 21),
+                                (6, 49, 22), (7, 23, 5)):
         dotted = ".".join(str(part) for part in version)
         if version[0] == 6:
             (folder / f"routeros-mmips-{dotted}.npk").write_bytes(
@@ -979,10 +980,11 @@ def test_the_versions_on_offer_include_the_ones_out_of_reach(window, qtbot, tmp_
     page = v6_window(window, qtbot, tmp_path)
     page.version_check.setChecked(True)
     labels = [page.version_combo.itemText(i) for i in range(page.version_combo.count())]
-    assert [label.split()[0] for label in labels] == ["7.23.5", "6.49.21", "6.49.12", "6.40.9"]
-    assert "verze na zařízení" in labels[1]  # 6.49.21 runs now
-    assert "nelze" in labels[3]  # 6.40.9 is below the factory firmware
-    blocked = page.version_combo.itemData(3, Qt.ItemDataRole.ToolTipRole)
+    assert [label.split()[0] for label in labels] == ["7.23.5", "6.49.22", "6.49.21",
+                                                      "6.49.12", "6.40.9"]
+    assert "verze na zařízení" in labels[2]  # 6.49.21 runs now
+    assert "nelze" in labels[4]  # 6.40.9 is below the factory firmware
+    blocked = page.version_combo.itemData(4, Qt.ItemDataRole.ToolTipRole)
     assert "6.42.4" in blocked
     assert page.chosen_version == "7.23.5"  # the first one it can have
     assert "6.42.4" in page.version_note.text()
@@ -991,7 +993,7 @@ def test_the_versions_on_offer_include_the_ones_out_of_reach(window, qtbot, tmp_
 def test_a_version_below_the_factory_one_cannot_be_started(window, qtbot, tmp_path):
     page = v6_window(window, qtbot, tmp_path)
     page.version_check.setChecked(True)
-    page.version_combo.setCurrentIndex(3)  # 6.40.9
+    page.version_combo.setCurrentIndex(4)  # 6.40.9
     assert not page.version_button.isEnabled()
     assert "version.below_factory" not in page.version_note.text()  # the message, not the code
     assert "6.42.4" in page.version_note.text()
@@ -1009,7 +1011,7 @@ def test_the_update_and_the_version_change_are_exclusive(window, qtbot, tmp_path
 def test_a_downgrade_from_the_window(window, qtbot, tmp_path):
     page = v6_window(window, qtbot, tmp_path)
     page.version_check.setChecked(True)
-    page.version_combo.setCurrentIndex(2)  # 6.49.12, one version back
+    page.version_combo.setCurrentIndex(3)  # 6.49.12, one version back
     assert page.version_button.isEnabled()
     reports = []
     page.version_changed.connect(reports.append)
@@ -1028,7 +1030,7 @@ def test_a_downgrade_the_user_does_not_confirm_is_not_run(window, qtbot, tmp_pat
     page = v6_window(window, qtbot, tmp_path)
     window.test_dialogs.answers["identity"] = None  # Cancel in the dialog
     page.version_check.setChecked(True)
-    page.version_combo.setCurrentIndex(2)
+    page.version_combo.setCurrentIndex(3)
     page.start_version_change()
     assert not RecordingChanger.instances
 
@@ -1037,7 +1039,7 @@ def test_an_upgrade_inside_the_major_version_asks_a_plain_question(window, qtbot
     page = v6_window(window, qtbot, tmp_path, version="6.49.12")
     window.test_dialogs.answers["question"] = False
     page.version_check.setChecked(True)
-    page.version_combo.setCurrentIndex(1)  # 6.49.21: newer, inside v6
+    page.version_combo.setCurrentIndex(2)  # 6.49.21: newer, inside v6
     plan = page.version_plan()
     assert not plan.needs_confirmation
     page.start_version_change()
@@ -1132,7 +1134,7 @@ def test_lowering_the_bootloader_is_a_switch_of_its_own(window, qtbot, tmp_path)
     assert page.options().routerboot_downgrade
 
     page.version_check.setChecked(True)
-    page.version_combo.setCurrentIndex(2)  # 6.49.12, a downgrade
+    page.version_combo.setCurrentIndex(3)  # 6.49.12, a downgrade
     page.start_version_change()
     qtbot.waitUntil(lambda: bool(RecordingChanger.instances) and not window.runner.busy,
                     timeout=5000)

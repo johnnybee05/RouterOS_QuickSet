@@ -15,7 +15,7 @@ reboot installs them. Three things it cannot do, and this design adds them as on
 
 1. **Downgrade** — install a package older than the one running. A reboot never does this;
    it takes `/system package downgrade`, which reboots by itself.
-2. **v6 → v7** — a move MikroTik allows only from the last v6 release.
+2. **v6 → v7** — a move MikroTik allows only from the last v6 release, 6.49.22.
 3. **v7 → v6** — a downgrade across the major version, bounded by the board's factory
    firmware and, for most boards, impossible.
 
@@ -25,7 +25,7 @@ reboot installs them. Three things it cannot do, and this design adds them as on
 |---|---|---|
 | target | implicit: the newest package in the directory for the device's major | **explicit: the user picks it**, a downgrade is never implicit |
 | install | the reset's reboot, as a side effect | its own command, its own reboot, **before** any reset |
-| hops | always one | one or two (v6 → 6.49.21 → v7) |
+| hops | always one | one or two (v6 → 6.49.22 → v7) |
 | configuration | wiped by the reset that follows anyway | **stays** between the hops, and a downgrade may leave it unusable |
 | lower bound | none | `factory-firmware` of the board |
 | reachability | the device comes back on the applied configuration | after a cross-major hop the device may come back **anywhere** (§5.4) |
@@ -57,12 +57,17 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 
 ### 2.2 The gate between v6 and v7
 
-- **v6 → v7 only from 6.49.21 or newer.** Implemented as one constant,
-  `V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=21)`, and read as a **minimum**, not as
-  an exact version: a device on 6.49.22 goes straight to v7, it is not sent down to 6.49.21
-  first (decided 2026-09-27).
+- **v6 → v7 only from 6.49.22.** Implemented as one constant,
+  `V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=22)`, and read as a **minimum**, not as
+  an exact version: a v6 release newer than 6.49.22, should one ever appear, would go straight
+  to v7 instead of being sent down to 6.49.22 first.
+- **The gate moved up on 2026-09-28**: it was 6.49.21 until then, which is the version the
+  hardware run of 2026-09-27 (§11, rows 8 and 10) actually crossed from. That run stands as a
+  record of what the device does; it is not what the planner offers any more — 6.49.21 now
+  takes the two-hop route like any other release below the gate. Nothing else about the rule
+  changed, and the gate is still one constant with one meaning.
 - A device below the gate is not refused: the planner returns a **two-hop route**, first to the
-  newest 6.49.x ≥ 6.49.21 in the Update directory, then to the v7 package. Without such a
+  newest 6.49.x ≥ 6.49.22 in the Update directory, then to the v7 package. Without such a
   package in the directory it is refused with a message naming the file that is missing.
 - **v7 → v6** is a downgrade like any other, with the floor rule and one addition: the
   configuration does not come back (§5.4), so it is gated behind the same typed-identity
@@ -327,8 +332,9 @@ covers it, but the RouterBOOT step already proved this is worth avoiding).
 ## 10. Tests
 
 - `tests/test_version_change.py`, pure planner, built like `test_update.py` with `make_npk` and
-  `make_inventory`: the floor (below, equal, above, unknown), the v6 → v7 gate (6.49.12 → two
-  hops, 6.49.21 → one, 6.49.22 → one, no 6.49.x in the directory → refused), v7 → v6 (floor
+  `make_inventory`: the floor (below, equal, above, unknown), the v6 → v7 gate (6.49.12 and
+  6.49.21 → two hops, 6.49.22 → one, a hypothetical newer v6 → one, no 6.49.22 in the
+  directory → refused), v7 → v6 (floor
   permitting and not), same version, wrong architecture, per-hop space on a `flash/` board and
   on one without, extras missing and extras dropped, and that `Install` comes out right for each
   direction.

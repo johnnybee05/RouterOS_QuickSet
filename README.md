@@ -182,10 +182,11 @@ Jak to funguje:
    (`factory-software`) a aplikace ji bere jako dno: mmips hEX S RB760iGS má 6.42.4, arm
    hEX S E60iUGS 7.20.7 — a **na v6 se tedy nikdy nedostane**. V seznamu verzí taková verze
    zůstane, jen nejde vybrat a v bublině je důvod.
-3. **Na v7 se přechází až z 6.49.21** (bráno jako minimum, 6.49.22 jde přímo). Zařízení
+3. **Na v7 se přechází jen z 6.49.22** (od 28. 9. 2026; dřív stačila 6.49.21). Bráno
+   jako minimum, ne jako přesná verze — případná novější v6 by šla přímo. Zařízení
    s něčím starším aplikace nepošle nikam naslepo: naplánuje **dva kroky**, nejdřív na
-   nejnovější v6 z adresáře, pak na v7. Když v adresáři takový balíček není, odmítne to
-   a řekne, který soubor chybí.
+   nejnovější v6 z adresáře (nejméně 6.49.22), pak na v7. Když v adresáři takový balíček
+   není, odmítne to a řekne, který soubor chybí.
 4. **Konfiguraci převádí RouterOS, a jen nahoru.** Z v6 na v7 ji převede sám při
    restartu (na hEX S mmips zůstaly identity, služby a jejich porty, adresy i uživatelé),
    zpět z v7 na v6 ji nepřevádí — co jste nastavil na v7, se nemusí zachovat. Aplikace
