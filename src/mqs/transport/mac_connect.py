@@ -135,6 +135,30 @@ def device_interface_name(session: MacTelnetSession, name: str, *, bridge: bool,
     return name
 
 
+def answers_for_mac(transport: Transport, mac: str) -> bool:
+    """Whether the device answering on ``transport`` is the one that was bootstrapped.
+
+    The lent address is free only as far as the user knows. When another host on the
+    network already has it, the bootstrap still succeeds - the device takes the address,
+    it simply never gets the packets - and everything afterwards goes to the stranger.
+    On 2026-09-28 that happened with a hEX S: the script went to it over MAC-Telnet while
+    the backup, the file list and the reset went to another MikroTik that held the lent
+    address, and the reset was refused with "input does not match any value of
+    run-after-reset" because no such file was there. The wrong device was backed up and
+    would have been reset by the next run.
+
+    A device that will not list its interfaces proves nothing, so it is taken as the
+    right one; only a listing without our MAC address in it is a mismatch.
+    """
+    try:
+        items = transport.execute("/interface/print")
+    except TransportError:
+        return True
+    macs = {str(i.get("mac-address", "")).replace("-", ":").upper()
+            for i in items if i.get("mac-address")}
+    return not macs or mac.replace("-", ":").upper() in macs
+
+
 def local_interface_for(device: DiscoveredDevice,
                         interfaces: Sequence[LocalInterface]) -> LocalInterface | None:
     """The PC's network card the device was heard on, to reach it by MAC through."""
@@ -256,6 +280,17 @@ def connect_by_mac(
             f"temporary address {address} was added on {device_interface} but the device "
             f"is not reachable on it, so it was removed again: {exc}"
         ) from exc
+    if not answers_for_mac(outcome.transport, device.mac):
+        with contextlib.suppress(OSError, TransportError):
+            outcome.transport.close()
+        with contextlib.suppress(MacTelnetError):
+            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
+        session.close()
+        raise MacTelnetError(
+            f"{proposed_address} is not free: another device on this network answers on "
+            f"it, not {device.mac}. The address was taken back from the device; lend it "
+            f"one that nothing else uses."
+        )
     session.close()
     return MacConnectResult(outcome, MacConnectMethod.MAC_TELNET,
                             temp_address=address, device_interface=device_interface,
@@ -287,6 +322,7 @@ __all__ = [
     "MacConnectMethod",
     "MacConnectResult",
     "MacRoute",
+    "answers_for_mac",
     "bootstrap_interface",
     "connect_by_mac",
     "default_session_factory",

@@ -23,6 +23,7 @@ from mqs.transport.mac_connect import (
     REMOVAL_REPLY_S,
     TEMP_COMMENT,
     MacConnectMethod,
+    answers_for_mac,
     bootstrap_interface,
     connect_by_mac,
     link_local_host,
@@ -322,6 +323,44 @@ def test_bootstrap_ip_set_but_device_unreachable():
     with pytest.raises(MacTelnetError, match="not reachable"):
         connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
                        LOCAL, connect=connect, session_factory=factory)
+
+
+def test_a_lent_address_another_device_holds_is_refused():
+    """2026-09-28: 192.168.55.254 was already taken, so the bootstrap wrote the script to
+    the hEX S over MAC-Telnet while the backup and the reset went to another MikroTik,
+    which refused the reset because the script was not on it."""
+    device = FakeDevice(password="pw", command_reply=console_with(RENAMED))
+    factory, _ = bootstrap_session_factory(device)
+    stranger = FakeTransport({"/interface/print": [
+        {"name": "ether1", "mac-address": "48:A9:8A:00:00:01"},
+        {"name": "bridge", "mac-address": "48:A9:8A:00:00:01"},
+    ]})
+
+    def connect(params, choice=None, **kwargs):
+        return ConnectOutcome(stranger)
+
+    with pytest.raises(MacTelnetError, match="not free"):
+        connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                       LOCAL, connect=connect, session_factory=factory)
+    # The address is given back, so the device is left as it was found.
+    assert device.commands[-1] == '/ip address remove [find comment="mqs-temp"]'
+
+
+def test_the_bootstrapped_device_is_accepted_by_its_mac():
+    device = FakeDevice(password="pw", command_reply=console_with(RENAMED))
+    factory, _ = bootstrap_session_factory(device)
+    own = FakeTransport({"/interface/print": [{"name": "ether1-uplink", "mac-address": MAC}]})
+    result = connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                            LOCAL, connect=lambda *a, **k: ConnectOutcome(own),
+                            session_factory=factory)
+    assert result.method == MacConnectMethod.MAC_TELNET
+
+
+def test_a_device_that_lists_no_macs_is_taken_at_its_word():
+    """Not every version and transport answers `/interface print` with MAC addresses;
+    silence is not a mismatch."""
+    assert answers_for_mac(FakeTransport({}), MAC)
+    assert answers_for_mac(FakeTransport({"/interface/print": [{"name": "ether1"}]}), MAC)
 
 
 def test_remove_temp_address():
