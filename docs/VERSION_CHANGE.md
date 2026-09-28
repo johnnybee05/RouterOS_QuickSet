@@ -6,6 +6,9 @@ route it can plan**: up and down inside RouterOS 6, 6.49.21 to 7.23.7 across the
 version, 7.23.7 back to 6.49.21, and the **two-hop route 6.49.12 → 6.49.21 → 7.23.7** in one
 command. RouterOS converted the configuration on the way up and the board kept it on the way
 back as well, so it answered on the same address every time; §11 says what that leaves open.
+On 2026-09-28, after the gate moved to 6.49.22, the two-hop route was walked again on the same
+board — 6.49.12 → **6.49.22** → 7.23.7, with the 6.49.21 in the directory no longer chosen as
+the first hop (§11, row 12).
 Where the design below
 differs from what was built, the built thing is described here and the reason given.
 
@@ -64,7 +67,8 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 - **The gate moved up on 2026-09-28**: it was 6.49.21 until then, which is the version the
   hardware run of 2026-09-27 (§11, rows 8 and 10) actually crossed from. That run stands as a
   record of what the device does; it is not what the planner offers any more — 6.49.21 now
-  takes the two-hop route like any other release below the gate. Nothing else about the rule
+  takes the two-hop route like any other release below the gate, **OVĚŘENO** on hardware the
+  same day (§11, row 12). Nothing else about the rule
   changed, and the gate is still one constant with one meaning.
 - A device below the gate is not refused: the planner returns a **two-hop route**, first to the
   newest 6.49.x ≥ 6.49.22 in the Update directory, then to the v7 package. Without such a
@@ -367,6 +371,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 11c | the whole *Snížit RouterBOOT* switch, through the application | `version --to 7.23.7 --routerboot` installed v7 and wrote firmware 7.23.7 (two checklist rows), then `version --to 6.49.21 --routerboot --routerboot-downgrade` installed v6 and wrote firmware 6.49.21 back, logging `Snížení RouterBOOT 7.23.7 → 6.49.21 a restart`; afterwards there was nothing left to write |
 | 11b | RouterBOOT back to 6.49.21 under RouterOS 6.49.21 | `/system routerboard upgrade` wrote the **older** firmware: `Firmware upgraded successfully`, unchanged until the reboot, 6.49.21 after it. The board is left on RouterOS 6.49.21 with RouterBOOT 6.49.21 and its configuration |
 | 11a | writing the firmware across the major version, on its own | `version --routerboot` with no `--to` on a board left with `current-firmware 6.49.21` under RouterOS 7.23.7: `version.routerboot_pending`, one reboot, `OK RouterBOOT 7.23.7`, the configuration untouched |
+| 12 | the moved gate, end to end: 6.49.12 → 6.49.22 → 7.23.7 (2026-09-28) | the plan named `routeros-mmips-6.49.22.npk` as the first hop with 6.49.21 sitting in the same directory, `2x restart` up front, both hops uploaded, installed, reconnected and verified on 192.168.55.254:122, the configuration converted on the way up and one `routeros 7.23.7` package at the end. Getting there took the way down first: 7.23.7 → 6.49.12 in one `/system package downgrade`, configuration intact |
 | 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
 
 Still NUTNO OVĚŘIT, and the reason each is still open:
