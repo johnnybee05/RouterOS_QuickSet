@@ -16,6 +16,7 @@ from mqs.apply.session import (
     DeviceSession,
     LazyConsole,
     LazySsh,
+    LentAddressStrategy,
     TempAddressLeft,
     build_apply_context,
     build_uploader_factory,
@@ -69,15 +70,34 @@ def test_over_mac_telnet_files_go_through_the_console_first():
 
 def test_over_link_local_ssh_goes_first_and_the_console_is_a_fallback():
     assert order(by_mac(MacConnectMethod.LINK_LOCAL)) == [
-        UploadStrategy.SFTP, UploadStrategy.SCP, UploadStrategy.MAC_TELNET]
+        UploadStrategy.SFTP, UploadStrategy.SCP, UploadStrategy.MAC_TELNET,
+        UploadStrategy.LENT_ADDRESS]
+
+
+def test_over_link_local_a_big_file_can_still_get_an_address_lent_to_it():
+    """Nothing before it carries a RouterOS package over link-local.
+
+    On 2026-09-28 a 10.6 MB package had nowhere to go on a hEX S reached over
+    fe80::: SSH dropped the link-local connection before its greeting and the console
+    moves at most 64 KiB, so the update failed.
+    """
+    session = by_mac(MacConnectMethod.LINK_LOCAL)
+    uploader = build_uploader_factory(session, IMPORT)(session.transport)
+    assert isinstance(uploader.strategies[-1], LentAddressStrategy)
 
 
 @pytest.mark.parametrize("method", list(MacConnectMethod))
 def test_routeros_6_moves_no_files_over_its_console(method):
-    """6.49.10 has neither /file add, /file read nor :convert (v6 hEX S, 2026-09-25)."""
+    """6.49.10 has neither /file add, /file read nor :convert (v6 hEX S, 2026-09-25).
+
+    Lending an address over that same console is plain `/ip address add` and does work
+    there, so the last resort stays.
+    """
     session = DeviceSession(PARAMS, FakeTransport(), make_inventory("6.49.10", FIVE_PORTS),
                             mac_method=method.value, mac_route=ROUTE)
-    assert order(session) == [UploadStrategy.SFTP, UploadStrategy.SCP]
+    lent = ([UploadStrategy.LENT_ADDRESS]
+            if method == MacConnectMethod.LINK_LOCAL else [])
+    assert order(session) == [UploadStrategy.SFTP, UploadStrategy.SCP, *lent]
 
 
 def test_a_session_by_address_has_no_console():

@@ -8,7 +8,10 @@ uploads try several strategies in order and fall back automatically:
 3. the MAC-Telnet console, when the device was reached by MAC (mactelnet/files.py);
    it goes first when that was over MAC-Telnet, because then no IP path is proven,
 4. a temporary local HTTP server + `/tool fetch` on the device,
-5. no file at all: the caller executes the script line by line (IMPORT mode only).
+5. an IPv4 address lent to the device over MAC-Telnet, with SFTP, SCP and fetch over it
+   (apply/session.py); this is what moves a RouterOS package to a device reached over
+   IPv6 link-local, which the console cannot and a firewalled SSH will not,
+6. no file at all: the caller executes the script line by line (IMPORT mode only).
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ class UploadStrategy(StrEnum):
     SCP = "scp"
     MAC_TELNET = "mac-telnet"
     HTTP_FETCH = "http-fetch"
+    LENT_ADDRESS = "lent-address"
     LINE_BY_LINE = "line-by-line"
 
 

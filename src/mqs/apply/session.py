@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from ipaddress import IPv4Address
+from pathlib import Path
 from typing import Any
 
 from mqs.apply.orchestrator import ApplyContext, ApplyEvent, ApplyReport
@@ -29,16 +30,25 @@ from mqs.transport.mac_connect import (
     MacConnectMethod,
     MacConnectResult,
     MacRoute,
+    answers_for_mac,
     connect_by_mac,
     default_session_factory,
+    lend_address,
     remove_temp_address,
+    withdraw_address,
 )
 from mqs.transport.mactelnet.client import MacTelnetSession
 from mqs.transport.mactelnet.files import MacTelnetStrategy
 from mqs.transport.mndp import DiscoveredDevice
 from mqs.transport.netifs import LocalInterface, route_source_address
 from mqs.transport.ssh import SshTransport
-from mqs.transport.upload import FileUploader, HttpFetchStrategy, ScpStrategy, SftpStrategy
+from mqs.transport.upload import (
+    FileUploader,
+    HttpFetchStrategy,
+    ScpStrategy,
+    SftpStrategy,
+    UploadStrategy,
+)
 
 
 @dataclass
@@ -210,10 +220,15 @@ class LazySsh:
     A connection that failed is not tried again: SFTP and SCP ask for it for every file,
     and each retry cost a full connect timeout while nothing had changed (on 2026-09-21
     a MAC session spent a minute timing out on an SSH port that never answered).
+
+    ``check`` runs once on the fresh connection and may refuse it: over a lent address
+    that is the one place to ask whether the device answering is really ours.
     """
 
-    def __init__(self, params: ConnectionParams) -> None:
+    def __init__(self, params: ConnectionParams,
+                 check: Callable[[SshTransport], None] | None = None) -> None:
         self.params = params
+        self.check = check
         self._transport: SshTransport | None = None
         self._error: Exception | None = None
 
@@ -225,6 +240,15 @@ class LazySsh:
             try:
                 transport.connect()
             except (TransportError, OSError) as exc:
+                self._error = exc
+                raise
+            try:
+                if self.check is not None:
+                    self.check(transport)
+            except (TransportError, OSError) as exc:
+                # Connected, but not to whom we meant: hang up on the stranger.
+                with contextlib.suppress(OSError, TransportError):
+                    transport.close()
                 self._error = exc
                 raise
             self._transport = transport
@@ -276,6 +300,85 @@ class LazyConsole:
             self._session = None
 
 
+class LentAddressStrategy:
+    """Move a file over an IPv4 address lent to the device just for the transfer.
+
+    A device reached over IPv6 link-local has no IPv4 path of ours: its SSH is often
+    limited to a management subnet and drops the link-local connection before the
+    greeting (hEX S, 2026-09-28: "No existing session"), `/tool fetch` has no address of
+    this PC to fetch from, and the console moves at most `MAX_UPLOAD` - so a 10 MB
+    RouterOS package had nowhere to go and the update failed.
+
+    The address the user already agreed to lend for the MAC connection is put on the
+    device over MAC-Telnet the first time a file needs it, the ordinary IP strategies run
+    over it, and `close` takes it back. Nothing is lent while the cheaper paths work.
+    """
+
+    name = UploadStrategy.LENT_ADDRESS
+
+    def __init__(self, transport: Transport, console: LazyConsole, route: MacRoute,
+                 params: ConnectionParams, ssh_port: int) -> None:
+        self.transport = transport
+        self.console = console
+        self.route = route
+        self.params = params
+        self.ssh_port = ssh_port
+        self.device_interface: str | None = None  # where the address went, for the log
+        self._uploader: FileUploader | None = None
+        self._ssh: LazySsh | None = None
+        self._lent: str | None = None
+
+    def lend(self) -> str:
+        """The lent address as "a.b.c.d/nn", put on the device on the first call."""
+        if self._lent is None:
+            address = f"{self.route.address}/{self.route.interface.network.prefixlen}"
+            self.device_interface = lend_address(self.console(), self.route.device, address)
+            self._lent = address
+        return self._lent
+
+    def _ours(self, transport: SshTransport) -> None:
+        """Refuse an SSH login to whoever else holds the address we lent.
+
+        The address is free only as far as the user knows; on 2026-09-28 a stranger on
+        192.168.55.254 took an apply's files while the device itself got none of them.
+        """
+        if not answers_for_mac(transport, self.route.mac):
+            raise TransportError(
+                f"{self.route.address} answers for another device than {self.route.mac}: "
+                f"lend an address that nothing else uses")
+
+    def uploader(self) -> FileUploader:
+        if self._uploader is None:
+            self.lend()
+            self._ssh = LazySsh(replace(self.params, host=str(self.route.address),
+                                        port=self.ssh_port), check=self._ours)
+            # The fetch is ordered over the connection we came in on, so it reaches the
+            # right device whoever else may hold the address; it downloads from this PC's
+            # own address on the network the device was heard on.
+            self._uploader = FileUploader([
+                SftpStrategy(self._ssh), ScpStrategy(self._ssh),
+                HttpFetchStrategy(self.transport, str(self.route.interface.address)),
+            ])
+        return self._uploader
+
+    def upload(self, data: bytes, remote_path: str) -> None:
+        self.uploader().upload(data, remote_path)
+
+    def download(self, remote_path: str, local_path: Path) -> None:
+        self.uploader().download(remote_path, local_path)
+
+    def close(self) -> None:
+        if self._ssh is not None:
+            self._ssh.close()
+            self._ssh = None
+        self._uploader = None
+        if self._lent is not None:
+            # Over the console, not over the address itself: it is going away.
+            with contextlib.suppress(TransportError, OSError):
+                withdraw_address(self.console())
+            self._lent = None
+
+
 def build_uploader_factory(session: DeviceSession,
                            options: ApplyOptions) -> Callable[[Transport], FileUploader]:
     ssh_service = next((s for s in session.inventory.services if s.name == "ssh"), None)
@@ -290,24 +393,39 @@ def build_uploader_factory(session: DeviceSession,
             ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
         console: LazyConsole | None = None
-        # RouterOS 6 has neither `/file add`, `/file read` nor `:convert` (6.49.10, v6
-        # hEX S, 2026-09-25), so its console moves no file; trying it cost a login and
-        # typed the whole script, admin password included, into the console for nothing.
-        if session.mac_route is not None and session.inventory.version.major >= 7:
+        lent: LentAddressStrategy | None = None
+        if session.mac_route is not None:
             route = session.mac_route
             console = LazyConsole(route.device, session.params, str(route.interface.address))
-            # Reached over MAC-Telnet, the console is the one path known to work: the IP
-            # address is only lent to the device, and SSH may be firewalled, limited to
-            # other addresses or off. Reached over IPv6 link-local, IP works: SSH first.
-            if session.mac_method == MacConnectMethod.MAC_TELNET.value:
-                strategies.insert(0, MacTelnetStrategy(console))
-            else:
-                strategies.append(MacTelnetStrategy(console))
+            # RouterOS 6 has neither `/file add`, `/file read` nor `:convert` (6.49.10, v6
+            # hEX S, 2026-09-25), so its console moves no file; trying it cost a login and
+            # typed the whole script, admin password included, into the console for
+            # nothing. Lending an address over that same console does work on v6.
+            if session.inventory.version.major >= 7:
+                # Reached over MAC-Telnet, the console is the one path known to work: the
+                # IP address is only lent to the device, and SSH may be firewalled,
+                # limited to other addresses or off. Reached over IPv6 link-local, IP
+                # works: SSH first.
+                if session.mac_method == MacConnectMethod.MAC_TELNET.value:
+                    strategies.insert(0, MacTelnetStrategy(console))
+                else:
+                    strategies.append(MacTelnetStrategy(console))
         with contextlib.suppress(OSError):  # no route to the device: skip HTTP + fetch
             strategies.append(HttpFetchStrategy(transport,
                                                 route_source_address(session.params.host)))
+        # Reached over IPv6 link-local, nothing above carries a RouterOS package: the
+        # console is limited to MAX_UPLOAD, SSH is often closed to an address outside the
+        # device's management subnet, and this PC has no IPv4 address the device could
+        # fetch from. Lending the address the MAC connection had ready gives all three.
+        if (console is not None and session.mac_route is not None
+                and session.mac_method == MacConnectMethod.LINK_LOCAL.value):
+            lent = LentAddressStrategy(transport, console, session.mac_route,
+                                       session.params, ssh_port)
+            strategies.append(lent)
 
         def release() -> None:
+            if lent is not None:
+                lent.close()
             if owned is not None:
                 owned.close()
             if console is not None:

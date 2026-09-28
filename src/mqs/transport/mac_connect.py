@@ -135,6 +135,55 @@ def device_interface_name(session: MacTelnetSession, name: str, *, bridge: bool,
     return name
 
 
+def lend_address(session: MacTelnetSession, device: DiscoveredDevice, address: str, *,
+                 device_interface: str | None = None) -> str:
+    """Put the temporary management address on the device over an authenticated console.
+
+    ``address`` is "a.b.c.d/nn"; the interface it went on comes back, so the caller can
+    say where it is. The console stays open and stays the caller's: it is what
+    `withdraw_address` takes the address back over.
+
+    Both the bootstrap of a MAC connection and a file that has no other way to the device
+    (`apply/session.py`) lend the address this way, so both get the same checks.
+    """
+    # MNDP names a bridged port "<bridge>/<port>"; a name the caller gives is meant as is.
+    bridged = device_interface is None and "/" in (device.interface_name or "")
+    name = device_interface or bootstrap_interface(device.interface_name)
+    try:
+        name = device_interface_name(session, name, bridge=bridged, mac=device.mac)
+        # Drop leftovers from an earlier attempt first: a command we could not confirm
+        # may still have run, and a stale address makes the add fail with
+        # "already have such address".
+        # These two write commands are not judged by how readable the console was; the
+        # query below asks the device itself, which is the only answer that counts.
+        withdraw_address(session)
+        session.run(
+            f"/ip address add address={address} interface={name} comment={TEMP_COMMENT}",
+            confirm=False,
+        )
+        # Ask the device whether it really has the address. A command whose output we
+        # could not read is not a command we may claim ran: a device once reported the
+        # bootstrap as done while the console had swallowed the input and added nothing,
+        # which turned into a misleading "set but not reachable" further down.
+        found = session.run(f':put [:len [/ip address find comment="{TEMP_COMMENT}"]]',
+                            timeout=20.0)
+        if found.strip() in ("", "0"):
+            raise MacTelnetError(
+                f"the device did not add the temporary address {address} on {name}")
+    except MacTelnetError:
+        # An unconfirmed command may still have run, so take the address back rather than
+        # leaving one behind for the next attempt to trip over.
+        with contextlib.suppress(MacTelnetError):
+            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
+        raise
+    return name
+
+
+def withdraw_address(session: MacTelnetSession) -> None:
+    """Take every address this application lent the device back, over the console."""
+    session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]', confirm=False)
+
+
 def answers_for_mac(transport: Transport, mac: str) -> bool:
     """Whether the device answering on ``transport`` is the one that was bootstrapped.
 
@@ -229,41 +278,12 @@ def connect_by_mac(
     on_step(MacConnectMethod.MAC_TELNET.value)
     prefix = interface.network.prefixlen
     address = f"{proposed_address}/{prefix}"
-    # MNDP names a bridged port "<bridge>/<port>"; a name the caller gives is meant as is.
-    bridged = device_interface is None and "/" in (device.interface_name or "")
-    device_interface = device_interface or bootstrap_interface(device.interface_name)
     session = session_factory(device, params, str(interface.address))
     try:
         session.authenticate()
-        device_interface = device_interface_name(session, device_interface, bridge=bridged,
-                                                 mac=device.mac)
-        # Drop leftovers from an earlier attempt first: a command we could not confirm
-        # may still have run, and a stale address makes the add fail with
-        # "already have such address".
-        # These two write commands are not judged by how readable the console was; the
-        # query below asks the device itself, which is the only answer that counts.
-        session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]', confirm=False)
-        session.run(
-            f"/ip address add address={address} interface={device_interface} "
-            f"comment={TEMP_COMMENT}",
-            confirm=False,
-        )
-        # Ask the device whether it really has the address. A command whose output we
-        # could not read is not a command we may claim ran: a device once reported the
-        # bootstrap as done while the console had swallowed the input and added nothing,
-        # which turned into a misleading "set but not reachable" further down.
-        found = session.run(f':put [:len [/ip address find comment="{TEMP_COMMENT}"]]',
-                            timeout=20.0)
-        if found.strip() in ("", "0"):
-            raise MacTelnetError(
-                f"the device did not add the temporary address {address} on "
-                f"{device_interface}"
-            )
+        device_interface = lend_address(session, device, address,
+                                        device_interface=device_interface)
     except MacTelnetError:
-        # An unconfirmed command may still have run, so take the address back rather than
-        # leaving one behind for the next attempt to trip over.
-        with contextlib.suppress(MacTelnetError):
-            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
         session.close()
         raise
 
@@ -327,7 +347,9 @@ __all__ = [
     "connect_by_mac",
     "default_session_factory",
     "device_interface_name",
+    "lend_address",
     "link_local_host",
     "local_interface_for",
     "remove_temp_address",
+    "withdraw_address",
 ]

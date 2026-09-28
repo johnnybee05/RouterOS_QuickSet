@@ -288,8 +288,11 @@ i záloha, přenos souborů a ověření konfigurace po aplikaci.
 > jako špatné heslo. Přihlášení MD5 pro RouterOS starší než 6.43 implementované není.
 
 Soubory se na zařízení přenášejí přes SFTP, SCP, nebo dočasným HTTP serverem na tomto PC
-a `/tool fetch`. Pokud nic z toho nefunguje, v režimu `/import` se příkazy pošlou po
-jednom. Windows Firewall se může zeptat na povolení příchozího spojení (HTTP přenos) nebo
+a `/tool fetch`. U spojení přes MAC se malé soubory (skript, záloha) přenesou i konzolí
+MAC-Telnetu; balíček RouterOS se do ní nevejde (limit 64 KiB), takže když je zařízení
+připojené přes link-local a jinudy to nejde, aplikace mu na tu dobu půjčí stejnou
+dočasnou adresu jako při bootstrapu — po přenosu ji zase odebere. Pokud nefunguje nic
+z toho, v režimu `/import` se příkazy pošlou po jednom. Windows Firewall se může zeptat na povolení příchozího spojení (HTTP přenos) nebo
 UDP 5678 (vyhledávání MNDP).
 
 ## Co dělá hardening blok
