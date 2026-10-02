@@ -37,6 +37,26 @@ ho vezme z proměnné prostředí, stejně jako `mqs.cli`. Ostatní argumenty (`
 `-platform`) si přebere Qt. Celý seznam: `MikrotikQuickSetPlus.exe --help` (ze zdrojů
 `python -m mqs --help`).
 
+### SSH klíč chráněný heslem
+
+Soukromý klíč zašifrovaný heslem (passphrase) je v okně políčko **Heslo SSH klíče** hned
+pod klíčem; vyplňte ho jen u takového klíče, u nešifrovaného zůstane prázdné. Heslo klíče
+je heslo *souboru*, ne přihlašovací heslo uživatele na routeru — zůstává jen v paměti,
+neukládá se do profilů a v logu je maskované. Když klíč heslo potřebuje a pole je
+prázdné, aplikace to rovnou napíše (*„Soukromý klíč je šifrovaný…“*) a na zařízení se
+nikam nepřihlašuje; stejně tak pozná chybně zadané heslo klíče.
+
+V CLI se stejně jako ostatní hesla nepíše do příkazu: `--key-passphrase-env JMENO`
+(výchozí `MQS_KEY_PASSPHRASE`), a když je klíč šifrovaný a proměnná není nastavená,
+`mqs.cli` se na heslo klíče zeptá v terminálu. Formáty klíčů: OpenSSH (`ssh-keygen`),
+PKCS#8 i starší PEM, klíče RSA i Ed25519.
+
+```powershell
+# bez proměnné se CLI zeptá samo; takhle jde klíč použít i v neinteraktivním běhu
+$env:MQS_KEY_PASSPHRASE = Read-Host "Heslo klíče"
+.\.venv\Scripts\python.exe -m mqs.cli connect --host 192.168.55.129 --user beran --key $HOME\.ssh\id_ed25519 --transport ssh
+```
+
 Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
 
 | Složka | Obsah |

@@ -36,6 +36,7 @@ class ConnectionParams:
     password: str = field(default="", repr=False)  # memory only, never persisted
     port: int | None = None  # None = transport default
     key_filename: str | None = None
+    key_passphrase: str = field(default="", repr=False)  # memory only, never persisted
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
     command_timeout: float = DEFAULT_COMMAND_TIMEOUT
     ca_file: str | None = None
@@ -56,6 +57,20 @@ class AuthError(TransportError):
     def __init__(self, message: str, kind: TransportKind | None = None) -> None:
         super().__init__(message)
         self.kind = kind
+
+
+class KeyPassphraseError(AuthError):
+    """The private key file is under a passphrase that is missing, or that does not open it.
+
+    Local to this machine: the device was never asked anything. It is an AuthError so that
+    the transport choice treats it as a refusal and does not try the same key again.
+    """
+
+    def __init__(self, path: str, *, wrong: bool) -> None:
+        state = "wrong passphrase" if wrong else "needs a passphrase"
+        super().__init__(f"SSH key {path}: {state}", TransportKind.SSH)
+        self.path = path
+        self.wrong = wrong
 
 
 class ConnectTimeout(TransportError):

@@ -69,6 +69,7 @@ from mqs.paths import profiles_dir, update_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import AuthError, ConnectionParams, TransportError, TransportKind
 from mqs.transport.factory import TransportChoice
+from mqs.transport.keys import key_is_encrypted
 from mqs.transport.mac_connect import TEMP_COMMENT, local_interface_for
 from mqs.transport.mndp import DiscoveredDevice, MndpScanner
 from mqs.transport.netifs import LocalInterface, list_ipv4_interfaces
@@ -105,8 +106,20 @@ def connection_params(args: argparse.Namespace) -> ConnectionParams:
                            f"Password for {args.user}@{args.host or args.mac}: ",
                            ask=not args.key or bool(args.mac)),
         key_filename=args.key,
+        key_passphrase=_key_passphrase(args),
         ca_file=args.ca_file,
     )
+
+
+def _key_passphrase(args: argparse.Namespace) -> str:
+    """Asked for only when the key file really is under a passphrase.
+
+    Otherwise an unattended run with a plain key would stop at a prompt for nothing, and
+    an interactive one would ask a question with no answer.
+    """
+    if not args.key or not key_is_encrypted(args.key):
+        return ""
+    return _password(args.key_passphrase_env, f"Passphrase for SSH key {args.key}: ")
 
 
 def load_profile(args: argparse.Namespace) -> DeviceProfile:
@@ -611,6 +624,9 @@ def _add_connection_args(parser: argparse.ArgumentParser, *, host_required: bool
     parser.add_argument("--password-env", default="MQS_PASSWORD",
                         metavar="VAR", help="environment variable holding the password")
     parser.add_argument("--key", help="SSH private key file")
+    parser.add_argument("--key-passphrase-env", default="MQS_KEY_PASSPHRASE", metavar="VAR",
+                        help="environment variable holding the passphrase of --key; asked "
+                             "for interactively when the key file is under one")
     parser.add_argument("--ca-file", help="CA bundle for api-ssl")
     parser.add_argument("--transport", default=TransportChoice.AUTO.value,
                         choices=[c.value for c in TransportChoice])

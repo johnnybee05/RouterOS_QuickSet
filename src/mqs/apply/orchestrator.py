@@ -110,7 +110,7 @@ def reset_credentials(params: ConnectionParams, options: ApplyOptions) -> Connec
     """
     if not options.keep_users:
         return replace(params, username="admin", password=options.admin_password,
-                       key_filename=None)
+                       key_filename=None, key_passphrase="")
     if params.username == "admin" and options.admin_password:
         return replace(params, password=options.admin_password)
     return params

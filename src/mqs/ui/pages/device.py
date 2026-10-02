@@ -46,6 +46,7 @@ from mqs.transport.base import (
     AuthError,
     Cancelled,
     ConnectionParams,
+    KeyPassphraseError,
     Transport,
     TransportError,
 )
@@ -76,6 +77,8 @@ DEVICE_MAX_AGE_S = 120.0
 
 
 def describe_error(exc: BaseException) -> str:
+    if isinstance(exc, KeyPassphraseError):
+        return S.CONNECT_KEY_PASSPHRASE_WRONG if exc.wrong else S.CONNECT_KEY_PASSPHRASE
     if isinstance(exc, AuthError):
         return S.CONNECT_AUTH_FAILED
     if isinstance(exc, ConnectFailed):
@@ -196,6 +199,9 @@ class DevicePage(Page):
         self.password = QLineEdit(DEFAULT_PASSWORD)
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_file = QLineEdit()
+        self.key_passphrase = QLineEdit()
+        self.key_passphrase.setEchoMode(QLineEdit.EchoMode.Password)
+        self.key_passphrase.setPlaceholderText(S.DEVICE_KEY_PASSPHRASE_HINT)
         self.transport_choice = QComboBox()
         for value, label in S.TRANSPORTS.items():
             self.transport_choice.addItem(label, TransportChoice(value))
@@ -210,6 +216,7 @@ class DevicePage(Page):
         form.addRow(S.DEVICE_USER, self.user)
         form.addRow(S.DEVICE_PASSWORD, self.password)
         form.addRow(S.DEVICE_KEY, self.key_file)
+        form.addRow(S.DEVICE_KEY_PASSPHRASE, self.key_passphrase)
         form.addRow(S.DEVICE_TRANSPORT, self.transport_choice)
         form.addRow(S.DEVICE_API_PORT, self.api_port)
         form.addRow(S.DEVICE_SSH_PORT, self.ssh_port)
@@ -342,6 +349,7 @@ class DevicePage(Page):
             username=self.user.text().strip(),
             password=self.password.text(),
             key_filename=self.key_file.text().strip() or None,
+            key_passphrase=self.key_passphrase.text(),
             ca_file=self.ca_file.text().strip() or None,
         )
 
@@ -364,6 +372,7 @@ class DevicePage(Page):
             return
         if self.registry is not None:
             self.registry.add(params.password)
+            self.registry.add(params.key_passphrase)
         choice = TransportChoice(self.transport_choice.currentData())
         api_port, ssh_port = self.api_port.value(), self.ssh_port.value()
         self.connect_status.setText(S.CONNECT_PROGRESS)
@@ -415,6 +424,7 @@ class DevicePage(Page):
         params = self.connection_params()
         if self.registry is not None:
             self.registry.add(params.password)
+            self.registry.add(params.key_passphrase)
         choice = TransportChoice(self.transport_choice.currentData())
         api_port, ssh_port = self.api_port.value(), self.ssh_port.value()
         self.connect_status.setText(S.CONNECT_PROGRESS)

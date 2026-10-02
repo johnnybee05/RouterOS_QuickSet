@@ -43,6 +43,8 @@ def parse_args(argv: Sequence[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--password-env", metavar="VAR",
                         help="environment variable holding the password")
     parser.add_argument("--key", help="prefill the SSH private key file")
+    parser.add_argument("--key-passphrase-env", metavar="VAR",
+                        help="environment variable holding the passphrase of --key")
     parser.add_argument("--ca-file", help="prefill the CA bundle for api-ssl")
     parser.add_argument("--transport", choices=[c.value for c in TransportChoice])
     parser.add_argument("--api-port", type=int)
@@ -70,6 +72,8 @@ def prefill(page: DevicePage, args: argparse.Namespace,
             field.setText(value)
     if args.password_env and args.password_env in environ:
         page.password.setText(environ[args.password_env])
+    if args.key_passphrase_env and args.key_passphrase_env in environ:
+        page.key_passphrase.setText(environ[args.key_passphrase_env])
     for value, box in ((args.api_port, page.api_port), (args.ssh_port, page.ssh_port)):
         if value:
             box.setValue(value)

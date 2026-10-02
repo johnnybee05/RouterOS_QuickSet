@@ -10,6 +10,7 @@ from typing import ClassVar
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QLineEdit
 
 from factories import make_inventory, make_npk
 from fake_transport import FakeTransport
@@ -24,13 +25,20 @@ from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolM
 from mqs.model.inventory import Ipv6PackageState, PackageInfo
 from mqs.model.wan import WanType
 from mqs.profiles.store import ProfileStore
-from mqs.transport.base import AuthError, ConnectionLost, ConnectionParams
+from mqs.transport.base import (
+    AuthError,
+    ConnectionLost,
+    ConnectionParams,
+    KeyPassphraseError,
+)
 from mqs.transport.factory import ConnectOutcome, TransportChoice
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult
 from mqs.transport.mndp import TlvType, decode, device_from_packet, encode
 from mqs.transport.netifs import LocalInterface
+from mqs.ui import strings_cs as S
 from mqs.ui.main_window import MainWindow
 from mqs.ui.pages.base import parse_cidr, parse_optional_ip
+from mqs.ui.pages.device import describe_error
 
 pytestmark = pytest.mark.qt
 
@@ -1163,3 +1171,34 @@ def test_lowering_the_bootloader_is_a_switch_of_its_own(window, qtbot, tmp_path)
                     timeout=5000)
     ctx = RecordingChanger.instances[-1].ctx
     assert ctx.upgrade_routerboot and ctx.routerboot_downgrade
+
+
+def test_the_form_carries_the_key_passphrase(window, qtbot):
+    page = window.device_page
+    page.host.setText("192.168.55.68")
+    page.key_file.setText("C:/keys/id_ed25519")
+    page.key_passphrase.setText("heslo klice")
+    params = page.connection_params()
+    assert (params.key_filename, params.key_passphrase) == ("C:/keys/id_ed25519", "heslo klice")
+    # Never on screen, and never in the log: a secret like the others.
+    assert page.key_passphrase.echoMode() == QLineEdit.EchoMode.Password
+    assert "heslo klice" not in repr(params)
+    page.connect_device()
+    assert "heslo klice" in list(page.registry)
+
+
+@pytest.mark.parametrize(("wrong", "expected"), [
+    (False, S.CONNECT_KEY_PASSPHRASE),
+    (True, S.CONNECT_KEY_PASSPHRASE_WRONG),
+])
+def test_a_key_passphrase_problem_is_named_as_one(wrong, expected):
+    """Not "zkontrolujte uživatele a heslo": the device never saw the login."""
+    error = KeyPassphraseError("C:/keys/id_ed25519", wrong=wrong)
+    assert describe_error(error) == expected
+
+
+def test_the_command_line_can_point_at_a_key_passphrase_variable(window, qtbot):
+    args, _ = parsed("--host", "h", "--key", "k.pem", "--key-passphrase-env", "MQS_KP")
+    page = window.device_page
+    prefill(page, args, env={"MQS_KP": "heslo klice"})
+    assert page.key_passphrase.text() == "heslo klice"

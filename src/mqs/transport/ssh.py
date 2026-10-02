@@ -26,6 +26,7 @@ from mqs.transport.base import (
     ConnectionLost,
     ConnectionParams,
     ConnectTimeout,
+    KeyPassphraseError,
     PeerSecurity,
     Reply,
     ServiceUnavailable,
@@ -41,6 +42,7 @@ from mqs.transport.cli_output import (
     parse_terse,
     sanitize,
 )
+from mqs.transport.keys import key_is_encrypted, load_private_key
 
 LOGIN_SUFFIX = "+cet"
 
@@ -70,7 +72,7 @@ class SshTransport:
         params: ConnectionParams,
         *,
         client_factory: Callable[[], Any] = paramiko.SSHClient,
-        key_loader: Callable[[str], Any] = paramiko.PKey.from_path,
+        key_loader: Callable[[str, str | None], Any] = load_private_key,
     ) -> None:
         self.params = params
         self._client_factory = client_factory
@@ -125,13 +127,26 @@ class SshTransport:
         Given a file name, paramiko tries every key class on it and, when the device
         refuses the key, raises what the last class said about the file ("encountered RSA
         key, expected OPENSSH key") instead of the refusal.
+
+        Whether the file is under a passphrase is read from the file, because paramiko
+        5.0.0 says so only by raising, and says it badly: TypeError("Key is
+        password-protected, but password was not provided.") without one, and
+        ValueError("Valid PEM but no BEGIN/END delimiters for a private key found. Are you
+        sure this is a private key?") for a wrong one (measured 2026-10-02).
         """
-        if not self.params.key_filename:
+        path = self.params.key_filename
+        if not path:
             return None
+        passphrase = self.params.key_passphrase
+        encrypted = key_is_encrypted(path)
+        if encrypted and not passphrase:
+            raise KeyPassphraseError(path, wrong=False)
         try:
-            return self._key_loader(self.params.key_filename)
-        except (paramiko.SSHException, OSError, ValueError) as exc:
-            raise AuthError(f"SSH key {self.params.key_filename}: {exc}", self.kind) from exc
+            return self._key_loader(path, passphrase or None)
+        except (paramiko.SSHException, OSError, TypeError, ValueError) as exc:
+            if encrypted:
+                raise KeyPassphraseError(path, wrong=True) from exc
+            raise AuthError(f"SSH key {path}: {exc}", self.kind) from exc
 
     def _connect_client(self, pkey: Any, disabled: dict[str, list[str]] | None) -> Any:
         client = self._client_factory()

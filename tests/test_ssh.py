@@ -93,7 +93,7 @@ def rsa_key() -> paramiko.RSAKey:
 def connected(responses=None, params=PARAMS) -> tuple[SshTransport, FakeClient]:
     client = FakeClient(responses)
     transport = SshTransport(params, client_factory=lambda: client,
-                             key_loader=lambda path: f"key from {path}")
+                             key_loader=lambda path, secret=None: f"key from {path}")
     transport.connect()
     return transport, client
 
@@ -144,7 +144,7 @@ def test_the_key_is_loaded_by_the_transport_not_by_paramiko():
 
 
 def test_an_unreadable_key_is_an_auth_error():
-    def missing(path):
+    def missing(path, secret=None):
         raise FileNotFoundError(2, "No such file or directory", path)
 
     params = ConnectionParams(host="h", username="bee", key_filename="C:/nowhere/id_rsa")
@@ -173,7 +173,7 @@ def test_a_refused_rsa_key_is_tried_again_without_sha512():
     RefusesSha512.made = []
     params = ConnectionParams(host="h", username="bee", key_filename="id_rsa")
     transport = SshTransport(params, client_factory=RefusesSha512,
-                             key_loader=lambda path: rsa_key())
+                             key_loader=lambda path, secret=None: rsa_key())
     transport.connect()
     first, second = RefusesSha512.made
     assert first.closed and first.connect_kwargs["disabled_algorithms"] is None
@@ -185,7 +185,7 @@ def test_a_key_refused_both_ways_is_an_auth_error():
     client = FakeClient(connect_error=paramiko.AuthenticationException("no"))
     params = ConnectionParams(host="h", username="bee", key_filename="id_rsa")
     transport = SshTransport(params, client_factory=lambda: client,
-                             key_loader=lambda path: rsa_key())
+                             key_loader=lambda path, secret=None: rsa_key())
     with pytest.raises(AuthError):
         transport.connect()
     assert client.connect_kwargs["disabled_algorithms"] == {"pubkeys": ["rsa-sha2-512"]}
@@ -201,7 +201,8 @@ def test_only_an_rsa_key_is_tried_twice(pkey):
 
     key = "id_ed25519" if pkey else None
     params = ConnectionParams(host="h", username="bee", password="pw", key_filename=key)
-    transport = SshTransport(params, client_factory=factory, key_loader=lambda path: pkey)
+    transport = SshTransport(params, client_factory=factory,
+                             key_loader=lambda path, secret=None: pkey)
     with pytest.raises(AuthError):
         transport.connect()
     assert len(calls) == 1

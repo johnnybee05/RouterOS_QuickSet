@@ -775,3 +775,42 @@ def test_an_apply_can_lower_it_too():
     without = cli.build_options(parse(["apply", "--profile", "x", "--mode", "reset",
                                       "--keep-users", "--routerboot-downgrade"]), reset)
     assert not without.downgrades_routerboot
+
+
+def test_a_key_under_a_passphrase_is_asked_for_once(monkeypatch, tmp_path):
+    """The prompt comes only when the key file is really encrypted."""
+    from test_ssh_keys import write_key
+
+    monkeypatch.setenv("MQS_PASSWORD", "")
+    encrypted = write_key(tmp_path / "id_encrypted", passphrase="heslo klice")
+    plain = write_key(tmp_path / "id_plain")
+    asked: list[str] = []
+    monkeypatch.setattr(cli.getpass, "getpass",
+                        lambda prompt: asked.append(prompt) or "heslo klice")
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+
+    args = cli.build_parser().parse_args(["connect", "--host", "h", "--key", encrypted])
+    assert cli.connection_params(args).key_passphrase == "heslo klice"
+    assert len(asked) == 1 and encrypted in asked[0]
+
+    args = cli.build_parser().parse_args(["connect", "--host", "h", "--key", plain])
+    assert cli.connection_params(args).key_passphrase == ""
+    assert len(asked) == 1  # nothing to ask about
+
+
+def test_the_key_passphrase_can_come_from_the_environment(monkeypatch, tmp_path):
+    from test_ssh_keys import write_key
+
+    monkeypatch.setenv("MQS_PASSWORD", "")
+    monkeypatch.setenv("MQS_KEY_PASSPHRASE", "z prostredi")
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    path = write_key(tmp_path / "id_encrypted", passphrase="z prostredi")
+    args = cli.build_parser().parse_args(["connect", "--host", "h", "--key", path])
+    assert cli.connection_params(args).key_passphrase == "z prostredi"
+
+
+def test_the_key_passphrase_is_never_a_command_line_argument():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["connect", "--host", "h", "--key-passphrase", "secret"])
+    args = cli.build_parser().parse_args(["connect", "--host", "h"])
+    assert args.key_passphrase_env == "MQS_KEY_PASSPHRASE"

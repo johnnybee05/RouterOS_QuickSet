@@ -32,6 +32,8 @@ DEVICE_HOST = "IP adresa / hostname"
 DEVICE_USER = "Uživatel"
 DEVICE_PASSWORD = "Heslo"
 DEVICE_KEY = "SSH klíč (volitelně)"
+DEVICE_KEY_PASSPHRASE = "Heslo SSH klíče"
+DEVICE_KEY_PASSPHRASE_HINT = "jen u šifrovaného klíče"
 DEVICE_TRANSPORT = "Transport"
 TRANSPORTS = {"auto": "API-SSL, při nedostupnosti SSH", "api-ssl": "Jen API-SSL (8729)",
               "ssh": "Jen SSH"}
@@ -328,6 +330,8 @@ WAN_PORT_LOCKED = "WAN port"
 
 # connection errors / session
 CONNECT_AUTH_FAILED = "Přihlášení selhalo – zkontrolujte uživatele a heslo."
+CONNECT_KEY_PASSPHRASE = "Soukromý klíč je šifrovaný – vyplňte „Heslo SSH klíče“."
+CONNECT_KEY_PASSPHRASE_WRONG = "Heslo SSH klíče je chybné – klíč se nepodařilo otevřít."
 CONNECT_FAILED = "Nepodařilo se připojit žádným transportem:\n{details}"
 CONNECT_CANCELLED = "Připojení bylo přerušeno."
 CONNECT_UNSUPPORTED = "RouterOS {version} není podporovaný (podporováno 6.40+ a 7.x)."
