@@ -14,6 +14,7 @@ from mqs.transport.base import (
     CommandTimeout,
     ConnectionLost,
     ConnectionParams,
+    KeyPassphraseError,
     ServiceUnavailable,
     TransportError,
     TransportKind,
@@ -640,6 +641,36 @@ def test_bootstrap_fails_when_the_device_did_not_add_the_address():
         connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
                        LOCAL, connect=connect, session_factory=factory)
     assert calls == []  # never claims reachability for an address that was not added
+
+
+def test_a_locked_key_takes_the_address_back_and_still_says_it_is_the_passphrase():
+    """The device and the address are fine; the key file on this PC could not be opened,
+    so "not reachable on it" would send the user looking in the wrong place."""
+    device = FakeDevice(password="pw")
+    factory, _ = bootstrap_session_factory(device)
+
+    def connect(params, choice=None, **kwargs):
+        raise KeyPassphraseError("id_ed25519", wrong=True)
+
+    with pytest.raises(KeyPassphraseError) as caught:
+        connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
+                       LOCAL, connect=connect, session_factory=factory)
+    assert caught.value.wrong is True
+    assert any("remove" in command for command in device.commands)
+
+
+def test_a_locked_key_does_not_even_start_the_mac_telnet_bootstrap():
+    """Link-local is tried first, and the same key would fail the same way over MAC-Telnet."""
+    device = FakeDevice(password="pw")
+    factory, made = bootstrap_session_factory(device)
+
+    def connect(params, choice=None, **kwargs):
+        raise KeyPassphraseError("id_ed25519", wrong=False)
+
+    with pytest.raises(KeyPassphraseError):
+        connect_by_mac(device_with_ipv6("fe80::1"), PARAMS, IPv4Address("192.168.88.253"),
+                       LOCAL, connect=connect, session_factory=factory)
+    assert made == {}  # no console opened, so no address lent either
 
 
 def test_temp_address_is_taken_back_when_the_device_is_unreachable_on_it():

@@ -27,6 +27,7 @@ from mqs.transport.base import (
     CommandTimeout,
     ConnectionLost,
     ConnectionParams,
+    KeyPassphraseError,
     ServiceUnavailable,
     Transport,
     TransportError,
@@ -290,6 +291,14 @@ def connect_by_mac(
     ip_params = replace(params, host=str(proposed_address))
     try:
         outcome = connect(ip_params, choice, **ports)
+    except KeyPassphraseError:
+        # Nothing to do with the device or the address: the key file on this PC could not
+        # be opened. Give the address back, but let the error say what it is, so the user
+        # is told to fill the passphrase in rather than that the device cannot be reached.
+        with contextlib.suppress(MacTelnetError):
+            session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
+        session.close()
+        raise
     except TransportError as exc:
         # Take the address back over the session we still hold, so a failed attempt does
         # not leave the device carrying an address nobody can reach it on.
