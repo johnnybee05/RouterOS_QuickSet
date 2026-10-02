@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Vydá verzi popsanou v CHANGELOG.md: srovná verzi ve zdrojích, postaví
     dist\MikrotikQuickSetPlus.exe, otaguje, pushne a založí vydání na GitHubu
