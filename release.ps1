@@ -81,7 +81,14 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "Chybí gh (Git
 
 # 1. Changelog musí verzi mít, než se cokoli staví.
 Write-Host "Changelog..."
-Invoke-Native $python @("-m", "tools.release_notes", "--version", $Version, "--check")
+$ErrorActionPreference = "Continue"
+$checked = & $python -m tools.release_notes --version $Version --check 2>&1 | ForEach-Object { "$_" }
+$ok = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
+if (-not $ok) {
+    # Vlastní hláška modulu říká, co v changelogu je; výpis příkazu k tomu nic nepřidá.
+    throw (($checked -join "`n") -replace '^chyba: ', '')
+}
 Write-Host "  CHANGELOG.md má oddíl pro $Version"
 
 # 2. Strom musí být čistý, aby se do vydání nedostalo nic nezapsaného.
