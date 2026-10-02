@@ -423,5 +423,18 @@ Struktura: `model` (datový model a validace), `capabilities` (HW offload), `gen
 (čistý generátor bez sítě a GUI), `transport` (API-SSL, SSH, MNDP, přenos souborů), `apply`
 (průběh aplikace), `profiles`, `ui` (PySide6). Architekturu a rozhodnutí popisuje `PLAN.md`.
 
-Co se v které verzi změnilo, je v `CHANGELOG.md`; stejné změny i s `.exe` ke stažení mají
-[vydání na GitHubu](https://github.com/johnnybee05/RouterOS_QuickSet/releases).
+Co se v které verzi změnilo, je v `CHANGELOG.md` — a ten je zdroj:
+[vydání na GitHubu](https://github.com/johnnybee05/RouterOS_QuickSet/releases) se z něj
+generuje. Vydání pak znamená napsat do changelogu oddíl `## [X.Y.Z] – <datum>`, commitnout
+ho a spustit:
+
+```powershell
+.\release.ps1 -Version 0.3.0 -DryRun   # jen ověří stav a vypíše text vydání
+.\release.ps1 -Version 0.3.0           # verze ve zdrojích, build, tag, push, vydání
+.\release.ps1 -Version 0.3.0 -Resync   # přepíše text existujícího vydání podle changelogu
+```
+
+Skript sám přepíše verzi v `pyproject.toml`, `src/mqs/__init__.py` i v hlavičce golden
+skriptů, postaví `.exe` (tedy pustí i testy), otaguje, pushne a založí vydání s textem
+z changelogu. Text vydání generuje `tools/release_notes.py` (testy
+`tests/test_release_notes.py`), takže changelog a vydání se nemohou rozejít.

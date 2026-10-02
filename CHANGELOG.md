@@ -1,8 +1,12 @@
 # Changelog
 
-Co se v které verzi změnilo. Novější nahoře. Ke každé verzi patří vydání na GitHubu,
-které má navíc `MikrotikQuickSetPlus.exe` ke stažení a změny popsané podrobněji:
-<https://github.com/johnnybee05/RouterOS_QuickSet/releases>.
+Co se v které verzi změnilo. Novější nahoře.
+
+**Tenhle soubor je zdroj.** [Vydání na GitHubu](https://github.com/johnnybee05/RouterOS_QuickSet/releases)
+se z něj generují (`.\release.ps1 -Version X.Y.Z`), takže text změn se nepíše dvakrát;
+vydání k němu přidá jen `MikrotikQuickSetPlus.exe` ke stažení a odkaz na porovnání
+s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív napíše její oddíl
+`## [X.Y.Z] – <datum>` a commitne — co není v changelogu, nevyjde.
 
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
