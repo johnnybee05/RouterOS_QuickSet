@@ -422,3 +422,6 @@ python -m venv .venv
 Struktura: `model` (datový model a validace), `capabilities` (HW offload), `generator`
 (čistý generátor bez sítě a GUI), `transport` (API-SSL, SSH, MNDP, přenos souborů), `apply`
 (průběh aplikace), `profiles`, `ui` (PySide6). Architekturu a rozhodnutí popisuje `PLAN.md`.
+
+Co se v které verzi změnilo, je v `CHANGELOG.md`; stejné změny i s `.exe` ke stažení mají
+[vydání na GitHubu](https://github.com/johnnybee05/RouterOS_QuickSet/releases).
