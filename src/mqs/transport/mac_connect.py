@@ -16,6 +16,7 @@ findings and the remaining unknowns are in docs/DIALECT_NOTES.md.
 from __future__ import annotations
 
 import contextlib
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -24,9 +25,11 @@ from ipaddress import IPv4Address
 from mqs.generator.render import quote_find
 from mqs.transport.base import (
     AuthError,
+    Cancelled,
     CommandTimeout,
     ConnectionLost,
     ConnectionParams,
+    ConnectTimeout,
     KeyPassphraseError,
     ServiceUnavailable,
     Transport,
@@ -49,6 +52,10 @@ from mqs.transport.netifs import (
 
 TEMP_COMMENT = "mqs-temp"
 REMOVAL_REPLY_S = 5.0  # how long a removal may stay unanswered before it counts as done
+# How long a freshly lent address may stay unreachable before the attempt is given up, and
+# the pause between tries. See `connect_to_lent_address` for where the 49 s came from.
+REACHABLE_WITHIN_S = 75.0
+RETRY_PAUSE_S = 3.0
 
 
 class MacConnectMethod(StrEnum):
@@ -244,6 +251,45 @@ def default_session_factory(device: DiscoveredDevice, params: ConnectionParams,
                             connect_timeout=params.connect_timeout)
 
 
+def connect_to_lent_address(
+    params: ConnectionParams,
+    choice: TransportChoice,
+    ports: dict[str, int | None],
+    *,
+    connect: Callable[..., ConnectOutcome] = connect_transport,
+    on_step: Callable[[str], None] = lambda step: None,
+    reachable_within: float = REACHABLE_WITHIN_S,
+    pause: float = RETRY_PAUSE_S,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> ConnectOutcome:
+    """Connect to the address just lent to the device, waiting for it to become reachable.
+
+    A freshly lent address is not reachable from this PC straight away. Probing it with a
+    ping first - which is how a user checks that an address is free - leaves Windows with
+    an Unreachable/Incomplete neighbour entry for it, and until that clears every connect
+    times out: measured 2026-10-02 on 192.168.55.207, TCP 22 answered **49 s** after the
+    device had the address, with seven 15 s attempts failing before it (docs/DIALECT_NOTES
+    .md). The device holds the address and answers MAC-Telnet the whole time, so this
+    waits instead of handing the address back and blaming the device.
+
+    Only unreachability is waited out. A refusal is the device's answer and says the same
+    thing however long we wait, and a cancel is the user's answer.
+    """
+    deadline = now() + reachable_within
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return connect(params, choice, **ports)
+        except (ConnectFailed, ServiceUnavailable, ConnectTimeout):
+            if now() >= deadline:
+                raise
+        # Between tries rather than inside one: `on_step` is where a cancel is taken.
+        on_step(f"waiting for {params.host} to answer ({attempt})")
+        sleep(pause)
+
+
 def connect_by_mac(
     device: DiscoveredDevice,
     params: ConnectionParams,
@@ -257,6 +303,8 @@ def connect_by_mac(
     ssh_port: int | None = None,
     device_interface: str | None = None,
     on_step: Callable[[str], None] = lambda step: None,
+    reachable_within: float = REACHABLE_WITHIN_S,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> MacConnectResult:
     """Connect to ``device`` by MAC. ``proposed_address`` is a free IP in the PC's subnet,
     already confirmed by the user; ``interface`` is the local NIC to reach the device on.
@@ -290,11 +338,13 @@ def connect_by_mac(
 
     ip_params = replace(params, host=str(proposed_address))
     try:
-        outcome = connect(ip_params, choice, **ports)
-    except KeyPassphraseError:
-        # Nothing to do with the device or the address: the key file on this PC could not
-        # be opened. Give the address back, but let the error say what it is, so the user
-        # is told to fill the passphrase in rather than that the device cannot be reached.
+        outcome = connect_to_lent_address(ip_params, choice, ports, connect=connect,
+                                          on_step=on_step, reachable_within=reachable_within,
+                                          sleep=sleep)
+    except (KeyPassphraseError, Cancelled):
+        # Neither is about the device or the address: the key file on this PC could not be
+        # opened, or the user said stop. Give the address back, but let the error say what
+        # it is, rather than reporting a device that cannot be reached.
         with contextlib.suppress(MacTelnetError):
             session.run(f'/ip address remove [find comment="{TEMP_COMMENT}"]')
         session.close()
@@ -307,7 +357,8 @@ def connect_by_mac(
         session.close()
         raise MacTelnetError(
             f"temporary address {address} was added on {device_interface} but the device "
-            f"is not reachable on it, so it was removed again: {exc}"
+            f"did not answer on it within {reachable_within:.0f} s, so it was removed "
+            f"again: {exc}"
         ) from exc
     if not answers_for_mac(outcome.transport, device.mac):
         with contextlib.suppress(OSError, TransportError):
@@ -346,7 +397,9 @@ def remove_temp_address(transport: Transport, address: str) -> None:
 
 
 __all__ = [
+    "REACHABLE_WITHIN_S",
     "REMOVAL_REPLY_S",
+    "RETRY_PAUSE_S",
     "TEMP_COMMENT",
     "MacConnectMethod",
     "MacConnectResult",
@@ -354,6 +407,7 @@ __all__ = [
     "answers_for_mac",
     "bootstrap_interface",
     "connect_by_mac",
+    "connect_to_lent_address",
     "default_session_factory",
     "device_interface_name",
     "lend_address",

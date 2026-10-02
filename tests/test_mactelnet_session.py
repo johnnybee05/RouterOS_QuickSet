@@ -11,6 +11,7 @@ from fake_mactelnet_device import FakeChannel, FakeDevice
 from fake_transport import FakeTransport
 from mqs.transport.base import (
     AuthError,
+    Cancelled,
     CommandTimeout,
     ConnectionLost,
     ConnectionParams,
@@ -19,14 +20,16 @@ from mqs.transport.base import (
     TransportError,
     TransportKind,
 )
-from mqs.transport.factory import ConnectFailed, ConnectOutcome
+from mqs.transport.factory import ConnectFailed, ConnectOutcome, TransportChoice
 from mqs.transport.mac_connect import (
     REMOVAL_REPLY_S,
+    RETRY_PAUSE_S,
     TEMP_COMMENT,
     MacConnectMethod,
     answers_for_mac,
     bootstrap_interface,
     connect_by_mac,
+    connect_to_lent_address,
     link_local_host,
     remove_temp_address,
 )
@@ -321,9 +324,78 @@ def test_bootstrap_ip_set_but_device_unreachable():
     device = FakeDevice(password="pw")
     factory, _ = bootstrap_session_factory(device)
     connect, _ = fake_connect_factory(fail_hosts={"192.168.88.253"})
-    with pytest.raises(MacTelnetError, match="not reachable"):
+    with pytest.raises(MacTelnetError, match="did not answer on it"):
         connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"),
-                       LOCAL, connect=connect, session_factory=factory)
+                       LOCAL, connect=connect, session_factory=factory,
+                       reachable_within=0, sleep=lambda seconds: None)
+
+
+# ------------------------------------------- waiting for the lent address to be reachable
+
+
+def answers_after(failures: int, error=None):
+    """A connect that fails ``failures`` times before it works; counts its tries."""
+    tries = []
+
+    def connect(params, choice=None, **kwargs):
+        tries.append(params.host)
+        if len(tries) <= failures:
+            raise error or ConnectFailed([])
+        return ConnectOutcome(FakeTransport({}))
+
+    return connect, tries
+
+
+def test_a_lent_address_is_waited_for_rather_than_handed_back():
+    """Measured 2026-10-02: an address pinged just before it was lent took 49 s to answer,
+    while the device held it and answered MAC-Telnet all along."""
+    slept = []
+    steps = []
+    connect, tries = answers_after(3)
+    outcome = connect_to_lent_address(
+        ConnectionParams(host="192.168.88.253", username="admin"), TransportChoice.SSH, {},
+        connect=connect, on_step=steps.append, sleep=slept.append)
+    assert isinstance(outcome, ConnectOutcome)
+    assert len(tries) == 4
+    assert slept == [RETRY_PAUSE_S] * 3
+    assert steps == [f"waiting for 192.168.88.253 to answer ({n})" for n in (1, 2, 3)]
+
+
+def test_the_wait_for_a_lent_address_ends():
+    connect, tries = answers_after(99)
+    clock = iter([0.0, 10.0, 40.0, 80.0])
+    with pytest.raises(ConnectFailed):
+        connect_to_lent_address(
+            ConnectionParams(host="192.168.88.253", username="admin"), TransportChoice.SSH, {},
+            connect=connect, sleep=lambda seconds: None, now=lambda: next(clock))
+    assert len(tries) == 3  # 0 s, 10 s, 40 s; at 80 s the window is past
+
+
+def test_a_refusal_on_the_lent_address_is_not_waited_out():
+    """The device answered; it said no. Waiting would only repeat the question."""
+    connect, tries = answers_after(99, error=AuthError("login failure"))
+    with pytest.raises(AuthError):
+        connect_to_lent_address(
+            ConnectionParams(host="192.168.88.253", username="admin"), TransportChoice.SSH, {},
+            connect=connect, sleep=lambda seconds: None)
+    assert len(tries) == 1
+
+
+def test_a_cancel_while_waiting_gives_the_address_back():
+    """`on_step` is where the window takes a cancel, so it is called between tries."""
+    device = FakeDevice(password="pw")
+    factory, _ = bootstrap_session_factory(device)
+    connect, _ = fake_connect_factory(fail_hosts={"192.168.88.253"})
+
+    def cancel_on_the_first_wait(step):
+        if step.startswith("waiting"):
+            raise Cancelled("connect cancelled")
+
+    with pytest.raises(Cancelled):
+        connect_by_mac(device_with_ipv6(None), PARAMS, IPv4Address("192.168.88.253"), LOCAL,
+                       connect=connect, session_factory=factory,
+                       on_step=cancel_on_the_first_wait, sleep=lambda seconds: None)
+    assert any("remove" in command for command in device.commands)
 
 
 def test_a_lent_address_another_device_holds_is_refused():
