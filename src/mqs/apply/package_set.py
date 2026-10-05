@@ -29,6 +29,7 @@ from typing import Any
 
 import yaml
 
+from mqs.apply.packages import MAIN_PACKAGE_PREFIX, extra_packages
 from mqs.issues import Issue, Severity
 from mqs.model.inventory import (
     DeviceInventory,
@@ -510,10 +511,32 @@ def plain_extras(inventory: DeviceInventory,
     container, gps, ups, iot, ... — each needs a counterpart in the target version too,
     but the user may knowingly go on without one. A driver never gets that choice.
     """
-    from mqs.apply.packages import extra_packages  # local: packages imports nothing of ours
-
     rules = rules or default_rules()
     return [p for p in extra_packages(inventory) if p.name not in rules.driver_names]
+
+
+def wanted_packages(
+    inventory: DeviceInventory,
+    target: RosVersion,
+    *,
+    wifi_override: WirelessDriver | None = None,
+    rules: PackageRules | None = None,
+) -> tuple[frozenset[str], tuple[Issue, ...]]:
+    """Every package this device needs in ``target``, the main one included — named
+    without looking at a single file.
+
+    This is the question the downloader asks, and it has to be answerable before anything
+    is on disk: the files to fetch are decided by the device's state, and only then does
+    anyone look at what is already there.
+    """
+    rules = rules or default_rules()
+    state = installed_drivers(inventory, rules)
+    drivers = driver_packages(state, target, inventory, wifi_override=wifi_override,
+                              rules=rules)
+    names = {MAIN_PACKAGE_PREFIX, *drivers.required}
+    if target.major == inventory.version.major:
+        names |= {p.name for p in plain_extras(inventory, rules)}
+    return frozenset(names), drivers.issues
 
 
 # ---------------------------------------------------------------- the route

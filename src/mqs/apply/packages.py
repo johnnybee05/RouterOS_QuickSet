@@ -144,12 +144,59 @@ def read_npk(path: Path) -> NpkPackage:
     return NpkPackage(path, name, version, architecture, size, channel)
 
 
+DOWNLOAD_BASE = "https://download.mikrotik.com/routeros"
+# The x86 package carries no architecture in its file name (`routeros-7.23.7.npk`), which
+# is also why its header says `i386` while the device says `x86`. NUTNO OVĚŘIT for the
+# extra packages of that architecture.
+URL_ARCH_OMITTED = frozenset({"x86", "x86_64"})
+
+
+def npk_file_name(package: str, version: RosVersion, device_arch: str) -> str:
+    """MikroTik's own file name for a package.
+
+    The architecture in the name is the device's own `architecture-name` (`mipsbe`,
+    `mmips`, `arm`), **not** the one in the header — a mipsbe file is called `-mipsbe.npk`
+    and says `mips` inside. The two orders are the versions' own:
+
+        v7   routeros-7.23.7-arm.npk        wifi-qcom-7.23.7-arm.npk
+        v6   routeros-mmips-6.49.21.npk
+
+    Only the name is built here. Whether the file is the right one is settled by reading
+    its header after it arrives (`read_npk`), never by trusting this.
+    """
+    name = MAIN_PACKAGE_PREFIX if is_main_package(package) else package
+    text = str(version)
+    if device_arch in URL_ARCH_OMITTED:
+        return f"{name}-{text}.npk"
+    if version.major >= 7:
+        return f"{name}-{text}-{device_arch}.npk"
+    return f"{name}-{device_arch}-{text}.npk"
+
+
+def npk_url(package: str, version: RosVersion, device_arch: str) -> str:
+    return f"{DOWNLOAD_BASE}/{version}/{npk_file_name(package, version, device_arch)}"
+
+
 @dataclass(frozen=True)
 class UpdateDir:
     directory: Path
     exists: bool
     packages: tuple[NpkPackage, ...] = ()
     unreadable: tuple[tuple[str, str], ...] = ()  # (file name, why)
+
+    def with_packages(self, extra: Iterable[NpkPackage]) -> UpdateDir:
+        """The same directory plus packages found elsewhere — the download cache.
+
+        What is already here wins: a file the user put in the Update directory themselves
+        is the one they meant, and a cached copy of the same version does not displace it.
+        """
+        here = {(p.name, p.version, p.architecture) for p in self.packages}
+        added = tuple(p for p in extra
+                      if (p.name, p.version, p.architecture) not in here)
+        if not added:
+            return self
+        packages = sorted((*self.packages, *added), key=lambda p: p.version, reverse=True)
+        return UpdateDir(self.directory, True, tuple(packages), self.unreadable)
 
 
 def scan_update_dir(directory: Path) -> UpdateDir:

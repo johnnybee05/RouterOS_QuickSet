@@ -372,6 +372,16 @@ MESSAGES: dict[str, str] = {
     "mají {size} MB, volné paměti je {free} MB. Zařízení nahrává balíček do RAM (soubory má "
     "ve flash/) – zkuste to po restartu.",
     "version.unreadable": "Soubor {file} v adresáři s balíčky se nedá použít: {error}",
+    # stahování balíčků z download.mikrotik.com
+    "download.not_published": "MikroTik balíček {name} ve verzi {version} pro tuhle "
+    "architekturu nevydává ({url}). Zkontrolujte, že ta verze pro tohle zařízení existuje.",
+    "download.failed": "Balíček {name} {version} se nepodařilo stáhnout z {url}: {error}",
+    "download.not_a_package": "Stažený soubor {file} není balíček RouterOS ({error}). "
+    "Z {url} přišlo něco jiného – typicky chybová stránka. Soubor byl smazán.",
+    "download.wrong_package": "Stažený soubor {file} je {name} {version} ({arch}), ale "
+    "potřeba je {want_name} {want_version} ({want_arch}). Soubor byl smazán a nenahraje "
+    "se – nahrát balíček pro jinou verzi nebo architekturu je přesně to, po čem rozhraní "
+    "zmizí.",
     # wireless: balíčky ovladačů, mezikrok 7.12 a kontrola rozhraní po updatu
     "version.no_snapshot": "Aplikace nemá načtený seznam bezdrátových rozhraní zařízení, "
     "takže neví, jaké ovladače by měla nahrát. Prázdný seznam neznamená „zařízení nemá "
