@@ -2,13 +2,19 @@ from fake_transport import FakeTransport
 from mqs.capabilities.matrix import Capabilities
 from mqs.capabilities.offload import plan_offload
 from mqs.model.bridge import BridgeConfig
-from mqs.model.inventory import Ipv6PackageState, WirelessStack
+from mqs.model.inventory import (
+    Ipv6PackageState,
+    WirelessMenu,
+    WirelessRole,
+    WirelessStack,
+)
 from mqs.model.version import RosVersion
 from mqs.transport.base import TransportKind
 from mqs.transport.discovery import (
     collect_inventory,
     detect_wireless,
     probe_features,
+    role_of,
     session_interface,
     to_bool,
     to_bytes,
@@ -224,3 +230,116 @@ def test_dynamic_service_rows_are_not_services():
     inv = collect_inventory(FakeTransport(replies))
     assert [(s.name, s.certificate) for s in inv.services] == [("ssh", ""),
                                                                ("api-ssl", "api-cert")]
+
+
+# ------------------------------------------------------------------ radios
+
+
+def test_a_device_with_no_radio_still_counts_as_asked():
+    """The distinction the update stands on: an empty snapshot that was *taken* says
+    "no radio", and one that was never taken says nothing at all."""
+    inv = collect_inventory(FakeTransport(rb4011_v7_api()))
+    assert inv.radios.collected and not inv.radios.has_radios
+    assert inv.radios.menus == []  # no wireless package on this board at all
+
+    # ... and a menu that exists but holds nothing is a third, different answer.
+    with_driver = dict(rb4011_v7_api())
+    with_driver["/interface/wifi/print"] = []
+    empty = collect_inventory(FakeTransport(with_driver))
+    assert empty.radios.menus == [WirelessMenu.WIFI] and not empty.radios.has_radios
+
+
+def test_a_legacy_antenna_is_read_off_interface_wireless():
+    replies = dict(rb4011_v7_api())
+    replies["/interface/wireless/print"] = [
+        {"name": "wlan1", "mode": "station-bridge", "band": "5ghz-a/n/ac",
+         "ssid": "ptp-link", "mac-address": "AA:BB:CC:00:00:01", "running": "yes",
+         "disabled": "no"},
+    ]
+    inv = collect_inventory(FakeTransport(replies))
+    radio = inv.radios.interfaces[0]
+    assert (radio.name, radio.menu, radio.role) == ("wlan1", WirelessMenu.WIRELESS,
+                                                    WirelessRole.STATION)
+    assert radio.running and radio.band == "5ghz-a/n/ac" and radio.ssid == "ptp-link"
+    assert inv.radios.has_radios and not inv.radios.serves_stations
+    assert inv.wireless == WirelessStack.WIRELESS
+
+
+def test_an_ap_is_recognised_and_its_stations_counted():
+    replies = dict(rb4011_v7_api())
+    replies["/interface/wireless/print"] = [
+        {"name": "wlan1", "mode": "ap-bridge", "running": "yes"},
+        {"name": "wlan2", "mode": "ap-bridge", "running": "yes"},
+    ]
+    replies["/interface/wireless/registration-table/print"] = [
+        {"interface": "wlan1", "mac-address": "AA:BB:CC:00:00:01"},
+        {"interface": "wlan1", "mac-address": "AA:BB:CC:00:00:02"},
+        {"interface": "wlan2", "mac-address": "AA:BB:CC:00:00:03"},
+    ]
+    inv = collect_inventory(FakeTransport(replies))
+    assert inv.radios.serves_stations
+    assert inv.radios.registrations == {"wlan1": 2, "wlan2": 1}
+    assert inv.radios.running_names == ["wlan1", "wlan2"]
+
+
+def test_the_new_driver_reports_its_mode_in_the_configuration():
+    """`/interface wifi` keeps the mode in the configuration attached to the interface, so
+    it arrives dotted. Which spelling the API uses is NUTNO OVĚŘIT; every plausible one is
+    read, and a mode that is not found leaves the role UNKNOWN rather than guessed."""
+    replies = dict(rb4011_v7_api())
+    replies["/interface/wifi/print"] = [
+        {"name": "wifi1", "configuration.mode": "ap", "running": "yes"},
+        {"name": "wifi2", "running": "no"},  # nothing says what this one does
+    ]
+    inv = collect_inventory(FakeTransport(replies))
+    roles = {r.name: r.role for r in inv.radios.interfaces}
+    assert roles == {"wifi1": WirelessRole.AP, "wifi2": WirelessRole.UNKNOWN}
+    assert inv.wireless == WirelessStack.WIFI
+
+
+def test_sixty_gigahertz_names_its_one_peer_on_the_interface():
+    """A w60g link has no registration table — one peer, in `remote-address`."""
+    replies = dict(rb4011_v7_api())
+    replies["/interface/w60g/print"] = [
+        {"name": "wlan60-1", "mode": "bridge", "remote-address": "AA:BB:CC:00:00:09",
+         "running": "yes"},
+        {"name": "wlan60-2", "mode": "bridge", "running": "no"},  # nothing on the far end
+    ]
+    inv = collect_inventory(FakeTransport(replies))
+    assert inv.radios.menus == [WirelessMenu.W60G]
+    assert inv.radios.registrations == {"wlan60-1": 1}
+    assert inv.wireless == WirelessStack.WIRELESS  # the `wireless` package drives 60 GHz
+
+
+def test_both_stacks_at_once_are_both_recorded():
+    replies = dict(rb4011_v7_api())
+    replies["/interface/wireless/print"] = [{"name": "wlan1", "mode": "ap-bridge"}]
+    replies["/interface/wifi/print"] = [{"name": "wifi1", "configuration.mode": "ap"}]
+    inv = collect_inventory(FakeTransport(replies))
+    assert inv.radios.menus == [WirelessMenu.WIRELESS, WirelessMenu.WIFI]
+    assert inv.radios.names == ["wifi1", "wlan1"]
+
+
+def test_v6_is_never_asked_about_interface_wifi():
+    """The menu does not exist on v6, and asking costs a round trip and a log line."""
+    fake = FakeTransport(hap_v6_ssh(), kind=TransportKind.SSH)
+    collect_inventory(fake)
+    assert "/interface/wifi/print" not in [path for path, _ in fake.calls]
+    assert "/interface/w60g/print" in [path for path, _ in fake.calls]
+
+
+def test_a_registration_table_is_not_asked_for_without_an_interface():
+    """Nothing is on the air, so there is nothing to ask about."""
+    replies = dict(rb4011_v7_api())
+    replies["/interface/wifi/print"] = []
+    fake = FakeTransport(replies)
+    collect_inventory(fake)
+    assert "/interface/wifi/registration-table/print" not in [p for p, _ in fake.calls]
+
+
+def test_the_mode_of_an_unknown_kind_is_other_not_a_station():
+    assert role_of("alignment-only") == WirelessRole.OTHER
+    assert role_of("nstreme-dual-slave") == WirelessRole.OTHER
+    assert role_of("station-pseudobridge") == WirelessRole.STATION
+    assert role_of("wds-slave") == WirelessRole.AP
+    assert role_of("") == WirelessRole.UNKNOWN
