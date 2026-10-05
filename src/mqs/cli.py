@@ -24,8 +24,10 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from mqs.apply.download import PackageCache, PackageSource, cache_dir
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
-from mqs.apply.packages import scan_update_dir
+from mqs.apply.package_set import default_rules, installed_drivers, wanted_packages
+from mqs.apply.packages import package_arch
 from mqs.apply.plan import (
     DEFAULT_KEEP_BACKUPS,
     ApplyMode,
@@ -50,6 +52,7 @@ from mqs.apply.session import (
 )
 from mqs.apply.update import plan_from_dir
 from mqs.apply.version_change import (
+    Install,
     VersionChangeAborted,
     VersionChanger,
     VersionPlan,
@@ -60,12 +63,13 @@ from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import STEP_PREFIX
+from mqs.model.inventory import WirelessDriver
 from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
 from mqs.model.validation import validate_profile
 from mqs.model.version import RosVersion
 from mqs.model.wan import PppoeWan
-from mqs.paths import profiles_dir, update_dir
+from mqs.paths import app_data_dir, profiles_dir, update_dir
 from mqs.profiles.store import ProfileStore, import_profile
 from mqs.transport.base import AuthError, ConnectionParams, TransportError, TransportKind
 from mqs.transport.factory import TransportChoice
@@ -355,6 +359,73 @@ def packages_dir(args: argparse.Namespace) -> Path:
     return Path(args.update_dir) if args.update_dir else update_dir()
 
 
+def package_source(args: argparse.Namespace, out: Any) -> PackageSource:
+    """Where the packages come from: the Update directory, the cache, and MikroTik.
+
+    Downloading is opt-in (`--download`). Without it the application reaches nothing,
+    which is the right default for a tool that runs on a maintenance laptop.
+    """
+    directory = Path(args.cache_dir) if getattr(args, "cache_dir", None) else \
+        cache_dir(app_data_dir())
+
+    def progress(file: str, done: int, total: int) -> None:
+        if total and done == total:
+            print(f"  downloaded {file} ({total / 1_000_000:.1f} MB)", file=out)
+
+    return PackageSource(
+        offline=packages_dir(args),
+        cache=PackageCache(directory, on_progress=progress),
+        download=bool(getattr(args, "download", False)),
+    )
+
+
+def wifi_package(args: argparse.Namespace) -> WirelessDriver | None:
+    """`--wifi-package`, which answers the one question a device may not be able to."""
+    chosen = getattr(args, "wifi_package", None)
+    if not chosen:
+        return None
+    try:
+        return WirelessDriver(chosen)
+    except ValueError as exc:
+        raise CliError(f"--wifi-package {chosen}: not a driver this application knows") \
+            from exc
+
+
+def plan_options(args: argparse.Namespace) -> dict[str, Any]:
+    return {"wifi_package": wifi_package(args),
+            "allow_missing": list(getattr(args, "allow_missing_package", None) or ())}
+
+
+def obtain_packages(session: DeviceSession, args: argparse.Namespace, out: Any,
+                    target: RosVersion) -> Any:
+    """Make sure everything the device needs in ``target`` is on this PC, then say what is.
+
+    The set is named from the device's own state before anything is fetched, and the stops
+    a route may need are looked up upstream, so `--download` can supply a route the Update
+    directory could not.
+    """
+    source = package_source(args, out)
+    found = source.available()
+    if not source.download:
+        return found
+    names, issues = wanted_packages(session.inventory, target, **plan_options(args))
+    print_issues(issues, out)
+    print(f"\nfetching for {target}: {', '.join(sorted(names))}", file=out)
+    arch = session.inventory.resource.architecture
+    header_arch = package_arch(session.inventory) or arch
+    found, problems = source.obtain(names, target, arch, header_arch)
+    print_issues(problems, out)
+    # A stop the route may need (6.49.22 before v7, 7.12.x before 7.13) has to be on this
+    # PC too, and which patch of a line is the newest is a question for MikroTik.
+    for stop in source.stops([g.via_at_least for g in default_rules().gates], arch):
+        if stop >= session.inventory.version and stop != target:
+            stop_names, _ = wanted_packages(session.inventory, stop, **plan_options(args))
+            found, stop_problems = source.obtain(stop_names, stop, arch, header_arch)
+            print_issues([i for i in stop_problems if i.code != "download.not_published"],
+                         out)
+    return found
+
+
 def cmd_version(args: argparse.Namespace, out: Any, *,
                 changer_factory: Callable[..., Any] = VersionChanger, **deps: Any) -> int:
     """Show which RouterOS versions the Update directory can put on the device, or put
@@ -362,8 +433,9 @@ def cmd_version(args: argparse.Namespace, out: Any, *,
     session = open_device(args, out, **deps)
     try:
         describe_session(session, out)
+        describe_radios(session, out)
         if not args.to:
-            _print_offers(session, scan_update_dir(packages_dir(args)), out)
+            _print_offers(session, package_source(args, out).available(), out)
             # `--routerboot` with no version to install: write the firmware that is already
             # waiting, which is what a version change leaves behind when it is all there is
             # left to do.
@@ -378,6 +450,34 @@ def cmd_version(args: argparse.Namespace, out: Any, *,
         hang_up(session, out)
 
 
+def describe_radios(session: DeviceSession, out: Any) -> None:
+    """What the device has on the air, and which driver carries it.
+
+    Printed before anything else about an update, because it is what decides the package
+    set — and because an engineer looking at the output should be able to see straight away
+    that the application found the radio it is about to risk.
+    """
+    radios = session.inventory.radios
+    if not radios.collected:
+        print("\nradios          : not read", file=out)
+        return
+    if not radios.has_radios:
+        print("\nradios          : none", file=out)
+        return
+    state = installed_drivers(session.inventory)
+    print(f"\nradios          : {len(radios.interfaces)}  driver: {state.names}", file=out)
+    for radio in radios.interfaces:
+        stations = radios.registrations.get(radio.name)
+        extra = f"  {stations} station(s)" if stations else ""
+        flags = "R" if radio.running else ("X" if radio.disabled else "-")
+        print(f"  {radio.name:12} {radio.menu.value:9} {radio.mode or '?':20}"
+              f" {radio.role.value:8} {flags}{extra}", file=out)
+    if state.unexplained:
+        print("  the driver for the menu(s) "
+              f"{', '.join(sorted(m.value for m in state.unexplained))}"
+              " is not named by the device", file=out)
+
+
 def _print_offers(session: DeviceSession, found: Any, out: Any) -> None:
     """Every version in the directory, the ones out of reach included, with the reason."""
     print(f"\nversions in {found.directory}:", file=out)
@@ -390,6 +490,18 @@ def _print_offers(session: DeviceSession, found: Any, out: Any) -> None:
         print(f"  {offer.version!s:9} {mark:7}{offer.package.file_name}{why}", file=out)
     floor = session.inventory.version_floor
     print(f"  lowest possible : {floor or 'unknown, the board does not say'}", file=out)
+
+
+def _print_route(plan: Any, out: Any) -> None:
+    """The stops and what each one uploads — the thing to read before saying yes."""
+    if not plan.hops:
+        return
+    for number, hop in enumerate(plan.hops, start=1):
+        how = "reboot" if hop.install == Install.BY_REBOOT else "downgrade"
+        print(f"  {number}. {hop.version} ({how}): "
+              f"{', '.join(p.file_name for p in hop.packages)}", file=out)
+    if plan.drivers:
+        print(f"  wireless driver carried: {', '.join(sorted(plan.drivers))}", file=out)
 
 
 def run_version_change(session: DeviceSession, args: argparse.Namespace, out: Any, *,
@@ -407,11 +519,18 @@ def run_version_change(session: DeviceSession, args: argparse.Namespace, out: An
         target = RosVersion.parse(args.to)
     except ValueError as exc:
         raise CliError(f"--to {args.to}: {exc}") from exc
-    plan = plan_version(session.inventory, scan_update_dir(packages_dir(args)), target)
+    found = obtain_packages(session, args, out, target)
+    plan = plan_version(session.inventory, found, target, **plan_options(args))
     print(f"\nversion change {plan.current} to {target}:", file=out)
+    _print_route(plan, out)
     print_issues(plan.issues, out)
     if plan.blocked:
         return BLOCKED
+    # Dry run: the plan is the whole answer, and nothing on the device has been touched to
+    # produce it — the inventory was read, and that is all.
+    if getattr(args, "dry_run", False):
+        print("\ndry run: nothing was changed on the device", file=out)
+        return OK
     if not plan.changes:
         # Nothing to install, so `--routerboot` is all that is left of the request.
         return (run_routerboot(session, args, out, allow_older=routerboot_downgrade,
@@ -641,6 +760,23 @@ def _add_connection_args(parser: argparse.ArgumentParser, *, host_required: bool
                         help="with --mac: how long to wait for the device's MNDP announcement")
 
 
+def _add_package_args(parser: argparse.ArgumentParser) -> None:
+    """Where packages come from, and the two answers only the user can give."""
+    parser.add_argument("--download", action="store_true",
+                        help="fetch what is missing from download.mikrotik.com into the "
+                        "local cache (off by default: nothing reaches the network)")
+    parser.add_argument("--cache-dir", metavar="DIR",
+                        help=f"the download cache (default {cache_dir(app_data_dir())})")
+    parser.add_argument("--wifi-package", metavar="NAME",
+                        choices=[WirelessDriver.WIFI_QCOM.value,
+                                 WirelessDriver.WIFI_QCOM_AC.value],
+                        help="which half of the 7.13 split this board needs, for a device "
+                        "on wifiwave2 that does not say; never guessed")
+    parser.add_argument("--allow-missing-package", metavar="NAME", action="append",
+                        help="go on without this package in the target version. Repeatable. "
+                        "A wireless driver is never allowed to be missing")
+
+
 def build_parser() -> argparse.ArgumentParser:
     # No abbreviation: "--admin-password" would otherwise be accepted as a short form of
     # "--admin-password-env", which is exactly how a password ends up in shell history.
@@ -693,6 +829,7 @@ def build_parser() -> argparse.ArgumentParser:
                            help="with --routerboot: write the firmware even when it is older "
                            "than the running RouterBOOT, as an older RouterOS carries. Never "
                            "happens on its own")
+    _add_package_args(apply_cmd)
     apply_cmd.add_argument("--update-dir", metavar="DIR",
                            help=f"with --update: where the packages are (default "
                            f"{update_dir()})")
@@ -720,6 +857,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "on offer are listed and the device is not touched")
     version_cmd.add_argument("--update-dir", metavar="DIR",
                              help=f"where the packages are (default {update_dir()})")
+    _add_package_args(version_cmd)
+    version_cmd.add_argument("--dry-run", action="store_true",
+                             help="print the route and the packages it would upload, and "
+                             "change nothing on the device")
     version_cmd.add_argument("--download-dir",
                              help="where to put the backup and export taken before the "
                              "version is changed (they are written on the device either way)")

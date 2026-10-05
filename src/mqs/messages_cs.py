@@ -402,6 +402,9 @@ MESSAGES: dict[str, str] = {
     "se – nahrát balíček pro jinou verzi nebo architekturu je přesně to, po čem rozhraní "
     "zmizí.",
     # wireless: balíčky ovladačů, mezikrok 7.12 a kontrola rozhraní po updatu
+    "update.no_snapshot": "Aplikace nemá načtený seznam bezdrátových rozhraní zařízení, "
+    "takže neví, jestli má s RouterOS nahrát i balíček ovladače. Prázdný seznam neznamená "
+    "„zařízení nemá rádio“ – znamená „nikdo se nedíval“. Připojte se k zařízení znovu.",
     "version.no_snapshot": "Aplikace nemá načtený seznam bezdrátových rozhraní zařízení, "
     "takže neví, jaké ovladače by měla nahrát. Prázdný seznam neznamená „zařízení nemá "
     "rádio“ – znamená „nikdo se nedíval“, a update podle něj by anténě smazal rozhraní. "

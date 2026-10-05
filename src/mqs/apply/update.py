@@ -17,11 +17,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mqs.apply.package_set import (
+    driver_packages,
+    installed_drivers,
+    plain_extras,
+)
 from mqs.apply.packages import (
     NpkPackage,
     UpdateDir,
+    find_packages,
     main_packages,
-    match_extras,
     package_arch,
     scan_update_dir,
     space_issue,
@@ -89,13 +94,38 @@ def plan_update(inventory: DeviceInventory, found: UpdateDir) -> UpdatePlan:
         return skip("update.up_to_date", Severity.INFO, version=str(newest.version),
                     current=str(current))
 
-    # Extra packages (wireless, container, ...) have to move to the same version as the
-    # main one, each in a file of its own.
-    extras, absent = match_extras(inventory, found, arch, newest.version)
-    packages = [newest, *extras]
-    missing = [_issue("update.extra_missing", Severity.WARNING, name=p.name,
-                      installed=p.version or "?", version=str(newest.version),
-                      arch=device_arch) for p in absent]
+    # Nothing is planned for a device whose radios nobody looked for: an empty snapshot is
+    # not a router, it is an unanswered question, and the answer decides whether a driver
+    # package belongs in this upload (`apply/package_set.py`).
+    if not inventory.radios.collected:
+        return skip("update.no_snapshot", Severity.ERROR)
+
+    # The wireless drivers first, and on their own terms: a missing one is a refusal, not
+    # a warning. A reset that comes back without the radio has lost the link it was reached
+    # over, and this flow ends in a reset.
+    state = installed_drivers(inventory)
+    drivers = driver_packages(state, newest.version, inventory)
+    if drivers.blocked:
+        return UpdatePlan(current=current, issues=(*notes, *drivers.issues))
+    driver_files, driver_absent = find_packages(found, arch, newest.version,
+                                                drivers.required)
+    if driver_absent:
+        return UpdatePlan(current=current, issues=(
+            *notes, *(_issue("version.driver_missing", Severity.ERROR, name=name,
+                             version=str(newest.version), arch=device_arch or "?")
+                      for name in driver_absent)))
+
+    # The rest (container, gps, ...) have to move to the same version too, each in a file
+    # of its own; one without a file stays a warning here. This flow picks its own target
+    # rather than being given one, so there is nothing for the user to waive in advance —
+    # the preflight shows the warning before the reset is armed.
+    extras, absent = find_packages(found, arch, newest.version,
+                                   [p.name for p in plain_extras(inventory)])
+    installed_version = {p.name: p.version or "?" for p in plain_extras(inventory)}
+    packages = [newest, *driver_files, *extras]
+    missing = [_issue("update.extra_missing", Severity.WARNING, name=name,
+                      installed=installed_version.get(name, "?"),
+                      version=str(newest.version), arch=device_arch) for name in absent]
 
     no_room = space_issue(inventory, packages, "update", newest.version)
     if no_room is not None:
