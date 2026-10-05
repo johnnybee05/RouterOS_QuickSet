@@ -25,7 +25,9 @@ u opravného vydání.
   aplikací upozorní, že spojení vedené právě přes ten port se po aplikaci nevrátí
   (stejně jako u PPPoE), a kontrolní seznam po aplikaci přidal položku „Rozhraní
   vlan848: VLAN 848 na portu <port>“. Předtím se router za CPE Cetinu nedal z aplikace
-  nastavit vůbec — VLAN se musela doklikat ve Winboxu.
+  nastavit vůbec — VLAN se musela doklikat ve Winboxu. Syntaxe je ověřená na železe
+  (hEX S E60iUGS 7.23.5 a RB760iGS 6.49.21, 2026-10-05): v6 i v7 berou `/interface vlan
+  add` i klienta DHCP a PPPoE na VLAN rozhraní stejně.
 
 ## [0.2.0] – 2026-10-02
 
