@@ -372,6 +372,39 @@ MESSAGES: dict[str, str] = {
     "mají {size} MB, volné paměti je {free} MB. Zařízení nahrává balíček do RAM (soubory má "
     "ve flash/) – zkuste to po restartu.",
     "version.unreadable": "Soubor {file} v adresáři s balíčky se nedá použít: {error}",
+    # wireless: balíčky ovladačů, mezikrok 7.12 a kontrola rozhraní po updatu
+    "version.no_snapshot": "Aplikace nemá načtený seznam bezdrátových rozhraní zařízení, "
+    "takže neví, jaké ovladače by měla nahrát. Prázdný seznam neznamená „zařízení nemá "
+    "rádio“ – znamená „nikdo se nedíval“, a update podle něj by anténě smazal rozhraní. "
+    "Připojte se k zařízení znovu.",
+    "version.needs_712": "Z RouterOS {current} se na {version} skočit nedá: na 7.12 se "
+    "převádějí balíčky wireless a bez té zastávky rozhraní zmizí. V adresáři ani cache ale "
+    "není žádná verze 7.12.x, kterou by se mezikrok udělal.",
+    "version.route_too_long": "Trasa z RouterOS {current} na {version} by měla víc než "
+    "{stops} zastávek – to je chyba v pravidlech aplikace, ne vlastnost zařízení. "
+    "Přejděte na cílovou verzi po menších krocích.",
+    "version.driver_unknown": "Zařízení odpovídá na menu {menus}, ale neuvádí balíček, který "
+    "ho obsluhuje – aplikace tedy neví, který ovladač by měla nahrát. Update by rozhraní "
+    "smazal, takže ho aplikace odmítá. Pošlete výstup /system package print.",
+    "version.driver_no_v6": "Rádia tohohle zařízení jedou na ovladači {drivers}, který "
+    "v RouterOS 6 neexistuje – po přechodu na {version} by zařízení nemělo bezdrátové "
+    "rozhraní vůbec. Přechod na v6 aplikace odmítá.",
+    "version.driver_switch": "Ovladač {chosen} by na tomhle zařízení nahradil {current}. "
+    "Změna ovladače smaže konfiguraci rozhraní, takže ji aplikace neudělá. Volba ovladače "
+    "slouží jen k rozdělení wifiwave2 na 7.13, ne k přepnutí z legacy wireless.",
+    "version.wifi_choice_needed": "Zařízení {model} jede na wifiwave2, který se od 7.13 dělí "
+    "na {options} – a samo neřeklo, který z nich na tu desku patří. Vyberte ho ručně "
+    "(--wifi-package), aplikace ho nehádá: špatná volba smaže konfiguraci rozhraní.",
+    "version.wifi_choice_invalid": "Ovladač {chosen} tady nelze použít, na výběr je {options}.",
+    "version.driver_missing": "Na zařízení jede bezdrátový ovladač, který v RouterOS "
+    "{version} potřebuje balíček {name} – a ten pro architekturu {arch} nikde není "
+    "(ani v adresáři Update, ani v cache). Bez něj by zařízení po restartu nemělo "
+    "bezdrátové rozhraní a spoj by se nevrátil, takže update aplikace odmítá.",
+    "version.extra_missing_blocking": "Na zařízení je balíček {name} {installed}, ale verze "
+    "{version} pro architekturu {arch} nikde není. Update by ho zrušil; pokud o něj na "
+    "tomhle zařízení nestojíte, povolte to výslovně (--allow-missing-package {name}).",
+    "version.extra_missing_allowed": "Balíček {name} {installed} v RouterOS {version} nebude "
+    "– povolil jste to výslovně. Po přechodu ho případně doinstalujte.",
     "apply.step.version_upload": "Nahrání balíčku {file} ({size} MB, způsob: {strategy})",
     "apply.step.version_install_reboot": "Instalace RouterOS {version} restartem",
     "apply.step.version_install_downgrade": "Downgrade na RouterOS {version} (zařízení má "

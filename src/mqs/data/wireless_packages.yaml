@@ -1,0 +1,124 @@
+# Which packages drive the radios, and the stops an update has to make on the way.
+#
+# The point of this file is that NONE of it is guessed from the model name at run time.
+# The package set is copied from what the device has installed; this file only says what
+# those packages are CALLED in the version being installed, and which versions cannot be
+# jumped over. Where the device itself can answer, it is asked first and this file is not
+# consulted at all.
+#
+# A missing radio after an update is a lost link, so everything here fails towards
+# "refuse and say why" rather than towards a default.
+#
+# SOURCE: the facts in the task brief of 2026-10-05 (package split at 7.13, the 7.12
+# conversion stop), plus `docs/DIALECT_NOTES.md` for what has been seen on real devices.
+# NUTNO OVĚŘIT on wireless hardware — the test devices so far (hEX S RB760iGS mmips,
+# hEX S E60iUGS arm) have no radio at all, so nothing in this file is OVĚŘENO yet.
+
+# ---------------------------------------------------------------- driver packages
+#
+# `/system package print` names these; anything else installed is an ordinary extra
+# package (container, gps, ups, iot, ...) which needs a counterpart too, but whose absence
+# the user may choose to accept. A driver's absence is never acceptable.
+#
+# v6 is not listed: there the driver is inside the `routeros-<arch>` bundle (its header
+# names `wireless@` among the members, see tests/test_update.py REAL_MMIPS_V6_HEADER), so
+# a v6 target needs no driver file of its own.
+#
+# A v7 target needs a file for every driver the device runs; a v6 target needs none. That
+# is the whole rule, and it is deliberately the safe one: if some v7 version did carry a
+# driver inside `routeros`, asking for a file that does not exist refuses an update that
+# would have worked, which is the direction this is allowed to fail in. Losing a radio is
+# not.
+drivers:
+  wireless: # legacy /interface wireless (a/b/g/n/ac) AND all 60 GHz /interface w60g
+    menus: [wireless, w60g]
+  wifiwave2: # /interface wifi before the split
+    menus: [wifi]
+  wifi-qcom: # 802.11ax
+    menus: [wifi]
+  wifi-qcom-ac: # 802.11ac Wave2 on the new driver
+    menus: [wifi]
+
+# ---------------------------------------------------------------- naming across 7.13
+#
+# The same driver, under the name the target version uses. Installing a package under the
+# wrong name is the failure this whole table exists to prevent: the file would upload, the
+# device would reboot, and the radio would be gone.
+renames:
+  # Going up: wifiwave2 does not exist from 7.13 on, and which of the two replaces it
+  # depends on the radio — see `wifi_split`.
+  - from: wifiwave2
+    at_or_above: "7.13"
+    to: [wifi-qcom, wifi-qcom-ac]
+    needs_choice: true
+  # Going down: neither name exists below 7.13, where both were wifiwave2. This is the
+  # reverse of the rule above and needs no choice: both collapse onto the one old name.
+  - from: wifi-qcom
+    below: "7.13"
+    to: [wifiwave2]
+  - from: wifi-qcom-ac
+    below: "7.13"
+    to: [wifiwave2]
+
+# ---------------------------------------------------------------- splitting wifiwave2
+#
+# Only ever consulted for a device that runs `wifiwave2` and is going to 7.13 or newer,
+# and only after the device has been asked and could not answer. The device answers when
+# its own `/system package print` offers exactly one of the two for download (flag `A`,
+# `available=true`): 7.23 lists every package MikroTik publishes for the board, which is
+# the board's own statement of which driver belongs on it (DIALECT_NOTES, 2026-09-27).
+# A device on 7.12 does not list them, which is exactly the case this table is for.
+#
+# `by_model_pattern` is tried in order against `/system routerboard model` and then
+# `/system resource board-name`, case-insensitively. The one rule here rests on MikroTik's
+# own naming: the radio designator of an 802.11ax board contains `ax`
+# (C52iG-5HaxD2HaxD = hAP ax², cAPGi-5HaxD2HaxD = cAP ax, L41G-2axD = hAP ax lite),
+# while a Wave2 board's does not (RBD53iG-5HacD2HnD = hAP ac³, RBD25G-5HPacQD2HPnD =
+# Audience). NUTNO OVĚŘIT.
+#
+# Nothing matching is NOT an error in itself — it is a question for the user, who can have
+# the answer written into the user copy of this file (%LOCALAPPDATA%\MikrotikQuickSetPlus).
+wifi_split:
+  ask_the_device_first: true
+  by_model_pattern:
+    - pattern: "[-+]?[0-9]*ax[a-z0-9]*" # ...5HaxD2HaxD, 2axD, 5HPaxD...
+      package: wifi-qcom
+      why: "an 802.11ax radio designator"
+  by_model: {} # exact model prefixes, longest wins; filled by the user, empty on purpose
+
+# ---------------------------------------------------------------- stops on the way
+#
+# A gate applies when the device is below `when_below` and the target is at or above
+# `when_target_at_least`; the route then stops at the newest available version inside
+# [`via_at_least`, `via_below`) before going on. Gates are re-checked from each stop, so
+# an antenna on v6 going to 7.16 collects both of them: 6.4x -> 6.49.22 -> 7.12.x -> 7.16.
+#
+# `requires_drivers: true` limits a gate to devices that actually run a wireless driver.
+gates:
+  - id: v6_to_v7
+    when_below: "6.49.22"
+    when_target_at_least: "7.0.0"
+    via_at_least: "6.49.22"
+    via_below: "7.0.0"
+    code: "version.v7_needs_649"
+    # OVĚŘENO on the mmips hEX S, 2026-09-28: the two-hop route 6.49.12 -> 6.49.22 ->
+    # 7.23.7 (docs/VERSION_CHANGE.md §11).
+  - id: pre_712_to_713
+    when_below: "7.12.0"
+    when_target_at_least: "7.13.0"
+    via_at_least: "7.12.0"
+    via_below: "7.13.0"
+    code: "version.needs_712"
+    requires_drivers: true
+    # The conversion of the wireless packages happens on 7.12.x; jumping it is what makes
+    # radios disappear. From the task brief, NUTNO OVĚŘIT.
+    #
+    # Only for devices with a radio, and that is not a convenience: what the stop converts
+    # is the wireless packages, so a device without them has nothing to convert. It is
+    # also what keeps this rule and the field evidence from contradicting each other — the
+    # mmips hEX S (no radio at all) went 6.49.12 -> 6.49.22 -> 7.23.7 in two hops and came
+    # back fine, OVĚŘENO 2026-09-28. An antenna on that same route takes three.
+
+# Free space kept back on the device beyond the size of the packages themselves. A 16 MB
+# antenna has no room to spare, and a root filled to the last byte is its own failure.
+space_reserve_bytes: 1048576

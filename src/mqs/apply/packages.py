@@ -13,7 +13,7 @@ direction. Everything here is pure: files and inventory in, packages and issues 
 from __future__ import annotations
 
 import struct
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -204,6 +204,28 @@ def extra_packages(inventory: DeviceInventory) -> list[PackageInfo]:
             if p.installed and not p.bundle
             and p.name not in DEVICE_MAIN_PACKAGES and p.name not in bundles
             and not is_main_package(p.name)]
+
+
+def find_packages(
+    found: UpdateDir, architecture: str, version: RosVersion, names: Iterable[str]
+) -> tuple[list[NpkPackage], list[str]]:
+    """The files for ``names`` in exactly ``version`` and ``architecture``, and the ones
+    with no file at all.
+
+    Every part of the set has to match: `wifi-qcom-7.15.3-arm.npk` next to a `routeros`
+    7.16.1 is the mismatch that leaves a device with a radio its RouterOS cannot drive, so
+    a near miss counts as missing rather than as a file to upload.
+    """
+    matched: list[NpkPackage] = []
+    missing: list[str] = []
+    for name in sorted(names):
+        match = next((p for p in found.packages if p.name == name
+                      and p.architecture == architecture and p.version == version), None)
+        if match is None:
+            missing.append(name)
+        else:
+            matched.append(match)
+    return matched, missing
 
 
 def match_extras(

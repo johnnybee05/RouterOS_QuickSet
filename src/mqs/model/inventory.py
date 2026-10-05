@@ -38,6 +38,10 @@ class PackageInfo(BaseModel):
     disabled: bool = False
     available: bool = False  # offered for download, not on the device (v7 flag "A")
     bundle: str = ""  # v6: the bundle package this one came in, e.g. routeros-mmips
+    # `/system package print` `scheduled`: "enable", "disable", "uninstall", "downgrade" —
+    # a change the next reboot will make. After an update every package has to be plain
+    # installed and nothing scheduled, or the device is one reboot away from somewhere else.
+    scheduled: str = ""
 
     @property
     def installed(self) -> bool:
@@ -104,9 +108,118 @@ class RouterboardInfo(BaseModel):
 
 
 class WirelessStack(StrEnum):
+    """Which configuration menu the device answers on — the coarse answer, for the window.
+
+    Which *driver package* carries that menu is `WirelessDriver`, and the two are not the
+    same question: `/interface wifi` is served by `wifi-qcom`, `wifi-qcom-ac` or, before
+    7.13, `wifiwave2`, and a device can answer on `/interface wireless` and
+    `/interface wifi` at once.
+    """
+
     NONE = "none"
     WIRELESS = "wireless"  # /interface wireless (v6, older v7 packages)
     WIFI = "wifi"  # /interface wifi (v7)
+
+
+class WirelessMenu(StrEnum):
+    """The menus a radio can live under; the snapshot keeps them apart by name."""
+
+    WIRELESS = "wireless"  # /interface wireless — legacy a/b/g/n/ac
+    WIFI = "wifi"  # /interface wifi — the new driver
+    W60G = "w60g"  # /interface w60g — 60 GHz, driven by the `wireless` package
+
+
+class WirelessDriver(StrEnum):
+    """The package that drives the radios. The value is the package name, where there is
+    one: `NONE` has no package and v6 carries `WIRELESS` inside its bundle.
+
+    Never changed by an update. Switching between the legacy driver and a `wifi` one wipes
+    the interface configuration, so the set a device runs is copied, not chosen.
+    """
+
+    NONE = "none"
+    WIRELESS = "wireless"  # legacy /interface wireless, and all 60 GHz
+    WIFIWAVE2 = "wifiwave2"  # v7 < 7.13, split into the two below by 7.13
+    WIFI_QCOM = "wifi-qcom"  # 802.11ax
+    WIFI_QCOM_AC = "wifi-qcom-ac"  # 802.11ac Wave2 on the new driver
+
+    @property
+    def is_wifi(self) -> bool:
+        """One of the `/interface wifi` drivers, as opposed to the legacy one."""
+        return self in (WirelessDriver.WIFIWAVE2, WirelessDriver.WIFI_QCOM,
+                        WirelessDriver.WIFI_QCOM_AC)
+
+
+class WirelessRole(StrEnum):
+    """What the radio does, read from the interface mode — not from the model name."""
+
+    AP = "ap"  # ap-bridge, ap, bridge (w60g)
+    STATION = "station"  # station, station-bridge, station-pseudobridge, station-wds
+    OTHER = "other"  # alignment-only, nstreme-dual-slave, a mode not recognised here
+    UNKNOWN = "unknown"  # the device did not say
+
+
+class WirelessInterface(BaseModel):
+    """One radio as the device reports it, for the snapshot an update is checked against."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    menu: WirelessMenu
+    mode: str = ""  # as reported: ap-bridge, station-bridge, bridge, ...
+    role: WirelessRole = WirelessRole.UNKNOWN
+    running: bool = False
+    disabled: bool = False
+    mac_address: str = ""
+    band: str = ""
+    ssid: str = ""
+    remote_address: str = ""  # w60g: the MAC of the far end of the link
+
+
+class WirelessSnapshot(BaseModel):
+    """Every radio on the device, taken before an update and compared with after it.
+
+    `menus` is the menus the device *has*, which is not the same as the menus that hold
+    something: a device with the `wireless` package and no radio configured still answers
+    on `/interface wireless`, and a menu that is missing says the driver is not installed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Whether the device was actually asked. False is NOT "no radios" — it is "nobody
+    # looked", and an update planned on it would quietly leave a driver package out and
+    # take the radio with it. Everything that plans an update refuses on a snapshot that
+    # was never taken, which is why this defaults to False rather than True.
+    collected: bool = False
+    menus: list[WirelessMenu] = Field(default_factory=list)
+    interfaces: list[WirelessInterface] = Field(default_factory=list)
+    # Interface name -> how many stations were registered on it when the snapshot was taken.
+    registrations: dict[str, int] = Field(default_factory=dict)
+
+    @property
+    def has_radios(self) -> bool:
+        """The one criterion that makes a device a wireless device: it has radios."""
+        return bool(self.interfaces)
+
+    @property
+    def names(self) -> list[str]:
+        return sorted(i.name for i in self.interfaces)
+
+    @property
+    def running_names(self) -> list[str]:
+        return sorted(i.name for i in self.interfaces if i.running)
+
+    @property
+    def roles(self) -> set[WirelessRole]:
+        return {i.role for i in self.interfaces}
+
+    @property
+    def serves_stations(self) -> bool:
+        """An AP: after an update its registration table has to fill up again."""
+        return WirelessRole.AP in self.roles
+
+    def in_menu(self, menu: WirelessMenu) -> list[WirelessInterface]:
+        return [i for i in self.interfaces if i.menu == menu]
 
 
 class Ipv6PackageState(StrEnum):
@@ -129,6 +242,7 @@ class DeviceInventory(BaseModel):
     services: list[ServiceInfo] = Field(default_factory=list)
     certificates: list[str] = Field(default_factory=list)
     wireless: WirelessStack = WirelessStack.NONE
+    radios: WirelessSnapshot = Field(default_factory=WirelessSnapshot)
     has_flash_dir: bool = False
     bridge_ports: list[BridgePortState] = Field(default_factory=list)
 

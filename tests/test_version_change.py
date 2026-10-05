@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from factories import make_inventory
+from factories import make_inventory, make_radios
 from factories import make_npk as npk
 from fake_router import FakeRouter, RouterUploader
 from mqs.apply.events import StepStatus
@@ -200,19 +200,31 @@ def test_v7_back_to_v6_is_one_downgrade_with_the_configuration_lost(tmp_path):
 
 
 def test_an_extra_package_comes_along_inside_one_major_version(tmp_path):
+    # `ups`, not `wireless`: a wireless driver has rules of its own (apply/package_set.py),
+    # and this is about an ordinary package riding along.
     folder = mmips_dir(tmp_path, (6, 49, 12), (6, 49, 21))
-    write(folder, "wireless-6.49.12-mmips.npk", npk("wireless", (6, 49, 12), "mmips"))
-    plan = plan_version(mmips("6.49.21", extras=("wireless",)), scan_update_dir(folder),
+    write(folder, "ups-6.49.12-mmips.npk", npk("ups", (6, 49, 12), "mmips"))
+    plan = plan_version(mmips("6.49.21", extras=("ups",)), scan_update_dir(folder),
                         V("6.49.12"))
-    assert [p.display_name for p in plan.hops[0].packages] == ["routeros", "wireless"]
+    assert [p.display_name for p in plan.hops[0].packages] == ["routeros", "ups"]
     assert codes(plan.issues) == {"version.planned", "version.routerboot_stays"}
 
 
-def test_an_extra_package_without_a_file_is_a_warning(tmp_path):
+def test_an_extra_package_without_a_file_stops_the_plan(tmp_path):
+    """It used to be a warning and the update went ahead without the package. A package
+    that silently disappears is not something to find out afterwards, so the plan stops
+    and names the waiver that would let it through."""
     plan = plan_version(mmips("6.49.21", extras=("container",)),
                         scan_update_dir(mmips_dir(tmp_path)), V("6.49.12"))
-    assert len(plan.hops[0].packages) == 1
-    assert "version.extra_missing" in codes(plan.issues)
+    assert plan.blocked and "version.extra_missing_blocking" in codes(plan.issues)
+
+
+def test_a_waived_extra_package_lets_the_plan_through(tmp_path):
+    plan = plan_version(mmips("6.49.21", extras=("container",)),
+                        scan_update_dir(mmips_dir(tmp_path)), V("6.49.12"),
+                        allow_missing=["container"])
+    assert not plan.blocked and len(plan.hops[0].packages) == 1
+    assert "version.extra_missing_allowed" in codes(plan.issues)
 
 
 def test_across_a_major_version_extra_packages_are_dropped_not_asked_for(tmp_path):
@@ -223,6 +235,9 @@ def test_across_a_major_version_extra_packages_are_dropped_not_asked_for(tmp_pat
 
 
 def test_the_v7_packages_a_move_to_v6_leaves_behind_are_named(tmp_path):
+    """No radio on this board, so `wifi-qcom` is just a package with nowhere to go on v6 —
+    named among the ones left behind, not a refusal. On a board whose radios run it the
+    answer is the opposite; see test_a_wifi_radio_cannot_go_back_to_v6."""
     device = make_inventory("7.23.5", architecture="mmips", has_flash_dir=True,
                             free_memory=227 * MB, factory_firmware="6.42.4",
                             packages=[PackageInfo(name="routeros", version="7.23.5"),
@@ -233,6 +248,18 @@ def test_the_v7_packages_a_move_to_v6_leaves_behind_are_named(tmp_path):
     dropped = next(i for i in plan.issues if i.code == "version.extras_dropped")
     # Only what is installed: 7.23 also lists what it could download.
     assert "wifi-qcom" in dropped.message and "container" not in dropped.message
+
+
+def test_a_wifi_radio_cannot_go_back_to_v6(tmp_path):
+    """The same package, but with a radio depending on it: v6 has no `wifi` driver at all,
+    so the radio would come back with nothing driving it."""
+    device = make_inventory("7.23.5", architecture="mmips", has_flash_dir=True,
+                            free_memory=227 * MB, factory_firmware="6.42.4",
+                            radios=make_radios(("wifi1", "wifi", "ap")),
+                            packages=[PackageInfo(name="routeros", version="7.23.5"),
+                                      PackageInfo(name="wifi-qcom", version="7.23.5")])
+    plan = plan_version(device, scan_update_dir(mmips_dir(tmp_path)), V("6.49.21"))
+    assert plan.blocked and "version.driver_no_v6" in codes(plan.issues)
 
 
 # ------------------------------------------------------------------ refusals

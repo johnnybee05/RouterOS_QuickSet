@@ -40,12 +40,21 @@ from pathlib import Path
 
 from mqs.apply.backup import DeviceBackup
 from mqs.apply.events import ApplyEvent, StepStatus
+from mqs.apply.package_set import (
+    DriverState,
+    PackageRules,
+    default_rules,
+    driver_packages,
+    driver_switch_issue,
+    installed_drivers,
+    plain_extras,
+    plan_route,
+)
 from mqs.apply.packages import (
     NpkPackage,
     UpdateDir,
-    extra_packages,
+    find_packages,
     main_packages,
-    match_extras,
     package_arch,
     scan_update_dir,
     space_issue,
@@ -64,7 +73,7 @@ from mqs.apply.update import firmware_newer
 from mqs.apply.verify import CheckResult, check_routeros_version
 from mqs.generator.ir import Find, cmd
 from mqs.issues import Issue, Severity
-from mqs.model.inventory import DeviceInventory
+from mqs.model.inventory import DeviceInventory, WirelessDriver
 from mqs.model.version import RosVersion
 from mqs.transport.base import (
     Cancelled,
@@ -103,6 +112,10 @@ class Hop:
     version: RosVersion
     install: Install
     crosses_major: bool = False
+    # The wireless driver packages this hop carries, by name. Kept apart from the files so
+    # the run can say what it is protecting, and so the check after the reboot knows which
+    # packages must have come back in this version and not merely "all of them".
+    drivers: frozenset[str] = frozenset()
 
     @property
     def main(self) -> NpkPackage:
@@ -122,6 +135,7 @@ class VersionPlan:
     hops: tuple[Hop, ...] = ()
     floor: RosVersion | None = None  # the factory version, None = the board does not say
     issues: tuple[Issue, ...] = field(default_factory=tuple)
+    drivers: frozenset[str] = frozenset()  # wireless driver packages the route carries
 
     @property
     def changes(self) -> bool:
@@ -163,7 +177,8 @@ class VersionOffer:
         return self.blocked_by is None and not self.current
 
 
-def available_versions(inventory: DeviceInventory, found: UpdateDir) -> list[VersionOffer]:
+def available_versions(inventory: DeviceInventory, found: UpdateDir,
+                       **options: object) -> list[VersionOffer]:
     """Every RouterOS version in ``found`` built for this device, newest first.
 
     A version the device cannot have keeps its place in the list with the reason in
@@ -176,21 +191,31 @@ def available_versions(inventory: DeviceInventory, found: UpdateDir) -> list[Ver
         return []
     offers: list[VersionOffer] = []
     for package in main_packages(found, arch):
-        plan = plan_version(inventory, found, package.version)
+        plan = plan_version(inventory, found, package.version, **options)  # type: ignore[arg-type]
         blocking = next((i for i in plan.issues if i.severity == Severity.ERROR), None)
         offers.append(VersionOffer(package.version, package, blocking,
                                    current=package.version == inventory.version))
     return offers
 
 
-def plan_version(inventory: DeviceInventory, found: UpdateDir,
-                 target: RosVersion) -> VersionPlan:
+def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersion, *,
+                 wifi_package: WirelessDriver | None = None,
+                 allow_missing: Sequence[str] = (),
+                 rules: PackageRules | None = None) -> VersionPlan:
     """The route to ``target``, or the reason there is none.
 
     Refuses rather than guesses: an unknown architecture, a missing package, a target
-    below the board's floor or one that would need a 6.49.22 the directory does not hold
-    all come back as errors, before anything is uploaded and long before a reboot.
+    below the board's floor or a stop the directory cannot supply all come back as errors,
+    before anything is uploaded and long before a reboot.
+
+    On a device with radios the package set is the point. Every driver the device runs
+    must have a file in ``target``'s version, or there is no plan — a radio that comes
+    back without its driver is a lost link and, on a PtP side, a lost way in.
+    ``wifi_package`` answers the one question the device may not be able to
+    (`wifiwave2` splitting at 7.13); ``allow_missing`` names ordinary packages the user
+    knowingly gives up, and never applies to a driver.
     """
+    rules = rules or default_rules()
     current = inventory.version
     floor = inventory.version_floor
     notes = list(unreadable_issues(found, "version"))
@@ -205,6 +230,11 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
     arch = package_arch(inventory)
     if arch is None:
         return stop("version.unknown_arch", arch=device_arch or "?")
+    # No update is planned on a device whose radios nobody looked for. An empty snapshot
+    # is not evidence of a device without radios, and the difference is a wireless driver
+    # left out of the upload.
+    if not inventory.radios.collected:
+        return stop("version.no_snapshot")
     # The version it already runs needs no file: asking for it is not an error even when
     # the directory has no package for it, and "nothing to install" is the whole answer.
     if target == current:
@@ -222,30 +252,39 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
         notes.append(_issue("version.no_factory_firmware", Severity.WARNING,
                             version=str(target)))
 
-    # The route. Only the move up to 6.49.22 ever adds a hop of its own.
-    hops: list[Hop] = []
-    if current.major == 6 and target.major == 7 and current < V6_TO_V7_FROM:
-        gate = next((p for p in mains if p.version.major == 6
-                     and p.version >= V6_TO_V7_FROM), None)
-        if gate is None:
-            return stop("version.v7_needs_649", version=str(target), current=str(current),
-                        gate=str(V6_TO_V7_FROM), dir=str(found.directory))
-        hops.append(_hop(inventory, found, arch, gate, current, notes))
+    state = installed_drivers(inventory, rules)
+    switch = driver_switch_issue(state, wifi_package)
+    if switch is not None:
+        return VersionPlan(current, target, (), floor, (*notes, switch))
+
+    # The stops on the way, from the gate rules: the move up to 6.49.22 before v7, and the
+    # 7.12 conversion of the wireless packages before 7.13. They compose, so a v6 device
+    # going to 7.16 collects both.
+    route = plan_route(current, target, [p.version for p in mains], rules,
+                       has_drivers=state.any_wireless)
+    if route.blocked:
+        return VersionPlan(current, target, (), floor,
+                           (*notes, *_with_dir(route.issues, found)))
+
     if target.major != current.major:
         notes.append(_issue("version.crosses_major", Severity.WARNING, version=str(target),
                             current=str(current)))
-        dropped = [p.name for p in extra_packages(inventory)]
-        if dropped:
-            notes.append(_issue("version.extras_dropped", Severity.WARNING,
-                                names=", ".join(sorted(dropped)), version=str(target)))
     if target.major == 7 and current.major == 6:
         notes.append(_issue("version.v7_config_converted", Severity.WARNING,
                             version=str(target)))
     if target.major == 6 and current.major == 7:
         notes.append(_issue("version.v6_config_lost", Severity.WARNING, version=str(target)))
-    hops.append(_hop(inventory, found, arch, wanted,
-                     hops[-1].version if hops else current, notes,
-                     crosses_major=target.major != current.major))
+
+    hops: list[Hop] = []
+    position = current
+    for version in route.stops:
+        main = next((p for p in mains if p.version == version), None)
+        if main is None:  # plan_route only ever picks from `mains`
+            return stop("version.no_package", version=str(version),
+                        arch=device_arch or "?", dir=str(found.directory))
+        hops.append(_hop(inventory, found, arch, main, position, notes, state, rules,
+                         wifi_package=wifi_package, allow_missing=allow_missing))
+        position = version
 
     # Each hop is uploaded after the one before it has rebooted, so they never have to
     # fit at the same time.
@@ -269,35 +308,81 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir,
     planned = _issue("version.planned", Severity.INFO, current=str(current),
                      version=str(target), reboots=len(hops),
                      files=", ".join(h.file_names for h in hops))
-    return VersionPlan(current, target, tuple(hops), floor, (*notes, planned))
+    return VersionPlan(current, target, tuple(hops), floor, (*notes, planned),
+                       drivers=frozenset().union(*(h.drivers for h in hops)) if hops
+                       else frozenset())
+
+
+def _with_dir(issues: Sequence[Issue], found: UpdateDir) -> tuple[Issue, ...]:
+    """Gate issues come from the pure route planner, which knows nothing about a directory;
+    the message says where to put the missing package, so the path is added here."""
+    return tuple(Issue(i.code, i.severity, i.field, {**i.params, "dir": str(found.directory)})
+                 for i in issues)
 
 
 def _hop(inventory: DeviceInventory, found: UpdateDir, arch: str, main: NpkPackage,
-         from_version: RosVersion, notes: list[Issue], *, crosses_major: bool = False) -> Hop:
-    """One reinstall of ``main``, with the device's extra packages in the same version.
+         from_version: RosVersion, notes: list[Issue], state: DriverState,
+         rules: PackageRules, *, wifi_package: WirelessDriver | None = None,
+         allow_missing: Sequence[str] = ()) -> Hop:
+    """One reinstall of ``main``, with every package the device needs in the same version.
 
-    Across a major version nothing is asked for: a v7 `wifi-qcom` has no v6 counterpart
-    and v6 brings its extras inside the bundle, so the packages that do not come along
-    are reported once (`version.extras_dropped`) and no file is looked for.
+    Two kinds of company, treated differently on purpose:
+
+    * **wireless drivers** — required, in every hop, in both directions, and across the
+      major version as well. v6 keeps the legacy driver inside its bundle, so a v6 device
+      going to v7 has nothing in `/system package print` to carry over and still needs
+      `wireless-<ver>-<arch>.npk`: asking only after what is listed is exactly how a radio
+      goes missing. A driver with no file is an error and there is no way past it.
+    * **ordinary packages** (container, gps, ups, iot, ...) — required too, but the user
+      may name one in ``allow_missing`` and go on without it. Across the major version
+      they cannot come along at all and are reported once.
     """
+    crosses_major = main.version.major != from_version.major
     packages = [main]
-    if not crosses_major:
-        extras, absent = match_extras(inventory, found, arch, main.version)
-        packages += extras
-        notes.extend(_issue("version.extra_missing", Severity.WARNING, name=p.name,
-                            installed=p.version or "?", version=str(main.version),
-                            arch=inventory.resource.architecture or "?") for p in absent)
+    target = main.version
+
+    drivers = driver_packages(state, target, inventory, wifi_override=wifi_package,
+                              rules=rules)
+    notes.extend(drivers.issues)
+    if drivers.required:
+        present, absent = find_packages(found, arch, target, drivers.required)
+        packages += present
+        notes.extend(_issue("version.driver_missing", Severity.ERROR, name=name,
+                            version=str(target),
+                            arch=inventory.resource.architecture or "?") for name in absent)
+
+    wanted_extras = plain_extras(inventory, rules)
+    if crosses_major:
+        left_behind = sorted({p.name for p in wanted_extras} | drivers.dropped)
+        if left_behind:
+            notes.append(_issue("version.extras_dropped", Severity.WARNING,
+                                names=", ".join(left_behind), version=str(target)))
+    else:
+        allowed = set(allow_missing)
+        present, absent = find_packages(found, arch, target,
+                                        [p.name for p in wanted_extras])
+        packages += present
+        installed_version = {p.name: p.version or "?" for p in wanted_extras}
+        for name in absent:
+            code, severity = (("version.extra_missing_allowed", Severity.INFO)
+                              if name in allowed
+                              else ("version.extra_missing_blocking", Severity.ERROR))
+            notes.append(_issue(code, severity, name=name,
+                                installed=installed_version.get(name, "?"),
+                                version=str(target),
+                                arch=inventory.resource.architecture or "?"))
     install = Install.BY_REBOOT if main.version > from_version else Install.BY_DOWNGRADE
-    return Hop(tuple(packages), main.version, install, crosses_major)
+    return Hop(tuple(packages), main.version, install, crosses_major, drivers.required)
 
 
-def plan_from_dir(directory: Path, inventory: DeviceInventory,
-                  target: RosVersion) -> VersionPlan:
-    return plan_version(inventory, scan_update_dir(directory), target)
+def plan_from_dir(directory: Path, inventory: DeviceInventory, target: RosVersion,
+                  **options: object) -> VersionPlan:
+    return plan_version(inventory, scan_update_dir(directory), target, **options)  # type: ignore[arg-type]
 
 
-def offers_from_dir(directory: Path, inventory: DeviceInventory) -> list[VersionOffer]:
-    return available_versions(inventory, scan_update_dir(directory))
+def offers_from_dir(directory: Path, inventory: DeviceInventory,
+                    **options: object) -> list[VersionOffer]:
+    return available_versions(inventory, scan_update_dir(directory), **options)
 
 
 # ------------------------------------------------------------------ walking the route

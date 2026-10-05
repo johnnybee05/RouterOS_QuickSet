@@ -13,6 +13,10 @@ from mqs.model.inventory import (
     RouterboardInfo,
     ServiceInfo,
     SwitchChip,
+    WirelessInterface,
+    WirelessMenu,
+    WirelessRole,
+    WirelessSnapshot,
 )
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
@@ -38,9 +42,16 @@ def make_inventory(
     has_flash_dir: bool = False,
     factory_firmware: str = "",
     factory_software: str = "",
+    radios: WirelessSnapshot | None = None,
+    model: str = "",
 ) -> DeviceInventory:
     """``switches`` maps chip name → type, ``port_switch`` maps port → chip name,
-    ``default_names`` a renamed port → its default-name (others are not renamed)."""
+    ``default_names`` a renamed port → its default-name (others are not renamed).
+
+    ``radios`` defaults to an empty snapshot that *was* taken: a device with no radio at
+    all. The difference from the model default (never taken) matters — see
+    `WirelessSnapshot.collected` — and almost every test wants the former.
+    """
     port_types = port_types or {}
     port_switch = port_switch or {}
     default_names = default_names or {}
@@ -48,10 +59,11 @@ def make_inventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
                               architecture=architecture, free_hdd_space=free_hdd_space,
                               free_memory=free_memory, factory_software=factory_software),
-        routerboard=RouterboardInfo(routerboard=True, model=board_name,
+        routerboard=RouterboardInfo(routerboard=True, model=model or board_name,
                                     factory_firmware=factory_firmware,
                                     current_firmware=version, upgrade_firmware=version)
-        if factory_firmware else None,
+        if factory_firmware or model else None,
+        radios=radios if radios is not None else WirelessSnapshot(collected=True),
         has_flash_dir=has_flash_dir,
         identity="MikroTik",
         interfaces=[
@@ -67,6 +79,32 @@ def make_inventory(
         packages=list(packages),
         services=list(services),
     )
+
+
+def make_radios(
+    *interfaces: tuple[str, str, str],
+    menus: Sequence[str] | None = None,
+    registrations: Mapping[str, int] | None = None,
+) -> WirelessSnapshot:
+    """A taken snapshot. Each interface is (name, menu, mode); the role follows from the
+    mode, and the menus are the ones the interfaces live in unless given."""
+    radios = [
+        WirelessInterface(name=name, menu=WirelessMenu(menu), mode=mode,
+                          role=_role(mode), running=True)
+        for name, menu, mode in interfaces
+    ]
+    present = ([WirelessMenu(m) for m in menus] if menus is not None
+               else sorted({i.menu for i in radios}))
+    return WirelessSnapshot(collected=True, menus=present, interfaces=radios,
+                            registrations=dict(registrations or {}))
+
+
+def _role(mode: str) -> WirelessRole:
+    if mode.startswith("station"):
+        return WirelessRole.STATION
+    if mode in ("ap-bridge", "ap", "bridge"):
+        return WirelessRole.AP
+    return WirelessRole.OTHER
 
 
 def router_profile(ports: Sequence[str] = FIVE_PORTS, identity: str = "R1") -> DeviceProfile:
