@@ -37,6 +37,7 @@ ADOPT_KEYS: dict[str, tuple[str, ...]] = {
     "/interface list": ("name",),
     "/interface list member": ("list", "interface"),
     "/interface pppoe-client": ("name",),
+    "/interface vlan": ("name",),
     "/ip address": ("address",),
     "/ip route": ("dst-address", "gateway"),
     "/ip pool": ("name",),

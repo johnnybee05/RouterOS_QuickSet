@@ -26,13 +26,30 @@ def wan_port(profile: DeviceProfile) -> str | None:
     return wan.interface if wan.enabled and wan.interface else None
 
 
-def wan_l3_interface(profile: DeviceProfile) -> str | None:
-    """Interface carrying WAN IP traffic: the PPPoE client for PPPoE, the port otherwise."""
+def wan_vlan_interface(profile: DeviceProfile) -> str | None:
+    """VLAN interface of a tagged WAN (Cetin PPPoE: vlan848), None when it is untagged."""
+    return profile.wan.vlan_interface if wan_port(profile) is not None else None
+
+
+def wan_link(profile: DeviceProfile) -> str | None:
+    """Interface the WAN client attaches to: the VLAN interface when tagged, else the port.
+
+    This is what `/ip dhcp-client`, `/ip address` and `/interface pppoe-client` get as
+    their `interface=`; a tagged WAN leaves the physical port without any address.
+    """
     port = wan_port(profile)
     if port is None:
         return None
+    return profile.wan.vlan_interface or port
+
+
+def wan_l3_interface(profile: DeviceProfile) -> str | None:
+    """Interface carrying WAN IP traffic: the PPPoE client for PPPoE, the link otherwise."""
+    link = wan_link(profile)
+    if link is None:
+        return None
     settings = profile.wan.settings
-    return settings.interface_name if isinstance(settings, PppoeWan) else port
+    return settings.interface_name if isinstance(settings, PppoeWan) else link
 
 
 def uses_wan_list(profile: DeviceProfile, ctx: TargetContext) -> bool:

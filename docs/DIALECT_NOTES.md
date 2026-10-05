@@ -41,6 +41,7 @@ Legend:
 | DHCP client / server `disabled=no` | `blocks/addressing.py` | always explicit (v6 adds disabled entries by default) | NUTNO OVĚŘIT |
 | Router as DNS | `blocks/system.py`, `blocks/addressing.py:dhcp_dns_servers` | `/ip dns set allow-remote-requests=yes\|no` always explicit, from the services option (default no), yes only with the basic filter; the DHCP network hands out the bridge address when yes, else the IPv4 servers of the hardening block (or of a static WAN), unless the LAN page lists its own | design decision (2026-09-24); **OVĚŘENO on 7.20.7** (2026-09-24, see log): both ways by import, resolver closed to WAN by the filter |
 | PPPoE in WAN list | `blocks/addressing.py` | `pppoe-out1` added to WAN list right after the client is created (section 3), the physical port in section 2 | design decision |
+| Tagged WAN (VLAN) | `blocks/bridge.py`, `blocks/common.py:wan_link` | `/interface vlan add name=vlan848 interface=<wan port> vlan-id=848 disabled=no` in section 2, before the interface lists (a list member must name an interface that is already there); the WAN client (`/ip dhcp-client`, `/ip address`, `/interface pppoe-client`) then gets `interface=vlan848` and the port itself keeps no address. Both the port and the VLAN interface go into the WAN list. Default id 848 = Czech Cetin's PPPoE service | NUTNO OVĚŘIT (the `/interface vlan add` arguments on v6 and v7) |
 
 ### Switch chip database (`src/mqs/data/switch_chips.yaml`)
 

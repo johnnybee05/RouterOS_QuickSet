@@ -23,7 +23,7 @@ from mqs.apply.verify import CheckResult
 from mqs.apply.version_change import VersionReport
 from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.inventory import Ipv6PackageState, PackageInfo
-from mqs.model.wan import WanType
+from mqs.model.wan import CETIN_VLAN_ID, WanType
 from mqs.profiles.store import ProfileStore
 from mqs.transport.base import (
     AuthError,
@@ -486,6 +486,31 @@ def test_basic_page_wan_checkbox_gates_the_wan_fields(window):
     assert not page.wan_interface.isEnabled() and not page.wan_type.isEnabled()
     page.wan_enabled.setChecked(True)
     assert page.wan_interface.isEnabled() and page.wan_nat.isEnabled()
+
+
+def test_basic_page_switches_the_wan_into_a_vlan(window, qtbot):
+    page = window.basic_page
+    assert not page.wan_vlan_enabled.isChecked()
+    assert not page.wan_vlan_id.isEnabled() and not page.wan_vlan_name.isEnabled()
+
+    page.wan_vlan_enabled.setChecked(True)  # the Cetin default comes with the checkbox
+    assert window.controller.profile.wan.vlan_id == CETIN_VLAN_ID
+    assert window.controller.profile.wan.vlan_interface == "vlan848"
+    assert page.wan_vlan_id.isEnabled() and page.wan_vlan_name.isEnabled()
+
+    page.wan_vlan_id.setValue(100)
+    assert window.controller.profile.wan.vlan_id == 100
+    qtbot.keyClicks(page.wan_vlan_name, "cetin")
+    assert window.controller.profile.wan.vlan_name == "cetin"
+
+    page.wan_vlan_enabled.setChecked(False)
+    assert window.controller.profile.wan.vlan_id is None
+    assert window.controller.profile.wan.vlan_interface is None
+    page.wan_vlan_id.setValue(848)  # an id typed with the checkbox off changes nothing
+    assert window.controller.profile.wan.vlan_id is None
+
+    page.wan_enabled.setChecked(False)
+    assert not page.wan_vlan_enabled.isEnabled()
 
 
 def test_firewall_fasttrack_asks_about_shaping(window):

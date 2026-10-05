@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -24,7 +25,7 @@ from PySide6.QtWidgets import (
 from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
-from mqs.model.wan import DhcpWan, PppoeWan, StaticWan, WanType
+from mqs.model.wan import CETIN_VLAN_ID, DhcpWan, PppoeWan, StaticWan, WanType
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.pages.base import Page, parse_cidr, parse_ip, parse_ip_list
@@ -60,6 +61,24 @@ class BasicPage(Page):
         self.wan_interface = QComboBox()
         self.wan_interface.currentIndexChanged.connect(self._interface_changed)
         form.addRow(S.WAN_INTERFACE, self.wan_interface)
+
+        self.wan_vlan_enabled = QCheckBox(S.WAN_VLAN)
+        self.wan_vlan_enabled.toggled.connect(self._vlan_toggled)
+        form.addRow(self.wan_vlan_enabled)
+        self.wan_vlan_id = QSpinBox()
+        self.wan_vlan_id.setRange(1, 4094)
+        self.wan_vlan_id.setValue(CETIN_VLAN_ID)
+        self.wan_vlan_id.valueChanged.connect(self._vlan_id_changed)
+        form.addRow(S.WAN_VLAN_ID, self.wan_vlan_id)
+        self.wan_vlan_name = QLineEdit()
+        self.wan_vlan_name.setPlaceholderText(f"vlan{CETIN_VLAN_ID}")
+        self.wan_vlan_name.textEdited.connect(
+            lambda text: self.push_value("wan.vlan_name", text.strip()))
+        form.addRow(S.WAN_VLAN_NAME, self.wan_vlan_name)
+        vlan_help = QLabel(S.WAN_VLAN_HELP)
+        vlan_help.setWordWrap(True)
+        form.addRow(vlan_help)
+
         self.wan_type = QComboBox()
         for value, label in S.WAN_TYPES.items():
             self.wan_type.addItem(label, value)
@@ -88,6 +107,8 @@ class BasicPage(Page):
             "mode": self.mode,
             "interface_names": self.port_names,
             "wan.interface": self.wan_interface,
+            "wan.vlan_id": self.wan_vlan_id,
+            "wan.vlan_name": self.wan_vlan_name,
             "wan.settings.address": self.static_address,
             "wan.settings.gateway": self.static_gateway,
             "wan.settings.dns_servers": self.static_dns,
@@ -218,6 +239,13 @@ class BasicPage(Page):
     def _interface_changed(self, _index: int) -> None:
         self.push_value("wan.interface", self.wan_interface.currentData())
 
+    def _vlan_toggled(self, on: bool) -> None:
+        self.push_value("wan.vlan_id", self.wan_vlan_id.value() if on else None)
+
+    def _vlan_id_changed(self, value: int) -> None:
+        if self.wan_vlan_enabled.isChecked():
+            self.push_value("wan.vlan_id", value)
+
     def _type_changed(self, index: int) -> None:
         self.settings_stack.setCurrentIndex(index)
         wan_type = WanType(self.wan_type.currentData())
@@ -250,6 +278,10 @@ class BasicPage(Page):
             self.wan_interface.addItem(wan.interface, wan.interface)
             index = self.wan_interface.findData(wan.interface)
         self.wan_interface.setCurrentIndex(max(index, 0))
+        self.wan_vlan_enabled.setChecked(wan.vlan_id is not None)
+        self.wan_vlan_id.setValue(wan.vlan_id or CETIN_VLAN_ID)
+        self.wan_vlan_name.setText(wan.vlan_name)
+        self.wan_vlan_name.setPlaceholderText(f"vlan{wan.vlan_id or CETIN_VLAN_ID}")
         type_index = self.wan_type.findData(wan.type.value)
         self.wan_type.setCurrentIndex(type_index)
         self.settings_stack.setCurrentIndex(type_index)
@@ -270,6 +302,9 @@ class BasicPage(Page):
         self.wan_nat.setChecked(wan.nat_masquerade)
 
     def refresh_state(self, profile: DeviceProfile) -> None:
-        for widget in (self.wan_interface, self.wan_type, self.settings_stack, self.wan_list,
-                       self.wan_mss, self.wan_nat):
+        for widget in (self.wan_interface, self.wan_vlan_enabled, self.wan_type,
+                       self.settings_stack, self.wan_list, self.wan_mss, self.wan_nat):
             widget.setEnabled(profile.wan.enabled)
+        tagged = profile.wan.enabled and profile.wan.vlan_id is not None
+        self.wan_vlan_id.setEnabled(tagged)
+        self.wan_vlan_name.setEnabled(tagged)

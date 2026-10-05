@@ -76,6 +76,8 @@ def address_after_apply(profile: DeviceProfile, port: str | None) -> str | None:
     if not port:
         return None
     if profile.wan.enabled and port == profile.wan.interface:
+        if profile.wan.vlan_interface is not None:
+            return None  # tagged WAN: the address goes on the VLAN interface, not the port
         return _static_wan(profile)  # DHCP and PPPoE addresses cannot be predicted
     if port == profile.bridge.name or port in profile.bridge.ports:
         return _static_lan(profile)

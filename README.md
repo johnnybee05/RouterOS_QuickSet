@@ -5,6 +5,7 @@ RouterOS **v6 i v7** a umí ji rovnou aplikovat na zařízení po síti. Nahrazu
 QuickSet bez jeho omezení:
 
 - WAN může být **libovolný port**, ne jen ether1,
+- WAN jde zapnout **v VLAN** (PPPoE od Cetinu jede v 848), což QuickSet neumí,
 - **přejmenované porty** (ether1-uplink …) pozná podle `default-name` a názvy portů umí
   i nastavit,
 - plnohodnotná volba **protocol-mode** bridge (none / stp / rstp / mstp),
@@ -89,6 +90,12 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
      jmenuje továrními názvy (ether1 …), se na ně přemapuje. Přejmenovat jde jen
      ethernetové porty.
    - Nastavte WAN: libovolný port a typ DHCP, statická IP nebo PPPoE.
+   - *WAN je v VLAN*: když poskytovatel dodává službu tagovaně, zapněte volbu a zadejte
+     VLAN ID — pro PPPoE od **Cetinu** je předvyplněná **848**. Na WAN portu vznikne
+     rozhraní `vlan848` (`/interface vlan`) a WAN na něm pojede; port sám zůstane bez IP
+     adresy, takže se přes něj po aplikaci nelze připojit (kontrola před aplikací na to
+     upozorní). V seznamu WAN je VLAN rozhraní i port, aby firewall uzavřel i netagovaný
+     provoz.
 3. **LAN / Bridge**
    - Nastavte bridge, protocol-mode, členské porty (WAN port je vyloučený automaticky),
      IP adresu a DHCP server.

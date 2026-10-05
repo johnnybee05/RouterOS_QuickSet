@@ -264,6 +264,29 @@ def test_preflight_of_a_reset_names_the_paths_the_reset_leaves():
     assert remaining.params == {"count": 3, "paths": "api-ssl 8729, ssh 122, winbox 8291"}
 
 
+def test_lockout_warnings_for_a_tagged_wan():
+    """A VLAN takes the port's address away just like PPPoE does, and says so."""
+    profile, inventory, _ = _setup()  # WAN = ether1, bridge = ether2..5
+    tagged = profile.model_copy(update={"wan": profile.wan.model_copy(update={"vlan_id": 848})})
+    tagged_result = generate(tagged, TargetContext.from_inventory(inventory))
+    issue = next(i for i in preflight(tagged, tagged_result, [], ApplyOptions(ApplyMode.IMPORT),
+                                      inventory, session_port="ether1")
+                 if i.code.startswith("apply.lockout_wan"))
+    assert issue.code == "apply.lockout_wan_vlan" and issue.severity == Severity.WARNING
+    assert issue.params["vlan"] == 848 and issue.params["interface"] == "vlan848"
+
+    by_mac = preflight(tagged, tagged_result, [], ApplyOptions(ApplyMode.IMPORT), inventory,
+                       session_port="ether1", by_mac=True)
+    assert "apply.session_by_mac_on_wan_vlan" in codes(by_mac)
+
+    # PPPoE in a VLAN keeps the PPPoE wording: both reasons hold, one message is enough.
+    pppoe = tagged.model_copy(update={"wan": tagged.wan.model_copy(update={
+        "settings": PppoeWan(username="u")})})
+    assert "apply.lockout_wan_pppoe" in codes(preflight(
+        pppoe, generate(pppoe, TargetContext.from_inventory(inventory)), [],
+        ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1"))
+
+
 def test_rollback_minimum():
     profile, inventory, result = _setup()
     issues = preflight(profile, result, [], ApplyOptions(ApplyMode.IMPORT, rollback_minutes=1),

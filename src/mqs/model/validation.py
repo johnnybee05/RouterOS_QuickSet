@@ -70,8 +70,11 @@ def _interface_names(profile: DeviceProfile, inventory: DeviceInventory | None) 
     others = ({i.name for i in inventory.interfaces} - set(current.values())
               if inventory is not None else set())
     others.add(profile.bridge.name)
-    if profile.wan.enabled and isinstance(profile.wan.settings, PppoeWan):
-        others.add(profile.wan.settings.interface_name)
+    if profile.wan.enabled:
+        if profile.wan.vlan_interface is not None:
+            others.add(profile.wan.vlan_interface)
+        if isinstance(profile.wan.settings, PppoeWan):
+            others.add(profile.wan.settings.interface_name)
 
     def held(port: str, before: str) -> set[str]:
         """Names ``port`` can have when the `set` of ``before`` runs, reset or not."""
@@ -117,6 +120,16 @@ def _wan(profile: DeviceProfile, ports: list[str] | None) -> list[Issue]:
             issues.append(Issue("wan.interface_in_bridge", E, "wan.interface", params))
         if ports is not None and wan.interface not in ports:
             issues.append(Issue("wan.interface_unknown", E, "wan.interface", params))
+
+    vlan = wan.vlan_interface
+    if vlan is not None:
+        taken = {profile.bridge.name, *(ports or ())}
+        if isinstance(wan.settings, PppoeWan):
+            taken.add(wan.settings.interface_name)
+        if not NAME_RE.match(vlan):
+            issues.append(Issue("wan.vlan.name_invalid", E, "wan.vlan_name"))
+        elif vlan in taken:
+            issues.append(Issue("wan.vlan.name_taken", E, "wan.vlan_name", {"name": vlan}))
 
     settings = wan.settings
     if isinstance(settings, StaticWan):

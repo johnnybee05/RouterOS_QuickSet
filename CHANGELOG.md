@@ -11,6 +11,22 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.3.0] – nevydáno
+
+### Přidáno
+
+- **WAN umí jet v VLAN.** Na stránce *Základ* je u WAN volba *WAN je v VLAN (tagovaný
+  provoz na portu)* s VLAN ID — předvyplněným na **848**, kterou pro PPPoE používá
+  Cetin — a nepovinným názvem rozhraní (prázdný = `vlan848`). Skript pak na WAN portu
+  vytvoří `/interface vlan add name=vlan848 interface=<port> vlan-id=848 disabled=no`
+  ještě před seznamy rozhraní a WAN klient (PPPoE, DHCP i statická adresa) dostane
+  `interface=vlan848`; port sám zůstane bez IP adresy. V seznamu WAN je VLAN rozhraní
+  i port, takže firewall uzavře i netagovaný provoz, který na port přijde. Kontrola před
+  aplikací upozorní, že spojení vedené právě přes ten port se po aplikaci nevrátí
+  (stejně jako u PPPoE), a kontrolní seznam po aplikaci přidal položku „Rozhraní
+  vlan848: VLAN 848 na portu <port>“. Předtím se router za CPE Cetinu nedal z aplikace
+  nastavit vůbec — VLAN se musela doklikat ve Winboxu.
+
 ## [0.2.0] – 2026-10-02
 
 Cesty, kudy se zařízení dá dosáhnout, když je ta obvyklá zavřená.

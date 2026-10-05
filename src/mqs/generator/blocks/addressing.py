@@ -10,6 +10,7 @@ from mqs.generator.blocks.common import (
     bridge_enabled,
     format_duration,
     uses_wan_list,
+    wan_link,
     wan_port,
 )
 from mqs.generator.context import TargetContext
@@ -45,9 +46,9 @@ def build(
                 cmd("/ip dhcp-client", "add", interface=bridge.name, disabled=False),
             )
 
-    port = wan_port(profile)
-    if port is not None:
-        _wan(profile, ctx, script, port, mask_secrets)
+    link = wan_link(profile)
+    if link is not None:
+        _wan(profile, ctx, script, link, mask_secrets)
 
     dhcp = lan.dhcp_server
     if (
@@ -115,17 +116,19 @@ def _is_ipv4(text: str) -> bool:
 
 
 def _wan(
-    profile: DeviceProfile, ctx: TargetContext, script: Script, port: str, mask_secrets: bool
+    profile: DeviceProfile, ctx: TargetContext, script: Script, link: str, mask_secrets: bool
 ) -> None:
+    """``link`` is where the WAN client attaches: the VLAN interface when the WAN is
+    tagged (`wan_link`), else the physical port."""
     section = script.section(SectionKey.ADDRESSING)
     settings = profile.wan.settings
     if isinstance(settings, DhcpWan):
         section.add(
-            Comment(f"WAN: DHCP client on {port}"),
+            Comment(f"WAN: DHCP client on {link}"),
             cmd(
                 "/ip dhcp-client",
                 "add",
-                interface=port,
+                interface=link,
                 use_peer_dns=settings.use_peer_dns,
                 add_default_route=settings.add_default_route,
                 disabled=False,
@@ -133,8 +136,8 @@ def _wan(
         )
     elif isinstance(settings, StaticWan):
         section.add(
-            Comment(f"WAN: static address on {port}"),
-            cmd("/ip address", "add", address=str(settings.address), interface=port),
+            Comment(f"WAN: static address on {link}"),
+            cmd("/ip address", "add", address=str(settings.address), interface=link),
             cmd("/ip route", "add", dst_address="0.0.0.0/0", gateway=str(settings.gateway)),
         )
         if settings.dns_servers:
@@ -145,12 +148,12 @@ def _wan(
     elif isinstance(settings, PppoeWan):
         password = MASKED_SECRET if mask_secrets else settings.password.get_secret_value()
         section.add(
-            Comment(f"WAN: PPPoE client on {port}"),
+            Comment(f"WAN: PPPoE client on {link}"),
             cmd(
                 "/interface pppoe-client",
                 "add",
                 name=settings.interface_name,
-                interface=port,
+                interface=link,
                 user=settings.username,
                 password=password,
                 use_peer_dns=settings.use_peer_dns,

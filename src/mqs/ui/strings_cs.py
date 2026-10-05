@@ -108,6 +108,14 @@ PORT_NAME_TAKEN = "Název {name} už má port {port}."
 WAN_GROUP = "WAN"
 WAN_ENABLED = "Použít WAN"
 WAN_INTERFACE = "Rozhraní"
+WAN_VLAN = "WAN je v VLAN (tagovaný provoz na portu)"
+WAN_VLAN_ID = "VLAN ID"
+WAN_VLAN_NAME = "Název VLAN rozhraní"
+WAN_VLAN_HELP = (
+    "Cetin dodává PPPoE v VLAN 848: zapněte a nechte 848. Na WAN portu vznikne rozhraní "
+    "vlan848 a WAN (PPPoE, DHCP i statická adresa) pojede na něm — port sám zůstane bez "
+    "IP adresy. Název nechte prázdný a pojmenuje se podle ID (vlan848)."
+)
 WAN_TYPE = "Typ"
 WAN_TYPES = {"dhcp": "DHCP client", "static": "Statická IP", "pppoe": "PPPoE"}
 WAN_ADDRESS = "Adresa / maska (CIDR)"

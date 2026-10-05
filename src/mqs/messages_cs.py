@@ -35,6 +35,9 @@ MESSAGES: dict[str, str] = {
     "wan.pppoe.username_empty": "Zadejte uživatelské jméno PPPoE.",
     "wan.pppoe.password_empty": "Zadejte heslo PPPoE.",
     "wan.pppoe.interface_name_invalid": "Název PPPoE rozhraní obsahuje nepovolené znaky.",
+    "wan.vlan.name_invalid": "Název VLAN rozhraní obsahuje nepovolené znaky.",
+    "wan.vlan.name_taken": "Název {name} už na zařízení patří jinému rozhraní; "
+    "pojmenujte VLAN rozhraní jinak.",
     # bridge
     "bridge.name_invalid": "Název bridge obsahuje nepovolené znaky.",
     "bridge.port_duplicate": "Port {interface} je v bridge uvedený vícekrát.",
@@ -189,6 +192,13 @@ MESSAGES: dict[str, str] = {
     "apply.lockout_wan_pppoe": "Aplikace je k zařízení připojená přes port {port}, na kterém "
     "poběží PPPoE. Port sám nebude mít IP adresu, takže se po aplikaci přes něj znovu "
     "nepřipojí. Připojte se z LAN.",
+    "apply.session_by_mac_on_wan_vlan": "Aplikace je k zařízení připojená přes MAC na portu "
+    "{port}, na kterém WAN pojede v VLAN {vlan}. Po aplikaci se vrátí stejně, přes adresu "
+    "zapůjčenou na tomto portu (VLAN bere jen tagovaný provoz, netagované adresy se "
+    "netýká); správa z WAN zůstane dostupná ({paths}).",
+    "apply.lockout_wan_vlan": "Aplikace je k zařízení připojená přes port {port}, na kterém "
+    "WAN pojede v VLAN {vlan} (rozhraní {interface}). Port sám nebude mít IP adresu, takže "
+    "se po aplikaci přes něj znovu nepřipojí. Připojte se z LAN.",
     "apply.session_on_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane "
     "WAN. Správa z WAN zůstane dostupná ({paths}).",
     "apply.lockout_unconfigured_port": "Aplikace je připojená přes port {port}, který po resetu "
@@ -229,6 +239,7 @@ MESSAGES: dict[str, str] = {
     "verify.lan_address": "Adresa {address} na {bridge}",
     "verify.default_route": "Výchozí trasa přes {expected} (statické výchozí trasy na zařízení: "
     "{actual})",
+    "verify.wan_vlan": "Rozhraní {name}: VLAN {vlan} na portu {port}",
     "verify.dhcp_client": "DHCP klient na {interface} (stav: {status})",
     "verify.hw_offload":"HW offload odpovídá požadavku (rozdílů: {count})",
     "verify.offload_not_active": "Port {port}: hw=yes je nastaveno, ale offload na zařízení "

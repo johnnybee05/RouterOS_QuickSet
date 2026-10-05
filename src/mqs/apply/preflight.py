@@ -7,10 +7,11 @@ from mqs.apply.plan import MIN_ROLLBACK_MINUTES, ApplyMode, ApplyOptions, result
 from mqs.apply.reconnect import address_after_apply
 from mqs.apply.update import routerboot_note
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.common import WAN_LIST, wan_l3_interface, wan_port
+from mqs.generator.blocks.common import WAN_LIST, wan_l3_interface, wan_port, wan_vlan_interface
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
+from mqs.model.wan import WanType
 
 __all__ = ["ExistingObjects", "collect_existing", "preflight", "prepare_import"]
 
@@ -148,14 +149,20 @@ def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str, *,
     firewall = profile.firewall
     closed = firewall.basic_filter and not firewall.wan_management
     paths = ", ".join(f"{n} {result.access.services[n].port}" for n in result.access.remaining)
-    if wan_l3_interface(profile) != port:  # PPPoE: the port itself keeps no IP address
+    if wan_l3_interface(profile) != port:  # PPPoE or a VLAN: the port keeps no IP address
+        pppoe = profile.wan.type == WanType.PPPOE
+        params = {"port": port, "paths": paths, "vlan": profile.wan.vlan_id,
+                  "interface": wan_vlan_interface(profile)}
         if by_mac and not closed:
             # The port gets an address lent again, and management is let in from WAN: the
             # v6 hEX S came back that way after a reset to PPPoE (2026-09-25), while this
-            # warned that it would not.
-            return Issue("apply.session_by_mac_on_wan_pppoe", INFO, "wan.interface",
-                         {"port": port, "paths": paths})
-        return Issue("apply.lockout_wan_pppoe", W, "wan.interface", {"port": port})
+            # warned that it would not. A VLAN takes only tagged frames, so an address
+            # lent on the port itself is untouched by it either way.
+            suffix = "pppoe" if pppoe else "vlan"
+            return Issue(f"apply.session_by_mac_on_wan_{suffix}", INFO, "wan.interface", params)
+        if pppoe:
+            return Issue("apply.lockout_wan_pppoe", W, "wan.interface", params)
+        return Issue("apply.lockout_wan_vlan", W, "wan.interface", params)
     if closed:
         return Issue("apply.lockout_wan", W, "firewall.wan_management", {"port": port})
     # The filter is off, or it lets the management services in from WAN.

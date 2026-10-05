@@ -16,7 +16,7 @@ from mqs.model.inventory import Ipv6PackageState, PackageInfo, ServiceInfo
 from mqs.model.ports import adopt_device_names, rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
-from mqs.model.wan import PppoeWan, StaticWan
+from mqs.model.wan import CETIN_VLAN_ID, DhcpWan, PppoeWan, StaticWan, WanType
 
 # ---------------------------------------------------------------- scenarios
 
@@ -50,6 +50,15 @@ def router_pppoe_fasttrack() -> DeviceProfile:
     return _u(profile, wan=wan, firewall=_u(profile.firewall, fasttrack=fasttrack))
 
 
+def router_pppoe_vlan() -> DeviceProfile:
+    """Cetin: the PPPoE service arrives tagged with VLAN 848 on the WAN port."""
+    profile = router_dhcp()
+    wan = profile.wan.with_type(WanType.PPPOE)
+    wan = _u(wan, settings=PppoeWan(username="cetin@dsl", password=SecretStr("s3cr3t")),
+             vlan_id=CETIN_VLAN_ID)
+    return _u(profile, wan=wan)
+
+
 def bridge_ap() -> DeviceProfile:
     profile = apply_preset(DeviceProfile(identity="PV-AP1"), Mode.BRIDGE_AP, FIVE_PORTS)
     return _u(profile, bridge=_u(profile.bridge, protocol_mode=ProtocolMode.NONE))
@@ -79,6 +88,7 @@ SCENARIOS = {
     "router_dhcp": router_dhcp,
     "router_static": router_static,
     "router_pppoe_fasttrack": router_pppoe_fasttrack,
+    "router_pppoe_vlan": router_pppoe_vlan,
     "bridge_ap": bridge_ap,
     "bridge_ap_static": bridge_ap_static,
     "custom_hardening": custom_hardening,
@@ -367,6 +377,43 @@ def test_pppoe_block():
 
     old = generate(router_pppoe_fasttrack(), target("6.40.9"))
     assert "out-interface=pppoe-out1" in old.text
+
+
+def test_wan_vlan_block():
+    """A tagged WAN: the VLAN interface is made first and carries everything WAN."""
+    result = generate(router_pppoe_vlan(), target("7.15.3"))
+    assert "add name=vlan848 interface=ether5 vlan-id=848 disabled=no" in result.text
+    assert "add name=pppoe-out1 interface=vlan848" in result.text
+    # The port keeps no address, so both it and the VLAN are matched as WAN.
+    assert "add interface=ether5 list=WAN" in result.text
+    assert "add interface=vlan848 list=WAN" in result.text
+    assert "add interface=pppoe-out1 list=WAN" in result.text
+    # The VLAN is created in section 2: a list member cannot name an interface that is
+    # not there yet.
+    interfaces = result.script.section(SectionKey.INTERFACES)
+    assert any(c.path == "/interface vlan" for c in interfaces.commands())
+
+    dhcp = _u(router_pppoe_vlan(), wan=_u(router_pppoe_vlan().wan, settings=DhcpWan()))
+    assert "add interface=vlan848 use-peer-dns=yes" in generate(dhcp, target("7.15.3")).text
+
+    static = StaticWan(address=IPv4Interface("203.0.113.10/29"),
+                       gateway=IPv4Address("203.0.113.9"))
+    tagged = _u(router_pppoe_vlan(), wan=_u(router_pppoe_vlan().wan, settings=static))
+    assert "add address=203.0.113.10/29 interface=vlan848" in generate(
+        tagged, target("6.49.10")).text
+
+
+def test_wan_vlan_interface_is_named_after_the_id_unless_given():
+    profile = router_pppoe_vlan()
+    assert profile.wan.vlan_interface == "vlan848"
+    named = _u(profile, wan=_u(profile.wan, vlan_name="cetin"))
+    assert named.wan.vlan_interface == "cetin"
+    assert "add name=cetin interface=ether5 vlan-id=848" in generate(
+        named, target("7.15.3")).text
+    off = _u(profile, wan=_u(profile.wan, vlan_id=None, vlan_name="cetin"))
+    assert off.wan.vlan_interface is None
+    text = generate(off, target("7.15.3")).text
+    assert "/interface vlan" not in text and "interface=ether5" in text
 
 
 def test_static_wan_block():

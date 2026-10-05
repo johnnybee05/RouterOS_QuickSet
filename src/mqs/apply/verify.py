@@ -8,7 +8,7 @@ from typing import Any
 
 from mqs.capabilities.offload import OffloadPlan
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.common import bridge_enabled, wan_port
+from mqs.generator.blocks.common import bridge_enabled, wan_link, wan_port, wan_vlan_interface
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
@@ -116,6 +116,7 @@ def verify_configuration(
         checks.append(CheckResult("verify.lan_address", present,
                                   {"address": str(lan.address), "bridge": profile.bridge.name}))
 
+    checks.extend(_check_wan_vlan(transport, profile))
     checks.extend(_check_default_route(transport, profile))
     checks.extend(_check_dhcp_clients(transport, profile))
 
@@ -200,9 +201,9 @@ def expected_gateways(profile: DeviceProfile) -> list[str]:
 def expected_dhcp_clients(profile: DeviceProfile) -> list[str]:
     """Interfaces the profile runs a DHCP client on (DHCP WAN, LAN address by DHCP)."""
     interfaces = []
-    port = wan_port(profile)
-    if port is not None and isinstance(profile.wan.settings, DhcpWan):
-        interfaces.append(port)
+    link = wan_link(profile)  # the VLAN interface when the WAN is tagged
+    if link is not None and isinstance(profile.wan.settings, DhcpWan):
+        interfaces.append(link)
     if bridge_enabled(profile) and profile.lan.addressing == LanAddressing.DHCP_CLIENT:
         interfaces.append(profile.bridge.name)
     return interfaces
@@ -228,6 +229,24 @@ def _check_default_route(transport: Transport, profile: DeviceProfile) -> list[C
         and not to_bool(r, "dynamic", "D") and not to_bool(r, "disabled", "X"))
     return [CheckResult("verify.default_route", rows is not None and actual == sorted(expected),
                         {"expected": ", ".join(expected), "actual": ", ".join(actual) or "-"})]
+
+
+def _check_wan_vlan(transport: Transport, profile: DeviceProfile) -> list[CheckResult]:
+    """The VLAN interface of a tagged WAN is on the WAN port with the right id, enabled."""
+    name = wan_vlan_interface(profile)
+    if name is None:
+        return []
+    port = wan_port(profile)
+    vlan_id = str(profile.wan.vlan_id)
+    try:
+        rows = transport.execute("/interface/vlan/print")
+    except CommandError:
+        rows = []
+    row = next((r for r in rows if r.get("name") == name), None)
+    ok = (row is not None and row.get("vlan-id") == vlan_id and row.get("interface") == port
+          and not to_bool(row, "disabled", "X"))
+    return [CheckResult("verify.wan_vlan", ok,
+                        {"name": name, "vlan": vlan_id, "port": port or "-"})]
 
 
 def _check_dhcp_clients(transport: Transport, profile: DeviceProfile) -> list[CheckResult]:

@@ -194,6 +194,36 @@ def test_a_missing_or_disabled_dhcp_client_fails():
         assert not client.ok and client.params["interface"] == "ether1"
 
 
+def test_a_tagged_wan_is_checked_on_its_vlan_interface():
+    profile, _ = setup()
+    tagged = profile.model_copy(update={"wan": profile.wan.model_copy(update={"vlan_id": 848})})
+    result = generate(tagged, TargetContext.from_inventory(rb4011_inventory()))
+    # The DHCP client of the WAN moves onto the VLAN interface with it.
+    assert expected_dhcp_clients(tagged) == ["vlan848"]
+    vlan_row = {"name": "vlan848", "vlan-id": "848", "interface": "ether1", "disabled": "no"}
+    fake = device_after_apply(**{
+        "/interface/vlan/print": [vlan_row],
+        "/ip/dhcp-client/print": [{"interface": "vlan848", "disabled": "no",
+                                   "status": "bound"}],
+    })
+    checks, _ = verify_configuration(fake, tagged, result)
+    vlan = next(c for c in checks if c.code == "verify.wan_vlan")
+    assert vlan.ok and vlan.params == {"name": "vlan848", "vlan": "848", "port": "ether1"}
+    assert "{" not in vlan.message
+
+    for row in ({}, {"vlan-id": "1"}, {"interface": "ether2"}, {"disabled": "yes"}):
+        rows = [] if not row else [{**vlan_row, **row}]
+        checks, _ = verify_configuration(
+            device_after_apply(**{"/interface/vlan/print": rows}), tagged, result)
+        assert not next(c for c in checks if c.code == "verify.wan_vlan").ok
+
+
+def test_an_untagged_wan_has_no_vlan_check():
+    profile, result = setup()
+    checks, _ = verify_configuration(device_after_apply(), profile, result)
+    assert "verify.wan_vlan" not in [c.code for c in checks]
+
+
 def test_an_open_connection_does_not_stand_in_for_its_service():
     """7.20.7 lists every open connection as a dynamic /ip service row under the name of
     its service, always enabled. Read by name, the last row won: here the connection

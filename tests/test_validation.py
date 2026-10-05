@@ -1,7 +1,7 @@
 from ipaddress import IPv4Address, IPv4Interface
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from factories import FIVE_PORTS, make_inventory, router_profile
 from mqs.issues import Severity, codes, has_errors
@@ -11,7 +11,7 @@ from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.validation import validate_profile
-from mqs.model.wan import PppoeWan, StaticWan
+from mqs.model.wan import PppoeWan, StaticWan, WanConfig
 
 
 def _update(model, **changes):
@@ -121,6 +121,37 @@ def test_pppoe_negative_and_positive():
 
     good = PppoeWan(username="user@isp", password=SecretStr("secret"))
     assert not has_errors(validate_profile(_with_wan_settings(router_profile(), good)))
+
+
+def test_wan_vlan_name():
+    profile = router_profile()
+    tagged = _update(profile, wan=_update(profile.wan, vlan_id=848))
+    assert not has_errors(validate_profile(tagged, make_inventory()))
+
+    bad = _update(profile, wan=_update(profile.wan, vlan_id=848, vlan_name="vlan 848"))
+    assert "wan.vlan.name_invalid" in codes(validate_profile(bad, make_inventory()))
+
+    taken = _update(profile, wan=_update(profile.wan, vlan_id=848, vlan_name="ether2"))
+    assert "wan.vlan.name_taken" in codes(validate_profile(taken, make_inventory()))
+
+    as_bridge = _update(profile, wan=_update(profile.wan, vlan_id=848,
+                                            vlan_name=profile.bridge.name))
+    assert "wan.vlan.name_taken" in codes(validate_profile(as_bridge, make_inventory()))
+
+
+def test_a_port_cannot_take_the_name_of_the_wan_vlan():
+    profile = router_profile()
+    tagged = _update(profile, wan=_update(profile.wan, vlan_id=848))
+    renamed = rename_port(tagged, "ether3", "vlan848")
+    assert "ports.name_taken" in codes(validate_profile(renamed, make_inventory()))
+
+
+def test_wan_vlan_id_range():
+    """Out of range is structural: pydantic refuses it on construction."""
+    assert WanConfig(vlan_id=4094).vlan_interface == "vlan4094"
+    for value in (0, 4095):
+        with pytest.raises(ValidationError):
+            WanConfig(vlan_id=value)
 
 
 def test_bridge_duplicate_unknown_and_empty():

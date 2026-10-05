@@ -1,4 +1,4 @@
-"""Section 2: port names, bridge, bridge ports, HW offload and interface lists."""
+"""Section 2: port names, the WAN VLAN, bridge, bridge ports, HW offload, interface lists."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from mqs.generator.blocks.common import (
     uses_lan_list,
     uses_wan_list,
     wan_port,
+    wan_vlan_interface,
 )
 from mqs.generator.context import TargetContext
 from mqs.generator.ir import ArgValue, Comment, Find, Script, SectionKey, cmd
@@ -34,6 +35,15 @@ def build(
             cmd("/interface ethernet", "set", selector=Find.by({"default-name": default}),
                 name=name)
             for default, name in renames))
+
+    # Before the interface lists: a list member must name an interface that exists.
+    vlan = wan_vlan_interface(profile)
+    if vlan is not None:
+        section.add(
+            Comment(f"WAN VLAN {profile.wan.vlan_id} on {wan_port(profile)}"),
+            cmd("/interface vlan", "add", name=vlan, interface=wan_port(profile),
+                vlan_id=profile.wan.vlan_id, disabled=False),
+        )
 
     if bridge_enabled(profile):
         if bridge.protocol_mode == ProtocolMode.MSTP and not ctx.has("bridge_mstp"):
@@ -85,9 +95,13 @@ def build(
         if want_lan:
             section.add(cmd("/interface list", "add", name=LAN_LIST))
         if want_wan:
-            section.add(
-                cmd("/interface list member", "add", interface=wan_port(profile), list=WAN_LIST)
-            )
+            # With a tagged WAN both go in: the VLAN interface carries the traffic, and the
+            # port itself stays closed to whatever arrives on it untagged.
+            members = [wan_port(profile)] if vlan is None else [wan_port(profile), vlan]
+            section.add(*(
+                cmd("/interface list member", "add", interface=member, list=WAN_LIST)
+                for member in members
+            ))
         if want_lan:
             section.add(
                 cmd("/interface list member", "add", interface=bridge.name, list=LAN_LIST)
