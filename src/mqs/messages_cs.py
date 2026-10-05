@@ -372,6 +372,25 @@ MESSAGES: dict[str, str] = {
     "mají {size} MB, volné paměti je {free} MB. Zařízení nahrává balíček do RAM (soubory má "
     "ve flash/) – zkuste to po restartu.",
     "version.unreadable": "Soubor {file} v adresáři s balíčky se nedá použít: {error}",
+    # kontroly po restartu: shoda verzí balíčků a bezdrátová rozhraní
+    "verify.package_versions": "Všechny balíčky na zařízení mají verzi {expected} a nic "
+    "nečeká na restart (jiná verze: {wrong}; čeká: {waiting})",
+    "verify.radios": "Bezdrátová rozhraní zůstala ({before}) – chybí menu: {menus_lost}; "
+    "chybí rozhraní: {lost}; neběží: {stopped}; nová: {new}",
+    "verify.registrations": "Registrační tabulka se znovu naplnila na {radios} "
+    "(prázdná: {empty}, čekáno {waited} s)",
+    "apply.step.radio_check": "Kontrola bezdrátových rozhraní po restartu",
+    "apply.step.registrations_wait": "Čekání na návrat stanic: {returned} z {expected} "
+    "rozhraní",
+    "apply.failed.version_radio_lost": "Po instalaci RouterOS {version} chybí bezdrátové "
+    "rozhraní, které zařízení mělo předtím ({detail}). Dávka se zastavuje – další "
+    "zařízení se neaktualizují. Zkontrolujte zařízení, než budete pokračovat.",
+    "apply.warning.version_registrations": "Stanice se na {empty} do {waited} s nevrátily. "
+    "Rozhraní existuje a běží, ale nikdo na něm není – zkontrolujte protistranu.",
+    "apply.warning.version_package_versions": "Po instalaci RouterOS {version} nemají "
+    "všechny balíčky stejnou verzi (jiná verze: {wrong}; čeká na restart: {waiting}). "
+    "Bezdrátová rozhraní zůstala, takže spoj drží – balíček ale doinstalujte ve správné "
+    "verzi, než zařízení příště restartujete.",
     # stahování balíčků z download.mikrotik.com
     "download.not_published": "MikroTik balíček {name} ve verzi {version} pro tuhle "
     "architekturu nevydává ({url}). Zkontrolujte, že ta verze pro tohle zařízení existuje.",

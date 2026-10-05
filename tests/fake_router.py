@@ -29,6 +29,15 @@ from mqs.transport.base import (
 )
 from mqs.transport.upload import FileUploader, UploadFailed, UploadResult, UploadStrategy
 
+# API word -> the menu name used in `FakeRouter.radios`.
+RADIO_MENUS = {"/interface/wireless/print": "wireless", "/interface/wifi/print": "wifi",
+               "/interface/w60g/print": "w60g"}
+REGISTRATION_MENUS = {"/interface/wireless/registration-table/print": "wireless",
+                      "/interface/wifi/registration-table/print": "wifi"}
+# Which menus a driver package carries, for a device that comes back without one.
+DRIVER_MENUS = {"wireless": ("wireless", "w60g"), "wifiwave2": ("wifi",),
+                "wifi-qcom": ("wifi",), "wifi-qcom-ac": ("wifi",)}
+
 
 @dataclass
 class RouterState:
@@ -78,6 +87,21 @@ class FakeRouter:
         # writes it and the next reboot runs it (hEX S, 2026-09-24: 7.20.7 / 7.23.7).
         self.firmware = {"routerboard": "yes", "current-firmware": "7.15.3",
                          "upgrade-firmware": "7.15.3"}
+        # /system package print. The main package follows `self.version`; a driver package
+        # follows it only when a file for it was installed, which is how a device that
+        # came back without its driver is simulated.
+        self.packages: dict[str, str] = {"routeros": "7.15.3"}
+        # Radios per menu, as the menus report them. A menu absent from this mapping does
+        # not exist on the device; one mapped to [] exists and is empty.
+        self.radios: dict[str, list[dict[str, str]]] = {}
+        self.registrations: dict[str, list[dict[str, str]]] = {}
+        # Driver packages the next reboot will drop instead of installing: the failure this
+        # whole flow exists to catch, which cannot be tested without being able to cause it.
+        self.loses_drivers: set[str] = set()
+        # Uploaded file name -> the driver package it carries, so a reboot can install it.
+        self.driver_files: dict[str, str] = {}
+        # What the registration table holds once the device is back up.
+        self.stations_after_reboot: list[dict[str, str]] = []
         self.firmware_written: str | None = None
 
     # ------------------------------------------------------------ simulation helpers
@@ -181,6 +205,18 @@ class FakeRouter:
             return [dict(row) for row in self.device_log]
         if word == "/system/routerboard/print":
             return [dict(self.firmware)]
+        if word == "/system/package/print":
+            return [{"name": n, "version": v} for n, v in sorted(self.packages.items())]
+        if word in RADIO_MENUS:
+            menu = RADIO_MENUS[word]
+            if menu not in self.radios:
+                raise CommandError(word, "bad command name")
+            return [dict(r) for r in self.radios[menu]]
+        if word in REGISTRATION_MENUS:
+            menu = REGISTRATION_MENUS[word]
+            if menu not in self.radios:
+                raise CommandError(word, "bad command name")
+            return [dict(r) for r in self.registrations.get(menu, [])]
         if word == "/system/routerboard/upgrade":
             self.firmware_written = self.firmware["upgrade-firmware"]
             return []
@@ -227,6 +263,7 @@ class FakeRouter:
         """
         if not self.installs_packages:
             return
+        installed_any = False
         for name in [n for n in self.files if n in self.installable]:
             target = RosVersion.parse(self.installable[name])
             if not downgrade and target < RosVersion.parse(self.version):
@@ -235,6 +272,36 @@ class FakeRouter:
             self.firmware["upgrade-firmware"] = self.installable[name]
             self.files.pop(name)
             self.log.append(f"installed {name}")
+            installed_any = True
+        if installed_any:
+            self._install_drivers([n for n in self.files if n in self.driver_files],
+                                  downgrade=downgrade)
+
+    def _install_drivers(self, files: list[str], *, downgrade: bool) -> None:
+        """A driver package installs with the main one — or, when told to, does not.
+
+        A driver that is dropped takes its menu and its radios with it, which is what a
+        device looks like when the package set was wrong, and the only way to test that the
+        application notices.
+        """
+        version = RosVersion.parse(self.version)
+        for name in files:
+            driver = self.driver_files[name]
+            self.files.pop(name, None)  # installed packages are deleted either way
+            if driver in self.loses_drivers:
+                self.packages.pop(driver, None)
+                for menu in DRIVER_MENUS.get(driver, ()):
+                    self.radios.pop(menu, None)
+                    self.registrations.pop(menu, None)
+                self.log.append(f"lost {driver}")
+                continue
+            self.packages[driver] = str(version)
+        self.packages["routeros"] = str(version)
+        # Every station is gone with the reboot. They come back on their own schedule,
+        # which is slower than the boot, so what `stations_after_reboot` holds is what the
+        # registration table shows once the device is up again — empty by default.
+        for menu in list(self.registrations):
+            self.registrations[menu] = [dict(row) for row in self.stations_after_reboot]
 
     def _run_after_reset(self, name: str | None) -> None:
         """Runs the uploaded script's lines in order; a line with a parameter this device

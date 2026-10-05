@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface
 from typing import Any
@@ -12,12 +14,17 @@ from mqs.generator.blocks.common import bridge_enabled, wan_link, wan_port, wan_
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
-from mqs.model.inventory import BridgePortState
+from mqs.model.inventory import BridgePortState, WirelessSnapshot
 from mqs.model.profile import DeviceProfile
 from mqs.model.version import RosVersion
 from mqs.model.wan import DhcpWan, StaticWan
 from mqs.transport.base import CommandError, Transport
-from mqs.transport.discovery import configured_services, to_bool, to_optional_bool
+from mqs.transport.discovery import (
+    collect_radios,
+    configured_services,
+    to_bool,
+    to_optional_bool,
+)
 
 RESET_SCRIPT_ERROR = "error while running run-after-reset script"
 # How RouterOS logs the line that stopped an /import: 6.49.10 "script error: failure: mstp
@@ -25,6 +32,9 @@ RESET_SCRIPT_ERROR = "error while running run-after-reset script"
 # Error: failure: mstp requires vlan-filtering (/interface/bridge/set ...) (...; line 18)"
 # (script,error,debug, 2026-09-26). Matched without regard to case.
 IMPORT_SCRIPT_ERROR = "script error"
+# How often to look at the registration table while waiting for the stations to come back.
+# They re-associate on their own schedule, well after the device is up again.
+REGISTRATION_POLL_S = 15.0
 
 
 @dataclass(frozen=True)
@@ -183,6 +193,119 @@ def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckR
         ok = False
     return CheckResult("verify.routeros_version", ok,
                        {"expected": str(expected), "actual": text or "-"})
+
+
+def check_package_versions(transport: Transport, expected: RosVersion) -> CheckResult:
+    """Every installed package is on ``expected``, and nothing is waiting for a reboot.
+
+    A `wireless` left on 7.15.3 next to a `routeros` on 7.16.1 is the state that costs a
+    radio, and RouterOS does not complain about it — so it is read back and checked. A
+    package `scheduled` for enable, disable or uninstall is the same problem one reboot
+    away, and is reported with the rest.
+    """
+    rows = transport.execute("/system/package/print")
+    wrong: list[str] = []
+    waiting: list[str] = []
+    for row in rows:
+        name = row.get("name", "")
+        version = row.get("version", "")
+        available = to_bool(row, "available", "A")
+        if not name or available or not version:
+            continue  # offered for download, not installed: not ours to check
+        if row.get("scheduled"):
+            waiting.append(f"{name} ({row['scheduled']})")
+        elif to_bool(row, "disabled", "X"):
+            waiting.append(f"{name} (disabled)")
+        try:
+            same = RosVersion.parse(version) == expected
+        except ValueError:
+            same = False
+        if not same:
+            wrong.append(f"{name} {version}")
+    return CheckResult("verify.package_versions", not wrong and not waiting,
+                       {"expected": str(expected),
+                        "wrong": ", ".join(sorted(wrong)) or "-",
+                        "waiting": ", ".join(sorted(waiting)) or "-"})
+
+
+def compare_radios(before: WirelessSnapshot, after: WirelessSnapshot) -> CheckResult:
+    """The radios are the ones that were there before the reboot.
+
+    Three ways they can fail to be, in the order they matter: a **menu** that is gone means
+    the driver did not come back at all; an **interface** that is gone means the driver
+    loaded and the radio did not; one that is **no longer running** means both happened and
+    the link is still down. The first two are what this whole feature is about, so all
+    three are reported together rather than one at a time.
+
+    Extra interfaces are not a failure — a driver that renames or splits a radio across a
+    version is not a loss — but they are named, because somebody has to look at the
+    configuration afterwards.
+    """
+    lost_menus = sorted(m.value for m in set(before.menus) - set(after.menus))
+    lost = sorted(set(before.names) - set(after.names))
+    appeared = sorted(set(after.names) - set(before.names))
+    # Only radios that were up before: one that was down stays this flow's business
+    # exactly as much as it was, which is not at all.
+    stopped = sorted(set(before.running_names) & set(after.names)
+                     - set(after.running_names))
+    return CheckResult(
+        "verify.radios",
+        not lost_menus and not lost and not stopped,
+        {"before": ", ".join(before.names) or "-",
+         "menus_lost": ", ".join(lost_menus) or "-",
+         "lost": ", ".join(lost) or "-",
+         "stopped": ", ".join(stopped) or "-",
+         "new": ", ".join(appeared) or "-"},
+    )
+
+
+def registrations_returned(before: WirelessSnapshot,
+                           after: WirelessSnapshot) -> tuple[bool, list[str]]:
+    """Whether every radio that had stations has them again, and which do not.
+
+    Only radios that carried stations before are asked about: an AP with nobody on it had
+    an empty table to begin with, and waiting for it to fill would wait forever.
+    """
+    empty = [name for name, count in sorted(before.registrations.items())
+             if count and not after.registrations.get(name)]
+    return not empty, empty
+
+
+def wait_for_registrations(
+    transport: Transport,
+    before: WirelessSnapshot,
+    version: RosVersion,
+    *,
+    sleep: Callable[[float], None],
+    timeout_s: float,
+    interval_s: float = REGISTRATION_POLL_S,
+    now: Callable[[], float] = time.monotonic,
+    on_wait: Callable[[int, int], None] = lambda returned, expected: None,
+) -> CheckResult | None:
+    """Give the stations time to come back, and say whether they did.
+
+    None when there is nothing to wait for: no radio carried a station before the reboot.
+    A station takes its own time to re-associate — longer than the device takes to boot —
+    so this is asked repeatedly rather than once, and it returns as soon as every radio
+    that had stations has them again.
+    """
+    expected = [name for name, count in before.registrations.items() if count]
+    if not expected:
+        return None
+    deadline = now() + timeout_s
+    returned: list[str] = []
+    missing = list(expected)
+    while True:
+        after = collect_radios(transport, version)
+        ok, missing = registrations_returned(before, after)
+        returned = [n for n in expected if n not in missing]
+        on_wait(len(returned), len(expected))
+        if ok or now() >= deadline:
+            return CheckResult("verify.registrations", ok,
+                               {"radios": ", ".join(sorted(expected)),
+                                "empty": ", ".join(sorted(missing)) or "-",
+                                "waited": f"{timeout_s:.0f}"})
+        sleep(interval_s)
 
 
 def expected_gateways(profile: DeviceProfile) -> list[str]:

@@ -445,7 +445,9 @@ def test_a_downgrade_is_installed_and_checked(tmp_path):
     assert "/system/package/downgrade" in router.log
     assert "/system/reboot" not in router.log
     assert not [name for name in router.files if name.endswith(".npk")]
-    assert [c.ok for c in report.checks] == [True]
+    assert all(c.ok for c in report.checks)
+    assert [c.code for c in report.checks] == ["verify.routeros_version",
+                                               "verify.package_versions"]
     assert len(targets) == 1 and targets[0].alternatives == NOW_HOSTS
 
 
@@ -467,7 +469,10 @@ def test_two_hops_are_two_reboots(tmp_path):
     uploads = [e.params["file"] for e in events
                if e.step == "apply.step.version_upload" and e.status == StepStatus.OK]
     assert uploads == ["routeros-mmips-6.49.22.npk", "routeros-7.23.5-mmips.npk"]
-    assert len(report.checks) == 2
+    # One version check and one package-parity check per hop. No radio line: this board
+    # has no radio, so comparing nothing with nothing is left out of the checklist.
+    assert [c.code for c in report.checks] == ["verify.routeros_version",
+                                               "verify.package_versions"] * 2
 
 
 def test_a_package_the_device_ignores_stops_the_route(tmp_path):

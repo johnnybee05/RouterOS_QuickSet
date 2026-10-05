@@ -70,7 +70,13 @@ from mqs.apply.routerboot import (
 )
 from mqs.apply.routerboot import RouterbootUpgrade, state_from_inventory
 from mqs.apply.update import firmware_newer
-from mqs.apply.verify import CheckResult, check_routeros_version
+from mqs.apply.verify import (
+    CheckResult,
+    check_package_versions,
+    check_routeros_version,
+    compare_radios,
+    wait_for_registrations,
+)
 from mqs.generator.ir import Find, cmd
 from mqs.issues import Issue, Severity
 from mqs.model.inventory import DeviceInventory, WirelessDriver
@@ -82,6 +88,7 @@ from mqs.transport.base import (
     Transport,
     TransportError,
 )
+from mqs.transport.discovery import collect_radios
 from mqs.transport.mac_connect import MacConnectResult, MacRoute
 from mqs.transport.upload import FileUploader, UploadFailed
 
@@ -95,6 +102,9 @@ V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=22)
 # mmips board 84 s to come back, a bare reboot 40 s.
 INSTALL_REPLY_S = 10.0
 REBOOT_WAIT_S = 20.0
+# How long to give an AP's stations to come back after the last hop. They re-associate on
+# their own schedule, which is slower than the boot.
+REGISTRATION_WAIT_S = 300.0
 
 
 class Install(StrEnum):
@@ -421,6 +431,10 @@ class VersionContext:
     # ... and let it go down to the firmware an older RouterOS carries, on its own switch.
     routerboot_downgrade: bool = False
     routerboot_wait_s: float = ROUTERBOOT_REBOOT_WAIT_S
+    # After the last hop, wait for the stations of an AP to re-associate. Worth having on
+    # for an AP and pointless for a station, so it is asked of the snapshot, not the user.
+    wait_for_stations: bool = True
+    registration_timeout_s: float = REGISTRATION_WAIT_S
 
 
 @dataclass
@@ -665,6 +679,87 @@ class VersionChanger:
                               actual=check.params.get("actual", "?"))
         self.report.installed.append(hop.version)
         self._event("apply.step.version_installed", StepStatus.OK, version=str(hop.version))
+        self._verify_radios(hop)
+
+    def _verify_radios(self, hop: Hop) -> None:
+        """Every package on the version it should be, and every radio back where it was.
+
+        This is the check the whole feature is for, and it runs after **every** hop, not
+        only the last: a radio lost at the 7.12 stop is lost before the route is half done,
+        and carrying on to the next reboot would only put it further out of reach.
+
+        A lost radio is a full stop. The device is up and answering, so it can still be
+        looked at — which is more than will be true of the one behind it if this is an AP
+        and the batch keeps going.
+        """
+        before = self.ctx.inventory.radios
+        if not before.collected:
+            return  # nothing to compare against; the plan refuses this case earlier
+        self._event("apply.step.radio_check", StepStatus.RUNNING)
+        try:
+            packages = check_package_versions(self.transport, hop.version)
+            after = collect_radios(self.transport, hop.version)
+        except TransportError as exc:
+            raise self._abort("apply.failed.version_install", repr(exc),
+                              error=str(exc)) from exc
+        self.report.checks.append(packages)
+        # A device with no radio gets no radio line in the checklist: comparing nothing
+        # with nothing always passes, and a checklist full of that is harder to read.
+        if before.has_radios or after.has_radios:
+            radios = compare_radios(before, after)
+            self.report.checks.append(radios)
+            if not radios.ok:
+                raise self._abort("apply.failed.version_radio_lost", radios.message,
+                                  version=str(hop.version), detail=radios.message)
+        self._event("apply.step.radio_check",
+                    StepStatus.OK if before.has_radios else StepStatus.SKIPPED)
+        if not packages.ok:
+            # The radios are there, so the link holds and there is something to fix from.
+            self._warn("apply.warning.version_package_versions",
+                       wrong=packages.params.get("wrong", "?"),
+                       waiting=packages.params.get("waiting", "?"),
+                       version=str(hop.version))
+        if hop.version == self.ctx.plan.target:
+            self._await_stations(hop)
+
+    def _await_stations(self, hop: Hop) -> None:
+        """After the last hop, give the stations time to come back.
+
+        Only after the last one: between hops the device is about to reboot again, so
+        waiting for stations that are about to be dropped is time spent for nothing. An AP
+        whose table stays empty is a warning and not a stop — the radio is up, so whatever
+        is wrong is on the far end, and stopping the batch here would not help it.
+        """
+        if not self.ctx.wait_for_stations:
+            return
+        self._check_cancel()
+
+        def progress(returned: int, expected: int) -> None:
+            self._event("apply.step.registrations_wait", StepStatus.RUNNING,
+                        returned=returned, expected=expected)
+
+        try:
+            check = wait_for_registrations(
+                self.transport, self.ctx.inventory.radios, hop.version,
+                sleep=self.ctx.sleep, timeout_s=self.ctx.registration_timeout_s,
+                on_wait=progress)
+        except TransportError as exc:
+            self._warn("apply.warning.version_registrations", empty="?",
+                       waited=f"{self.ctx.registration_timeout_s:.0f}")
+            self.report.issues.append(Issue("apply.warning.version_registrations",
+                                            Severity.WARNING, "", {"error": str(exc)}))
+            return
+        if check is None:
+            return  # no radio carried a station before the reboot
+        self.report.checks.append(check)
+        if check.ok:
+            self._event("apply.step.registrations_wait", StepStatus.OK,
+                        returned=len(check.params.get("radios", "").split(", ")),
+                        expected=len(check.params.get("radios", "").split(", ")))
+        else:
+            self._warn("apply.warning.version_registrations",
+                       empty=check.params.get("empty", "?"),
+                       waited=check.params.get("waited", "?"))
 
     def _withdraw(self, hop: Hop) -> None:
         """Take a hop's packages back off a device that is not going to install them."""
