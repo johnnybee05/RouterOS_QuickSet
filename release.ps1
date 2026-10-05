@@ -59,11 +59,15 @@ function Invoke-Native {
 }
 
 function Set-FileVersion {
+    <# Zapisuje zpátky tak, jak soubor přišel: BOM se nepřidává souboru, který ho neměl
+       (`pyproject.toml` čte hatchling i tomllib) a jen se zachová tomu, který ho má. #>
     param([string]$Path, [string]$Pattern, [string]$Replacement)
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $bom = ($bytes.Length -ge 3) -and ($bytes[0] -eq 0xEF) -and ($bytes[1] -eq 0xBB) -and ($bytes[2] -eq 0xBF)
     $text = Get-Content -Raw -Encoding UTF8 $Path
     $updated = [regex]::Replace($text, $Pattern, $Replacement)
     if ($updated -ne $text) {
-        Set-Content -Path $Path -Value $updated -Encoding UTF8 -NoNewline
+        [System.IO.File]::WriteAllText($Path, $updated, (New-Object System.Text.UTF8Encoding($bom)))
         Write-Host "  $Path -> $Version"
         return $true
     }
@@ -114,8 +118,11 @@ if ($Resync -and -not $released) { throw "Vydání $tag neexistuje, není co př
 if (-not $Resync) {
     Write-Host "Verze ve zdrojích..."
     $bumped = $false
-    $bumped = (Set-FileVersion "pyproject.toml" '(?m)^version = "\d+\.\d+\.\d+"$' "version = `"$Version`"") -or $bumped
-    $bumped = (Set-FileVersion "src\mqs\__init__.py" '(?m)^__version__ = "\d+\.\d+\.\d+"$' "__version__ = `"$Version`"") -or $bumped
+    # `(?=\r?$)`: v souboru s CRLF končí řádek na \r, na který se samotné `$` nedostane --
+    # `pyproject.toml` (CRLF) proto zůstával na předchozí verzi a nikdo si toho nevšiml.
+    # Konec řádku se jen vyhlíží, aby ho náhrada nesnědla a konce řádků zůstaly jednotné.
+    $bumped = (Set-FileVersion "pyproject.toml" '(?m)^version = "\d+\.\d+\.\d+"(?=\r?$)' "version = `"$Version`"") -or $bumped
+    $bumped = (Set-FileVersion "src\mqs\__init__.py" '(?m)^__version__ = "\d+\.\d+\.\d+"(?=\r?$)' "__version__ = `"$Version`"") -or $bumped
     if ($bumped) {
         Write-Host "Golden skripty..."
         Invoke-Native $python @("-m", "pytest", "-q", "--update-golden") -Quiet | Out-Null
