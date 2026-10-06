@@ -229,3 +229,13 @@ def test_a_value_with_a_semicolon_is_quoted():
 
 def test_only_confirmed_devices_are_offered_for_an_update():
     assert [d.identity for d in updatable([antenna(), guess()])] == ["sxt-01"]
+
+
+def test_the_table_holds_the_version_and_not_the_line_it_came_in():
+    """An MNDP announcement carries its build time; a CSV column is not the place for it."""
+    from mqs.discover.candidates import Sighting, Source, from_sighting
+
+    heard = from_sighting(Sighting(source=Source.MNDP, macs=[MAC],
+                                   identity="sxt-01",
+                                   version="7.23.6 (long-term) 2026-09-14 10:14:57"))
+    assert to_rows([heard])[0]["version"] == "7.23.6"

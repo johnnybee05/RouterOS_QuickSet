@@ -215,8 +215,15 @@ def connect(win, qtbot, password="pw"):
 
 
 def test_window_structure_and_navigation(window):
-    assert window.nav.count() == 7 and window.stack.count() == 7
-    window.nav.setCurrentRow(5)
+    # Checked against the page table rather than against a count, so adding a page is a
+    # one-line change in one place instead of a number to find in a test.
+    from mqs.ui import strings_cs as S
+
+    keys = list(window.pages)
+    assert window.nav.count() == len(keys) and window.stack.count() == len(keys)
+    labels = [window.nav.item(row).text() for row in range(window.nav.count())]
+    assert labels == [S.NAV[key] for key in keys]
+    window.nav.setCurrentRow(keys.index("preview"))
     assert window.stack.currentWidget() is window.preview_page
     assert window.dialect_badge.text().startswith("Offline")
     assert window.controller.profile.mode.value == "router"

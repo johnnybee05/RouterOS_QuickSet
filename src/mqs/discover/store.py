@@ -213,6 +213,9 @@ def to_rows(devices: Iterable[Candidate],
         board = inventory.routerboard if inventory else None
         packages = (", ".join(f"{p.name} {p.version}" for p in inventory.packages
                               if p.installed) if inventory else "")
+        # The version, not the string it arrived in: an MNDP announcement carries its
+        # build time, and a CSV column is not the place for it.
+        version = device.ros_version
         rows.append(Row({
             "identity": device.identity,
             "address": device.address,
@@ -221,7 +224,7 @@ def to_rows(devices: Iterable[Candidate],
             "category": (classify_with(device) if classify_with
                          else classify(device).category),
             "role": classify(device).role.value if device.wireless else "",
-            "version": device.version,
+            "version": str(version) if version else "",
             "architecture": device.architecture,
             "wireless_stack": inventory.wireless.value if inventory else "",
             "packages": packages,

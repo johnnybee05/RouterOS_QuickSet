@@ -6,6 +6,7 @@ APP_TITLE = "MikroTik QuickSet Plus"
 
 NAV = {
     "device": "Zařízení",
+    "network": "Síť",
     "basic": "Základ",
     "lan": "LAN / Bridge",
     "firewall": "Firewall",
@@ -358,3 +359,48 @@ ERROR_TITLE = "Chyba"
 WARNING_TITLE = "Upozornění"
 YES = "Ano"
 NO = "Ne"
+
+# --- stránka Síť (hledání zařízení a dávkový update) ---------------------------------
+NET_PAGE_TITLE = "Síť"
+NET_SCAN_GROUP = "Hledání zařízení v síti"
+NET_SCAN_START = "Prohledat síť"
+NET_SCAN_STOP = "Zastavit"
+NET_SECONDS = "Poslouchat MNDP (s):"
+NET_EXPORT = "Export tabulky…"
+NET_SCAN_PORTS = "Skenovat porty"
+NET_SCAN_PORTS_HINT = ("Zkusí porty 8729, 122, 22 a 8291 v zadaných sítích. Vypnuté, "
+                       "protože se dotýká i zařízení, na která se nikdo neptal – a "
+                       "otevřený port sám nic nedokazuje. Omezené na 50 adres/s.")
+NET_SUBNETS = "Sítě:"
+NET_SNMP = "SNMP community:"
+NET_SNMP_HINT = ("Přečte sysObjectID přes SNMPv2c v zadaných sítích. Prázdné = SNMP se "
+                 "nepoužije.")
+NET_NEEDS_SUBNET = ("Skenování portů i SNMP potřebují aspoň jednu síť v poli „Sítě“ "
+                    "(např. 192.168.55.0/24).")
+NET_TABLE_GROUP = "Nalezená zařízení"
+NET_LEGEND = ("Stav: ++ potvrzeno (přihlášeno, data ze zařízení – jen tyhle jde "
+              "aktualizovat), + pravděpodobně MikroTik, ? odpovídá, ale nic na MikroTik "
+              "neukazuje. Tučný řádek = od posledního scanu se změnil, podrobnost je "
+              "v bublině.")
+NET_STATE_CONFIRMED = "++"
+NET_STATE_PROBABLE = "+"
+NET_STATE_UNKNOWN = "?"
+NET_ORDER_GROUP = "Pořadí dávkového updatu (od nejvzdálenějších k páteři)"
+NET_NOT_CONFIRMED = "nepotvrzeno, do dávky nepůjde"
+NET_ORDER_OK = "Pořadí sestavené z registračních a neighbor tabulek: {count} zařízení."
+NET_ORDER_UNCERTAIN = ("Topologie je neúplná, takže pořadí je jen návrh – projděte ho. "
+                       "Zařízení se nesmí aktualizovat dřív než ta, která přes něj vedou.")
+NET_EMPTY = ("Zatím nic. Tlačítkem „Prohledat síť“ se poslechne MNDP; zařízení se dá "
+             "aktualizovat teprve po přihlášení, které načte jeho stav.")
+NET_SERIOUS = "POZOR: {detail}."
+NET_SCANNING = "Hledám…"
+NET_SCAN_CANCELLED = "Hledání se ukončuje…"
+NET_SCAN_DONE = "Nalezeno {found}, v inventáři je {total} zařízení."
+NET_SCAN_FAILED = "Hledání selhalo: {error}"
+NET_SOURCE_FAILED = "Některý zdroj selhal – {detail}"
+NET_INVENTORY_BAD = "Inventář se nedá přečíst: {error}"
+NET_INVENTORY_SAVE_FAILED = "Inventář se nepodařilo uložit: {error}"
+NET_EXPORT_TITLE = "Export inventáře"
+NET_EXPORT_FILTER = "CSV (*.csv);;JSON (*.json)"
+NET_EXPORT_FAILED = "Export se nepodařil: {error}"
+NET_EXPORTED = "Zapsáno {count} zařízení do {path}"

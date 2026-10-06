@@ -32,6 +32,7 @@ from mqs.ui.pages.basic import BasicPage
 from mqs.ui.pages.device import DevicePage, connection_summary
 from mqs.ui.pages.firewall import FirewallPage
 from mqs.ui.pages.lan_bridge import LanBridgePage
+from mqs.ui.pages.network import NetworkPage
 from mqs.ui.pages.preview import PreviewPage
 from mqs.ui.pages.services import ServicesPage
 from mqs.ui.workers import TaskRunner
@@ -49,6 +50,7 @@ class MainWindow(QMainWindow):
         store: ProfileStore | None = None,
         device_kwargs: dict[str, Any] | None = None,
         apply_kwargs: dict[str, Any] | None = None,
+        network_kwargs: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle(S.APP_TITLE)
@@ -61,6 +63,8 @@ class MainWindow(QMainWindow):
 
         self.device_page = DevicePage(self.controller, self.runner, self.dialogs, self.registry,
                                       **(device_kwargs or {}))
+        self.network_page = NetworkPage(self.controller, self.runner, self.dialogs,
+                                        **(network_kwargs or {}))
         self.basic_page = BasicPage(self.controller)
         self.lan_page = LanBridgePage(self.controller)
         self.firewall_page = FirewallPage(
@@ -80,7 +84,8 @@ class MainWindow(QMainWindow):
                                     save_script=self.preview_page.save_script,
                                     **(apply_kwargs or {}))
         self.pages = {
-            "device": self.device_page, "basic": self.basic_page, "lan": self.lan_page,
+            "device": self.device_page, "network": self.network_page,
+            "basic": self.basic_page, "lan": self.lan_page,
             "firewall": self.firewall_page, "services": self.services_page,
             "preview": self.preview_page, "apply": self.apply_page,
         }
@@ -247,6 +252,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.device_page.shutdown()
+        self.network_page.shutdown()
         self.runner.cancel_all()
         self.runner.wait_all(3000)
         session = self.device_page.session
