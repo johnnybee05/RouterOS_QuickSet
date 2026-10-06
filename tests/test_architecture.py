@@ -42,7 +42,7 @@ def test_pure_core_has_no_forbidden_imports(path):
             )
 
 
-HEADLESS_PACKAGES = ["apply", "transport", "discover"]
+HEADLESS_PACKAGES = ["apply", "transport", "discover", "fleet"]
 HEADLESS_MODULES = ["cli.py", "paths.py", "logging_setup.py"]
 GUI_ONLY = {"PySide6", "mqs.ui"}
 

@@ -391,6 +391,18 @@ MESSAGES: dict[str, str] = {
     "všechny balíčky stejnou verzi (jiná verze: {wrong}; čeká na restart: {waiting}). "
     "Bezdrátová rozhraní zůstala, takže spoj drží – balíček ale doinstalujte ve správné "
     "verzi, než zařízení příště restartujete.",
+    # dávkový update
+    "fleet.not_confirmed": "{count} zařízení se vynechává, protože se k nim aplikace "
+    "nepřihlásila ({names}). Aktualizovat jde jen zařízení, jehož stav je načtený přímo "
+    "z něj – podle odhadu se balíčky nevolí.",
+    "fleet.order_uncertain": "Pořadí updatu není jisté: topologie má {roots} kořenů, "
+    "{orphans} zařízení bez vazby a {cycles} smyček. Projděte pořadí a potvrďte ho ručně "
+    "– zařízení se nesmí aktualizovat dřív než ta, která přes něj vedou.",
+    "fleet.stopped": "Dávka se zastavila na zařízení {name}: {error}. Zbývajících {rest} "
+    "zařízení se neaktualizovalo. Zkontrolujte, co se stalo, než budete pokračovat.",
+    "fleet.blocked": "Dávka se nespustí: {count} zařízení nemá použitelný plán ({names}). "
+    "Bývá to tentýž chybějící balíček pro všechna – zjistit to až po čtyřech restartech "
+    "nikomu nepomůže.",
     # stahování balíčků z download.mikrotik.com
     "download.not_published": "MikroTik balíček {name} ve verzi {version} pro tuhle "
     "architekturu nevydává ({url}). Zkontrolujte, že ta verze pro tohle zařízení existuje.",
