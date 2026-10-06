@@ -1,0 +1,92 @@
+# MikroTik wireless product families, for labelling an inventory row.
+#
+# This file NEVER decides whether a device is wireless. That is settled by whether it has
+# radios, read off the device (`Candidate.wireless`). An unknown model with a radio is a
+# wireless device with no category; a known name with no radio is not a wireless device,
+# whatever it is called. The categories here are for reading a table of three hundred
+# rows, and for nothing else.
+#
+# It is also not the file that picks a driver package — that is
+# `wireless_packages.yaml`, and getting it wrong there costs a configuration rather than
+# a label.
+#
+# Matching is by longest normalised prefix (case and punctuation ignored) against
+# `/system routerboard model` first and `/system resource board-name` second, the same
+# way `known_devices.yaml` works: reported names carry suffixes the catalogue omits
+# ("SXTsq Lite5" for "SXTsq"), so the most specific spelling must be its own entry.
+#
+# SOURCE: MikroTik's own product naming, 2026-10-05. Names, not measurements — a category
+# that is wrong costs a misleading label, so new entries are welcome and the file is
+# meant to be edited. A user copy in %LOCALAPPDATA%\MikrotikQuickSetPlus wins, key by key.
+
+categories:
+  # --- point to point, dish and panel ---------------------------------------------
+  SXT: { label: "SXT", kind: ptp }
+  SXTsq: { label: "SXT Square", kind: ptp }
+  LHG: { label: "LHG", kind: ptp }
+  LDF: { label: "LDF", kind: ptp }
+  DynaDish: { label: "DynaDish", kind: ptp }
+  QRT: { label: "QRT", kind: ptp }
+  Disc: { label: "Disc", kind: ptp }
+  DISC: { label: "Disc", kind: ptp }
+  LHGG: { label: "LHG LTE", kind: lte }
+
+  # --- sector and base station ----------------------------------------------------
+  mANTBox: { label: "mANTBox", kind: sector }
+  BaseBox: { label: "BaseBox", kind: sector }
+  NetMetal: { label: "NetMetal", kind: sector }
+  QRTG: { label: "QRT LTE", kind: lte }
+
+  # --- outdoor boxes --------------------------------------------------------------
+  Netbox: { label: "NetBox", kind: outdoor }
+  NetBox: { label: "NetBox", kind: outdoor }
+  Groove: { label: "Groove", kind: outdoor }
+  SXTsqG: { label: "SXT Square", kind: ptp }
+  mANTBoxG: { label: "mANTBox", kind: sector }
+
+  # --- 60 GHz ---------------------------------------------------------------------
+  Wireless Wire: { label: "Wireless Wire", kind: sixty }
+  wAP 60G: { label: "wAP 60G", kind: sixty }
+  Cube: { label: "Cube 60G", kind: sixty }
+  CubeG: { label: "Cube 60G", kind: sixty }
+
+  # --- access points --------------------------------------------------------------
+  cAP: { label: "cAP", kind: ap }
+  wAP: { label: "wAP", kind: ap }
+  hAP: { label: "hAP", kind: ap }
+  mAP: { label: "mAP", kind: ap }
+  Audience: { label: "Audience", kind: ap }
+  Chateau: { label: "Chateau", kind: lte }
+  KNOT: { label: "KNOT", kind: iot }
+
+# RouterBOARD designations, which is what `/system routerboard model` actually reports —
+# "RBSXTsq5nD", not "SXTsq Lite5". The same table, keyed the way the device speaks.
+models:
+  RBSXT: { label: "SXT", kind: ptp }
+  RBSXTsq: { label: "SXT Square", kind: ptp }
+  RBLHG: { label: "LHG", kind: ptp }
+  RBLDF: { label: "LDF", kind: ptp }
+  RBLDAF: { label: "LDF", kind: ptp }
+  RBDynaDish: { label: "DynaDish", kind: ptp }
+  RBDisc: { label: "Disc", kind: ptp }
+  RBQRT: { label: "QRT", kind: ptp }
+  RBD22: { label: "Audience", kind: ap }
+  RBD25: { label: "Audience", kind: ap }
+  RBD52: { label: "hAP ac2", kind: ap }
+  RBD53: { label: "hAP ac3", kind: ap }
+  RB911: { label: "mANTBox / Basebox", kind: sector }
+  RB912: { label: "BaseBox", kind: sector }
+  RB921: { label: "mANTBox", kind: sector }
+  RB922: { label: "NetMetal", kind: sector }
+  RBwAPG: { label: "wAP", kind: ap }
+  RBwAPG-60: { label: "wAP 60G", kind: sixty }  # longest prefix wins
+  RBwAPR: { label: "wAP LTE", kind: lte }
+  RBcAPGi: { label: "cAP", kind: ap }
+  RBcAP: { label: "cAP", kind: ap }
+  RBMetal: { label: "Metal", kind: outdoor }
+  RBGrooveG: { label: "Groove", kind: outdoor }
+  RBGroove: { label: "Groove", kind: outdoor }
+  RBFTC: { label: "Wireless Wire", kind: sixty }
+  RBCube: { label: "Cube 60G", kind: sixty }
+  RBLHGG: { label: "LHG LTE", kind: lte }
+  CCS: { label: "Cube 60G", kind: sixty }
