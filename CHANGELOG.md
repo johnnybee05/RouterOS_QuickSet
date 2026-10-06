@@ -60,6 +60,10 @@ u opravného vydání.
   zůstalo neaktualizovaných.
 - `mqs version` vypisuje nalezená rádia a celou trasu ještě před otázkou, a umí
   `--dry-run`.
+- **Záložka *Síť*** v okně: tabulka nalezených zařízení se stavem detekce v prvním
+  sloupci (`++` potvrzeno a půjde aktualizovat, `+` pravděpodobně MikroTik, `?` nic
+  neukazuje), pořadí dávky i se stromem topologie pod ní, export do CSV/JSON. Druhý scan
+  zvýrazní, co se změnilo, a zmizelé rádio dostane varování nad pořadím.
 
 ### Změněno
 
