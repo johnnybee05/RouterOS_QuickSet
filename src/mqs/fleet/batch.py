@@ -46,6 +46,7 @@ class Outcome(StrEnum):
     DONE = "done"
     FAILED = "failed"
     SKIPPED = "skipped"  # the batch stopped before reaching it
+    UNCHANGED = "unchanged"  # nothing to install: already on the target version
     BLOCKED = "blocked"  # its own plan refused before anything started
 
 
@@ -161,6 +162,11 @@ def plan_batch(
         if step.blocked:
             step.outcome = Outcome.BLOCKED
             step.detail = _first_error(step.plan)
+        elif not step.changes:
+            # Already where it should be. Not "skipped", which means the batch stopped
+            # before reaching it, and not a failure either.
+            step.outcome = Outcome.UNCHANGED
+            step.detail = f"already on {target}"
     return BatchPlan(tuple(steps), order, target, tuple(issues))
 
 
@@ -200,7 +206,8 @@ class BatchReport:
     @property
     def succeeded(self) -> bool:
         return self.stopped_by is None and all(
-            s.outcome in (Outcome.DONE, Outcome.SKIPPED) for s in self.steps)
+            s.outcome in (Outcome.DONE, Outcome.SKIPPED, Outcome.UNCHANGED)
+            for s in self.steps)
 
     def of(self, outcome: Outcome) -> tuple[DeviceStep, ...]:
         return tuple(s for s in self.steps if s.outcome is outcome)

@@ -65,6 +65,7 @@ from mqs.discover.cli import (
     cmd_inventory,
     cmd_scan,
 )
+from mqs.fleet.cli import add_fleet_args, cmd_fleet, updater
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
@@ -854,6 +855,17 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("-v", "--verbose", action="store_true",
                            help="add the technical detail of each step")
 
+    fleet_cmd = sub.add_parser(
+        "fleet", allow_abbrev=False,
+        help="update every device in the inventory, leaves first")
+    add_fleet_args(fleet_cmd)
+    _add_package_args(fleet_cmd)
+    fleet_cmd.add_argument("--update-dir", metavar="DIR",
+                           help=f"where the packages are (default {update_dir()})")
+    fleet_cmd.add_argument("--download-dir",
+                           help="where to put each device's backup and export")
+    _add_connection_args(fleet_cmd, host_required=False)
+
     scan_cmd = sub.add_parser(
         "scan", allow_abbrev=False,
         help="find MikroTik devices, say which are antennas, write the inventory")
@@ -944,6 +956,17 @@ def cmd_scan_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:
     return cmd_scan(args, out, open_device=reader)
 
 
+def cmd_fleet_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:
+    """`mqs fleet update`, with one device's update wired the way `mqs version` wires it.
+
+    The updater is built even for a dry run and simply not called: building it costs
+    nothing and reaches nothing, and passing it in keeps the one code path.
+    """
+    changer = deps.pop("update_one", None) or updater(args, out, **deps)
+    return cmd_fleet(args, out, update_one=changer,
+                     found_for=deps.pop("found_for", None))
+
+
 COMMANDS: dict[str, Callable[..., int]] = {
     "discover": cmd_discover,
     "connect": cmd_connect,
@@ -951,6 +974,7 @@ COMMANDS: dict[str, Callable[..., int]] = {
     "version": cmd_version,
     "scan": cmd_scan_cli,
     "inventory": cmd_inventory,
+    "fleet": cmd_fleet_cli,
 }
 
 
