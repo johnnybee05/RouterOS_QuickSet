@@ -88,6 +88,22 @@ def print_sources(result: Any, out: Any) -> None:
               f"{source.seconds:5.1f} s  {state}", file=out)
 
 
+def _chosen(devices: Sequence[Candidate],
+            only: Sequence[str] | None) -> list[Candidate]:
+    """Which devices the login step may touch.
+
+    Without `--login-only` it is everything found, which is right for a survey of one's
+    own network and wrong anywhere a scan can hear equipment that is not yours — so the
+    flag exists, and matches on either identity or address.
+    """
+    if not only:
+        return list(devices)
+    wanted = {text.strip().lower() for text in only}
+    return [d for d in devices
+            if d.identity.lower() in wanted
+            or any(a.lower() in wanted for a in d.addresses)]
+
+
 # ------------------------------------------------------------------ scan
 
 
@@ -129,11 +145,17 @@ def cmd_scan(args: argparse.Namespace, out: Any, *,
 
     devices = list(result.devices)
     if args.login and open_device is not None:
-        print("\nlogging in:", file=out)
-        devices = confirm(
-            devices, open_device,
+        wanted = _chosen(devices, args.login_only)
+        if args.login_only and not wanted:
+            print("--login-only matched no device that was found", file=sys.stderr)
+            return BLOCKED
+        print(f"\nlogging in to {len(wanted)}:", file=out)
+        logged_in = confirm(
+            wanted, open_device,
             on_device=lambda device, state: print(
                 f"  {device.identity or device.address or device.key}: {state}", file=out))
+        untouched = [d for d in devices if d not in wanted]
+        devices = [*logged_in, *untouched]
 
     path = inventory_path(args)
     try:
@@ -207,6 +229,10 @@ def add_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--login", action="store_true",
                         help="log in to each device found and read it. Only this makes a "
                         "device updatable; it needs --user and a password")
+    parser.add_argument("--login-only", action="append", metavar="NAME",
+                        help="log in only to these devices, by identity or address. "
+                        "Repeatable. Without it --login tries everything it found, which "
+                        "on a live network means other people's equipment too")
     parser.add_argument("--inventory", metavar="FILE",
                         help=f"the inventory file (default {app_data_dir() / INVENTORY_NAME})")
     parser.add_argument("--no-save", action="store_true",

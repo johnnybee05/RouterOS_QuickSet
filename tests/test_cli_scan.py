@@ -247,3 +247,67 @@ def test_an_inventory_from_another_format_is_refused(tmp_path):
     path.write_text(json.dumps({"format": 99, "devices": []}), encoding="utf-8")
     code, _ = run(["inventory", "--inventory", str(path)])
     assert code == cli.FAILED
+
+
+# ------------------------------------------------------------------ limiting the login
+
+
+def _two_found(monkeypatch):
+    monkeypatch.setattr("mqs.discover.cli.list_ipv4_interfaces", list)
+    monkeypatch.setattr("mqs.discover.cli.MndpScanner", lambda interfaces: FakeScanner([
+        announced(MAC_A, "mine", "192.0.2.5"),
+        announced("AA:BB:CC:00:00:02", "somebody-elses", "192.0.2.6")]))
+
+
+def test_login_only_touches_the_devices_it_names(tmp_path, monkeypatch):
+    """A scan on a live network hears equipment that is not yours, and `--login` without
+    this would try to log in to all of it."""
+    _two_found(monkeypatch)
+    asked: list[str] = []
+
+    def connect(params, *a, **k):
+        asked.append(params.host)
+        return type("S", (), {"inventory": antenna_inventory(), "transport": None})()
+
+    code, out = run(scan_args(tmp_path, "--login", "--user", "admin",
+                              "--login-only", "mine"), connect=connect)
+    assert code == cli.OK, out
+    assert asked == ["192.0.2.5"]
+    assert "logging in to 1" in out
+
+
+def test_login_only_matches_an_address_too(tmp_path, monkeypatch):
+    _two_found(monkeypatch)
+    asked: list[str] = []
+    run(scan_args(tmp_path, "--login", "--user", "admin",
+                  "--login-only", "192.0.2.6"),
+        connect=lambda params, *a, **k: asked.append(params.host) or type(
+            "S", (), {"inventory": antenna_inventory(), "transport": None})())
+    assert asked == ["192.0.2.6"]
+
+
+def test_a_device_left_out_of_the_login_is_still_in_the_inventory(tmp_path, monkeypatch):
+    _two_found(monkeypatch)
+    run(scan_args(tmp_path, "--login", "--user", "admin", "--login-only", "mine"),
+        connect=lambda *a, **k: type("S", (), {"inventory": antenna_inventory(),
+                                               "transport": None})())
+    saved = json.loads((tmp_path / "inv.json").read_text(encoding="utf-8"))
+    assert {d["identity"] for d in saved["devices"]} == {"sxt-01", "somebody-elses"}
+
+
+def test_login_only_that_matches_nothing_is_refused(tmp_path, monkeypatch):
+    """Rather than quietly logging in to nothing and reporting a successful scan."""
+    _two_found(monkeypatch)
+    code, _ = run(scan_args(tmp_path, "--login", "--user", "admin",
+                            "--login-only", "nowhere"),
+                  connect=lambda *a, **k: None)
+    assert code == cli.BLOCKED
+
+
+def test_without_the_flag_everything_found_is_tried(tmp_path, monkeypatch):
+    _two_found(monkeypatch)
+    asked: list[str] = []
+    run(scan_args(tmp_path, "--login", "--user", "admin"),
+        connect=lambda params, *a, **k: asked.append(params.host) or type(
+            "S", (), {"inventory": antenna_inventory(), "transport": None})())
+    assert sorted(asked) == ["192.0.2.5", "192.0.2.6"]

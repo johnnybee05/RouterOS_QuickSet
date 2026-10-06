@@ -322,6 +322,7 @@ kterému se aplikace přihlásila a přečetla ho přímo.
 
 ```powershell
 # poslech MNDP, přihlášení ke každému nalezenému, zápis inventáře
+# (--login-only omezí přihlašování na jmenovaná zařízení — na cizí síti nutnost)
 .\.venv\Scripts\python.exe -m mqs.cli scan --login --user bee --key $HOME\.ssh\id_rsa --ssh-port 122
 
 # tabulka do Excelu
