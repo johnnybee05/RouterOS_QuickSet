@@ -15,13 +15,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from mqs.discover.candidates import Candidate, Confidence, Source
+from mqs.discover.candidates import Candidate, Confidence
 from mqs.discover.classify import classify
-from mqs.discover.merge import merge_candidates
 from mqs.discover.portscan import ScanLimits
 from mqs.discover.scan import ScanPlan, confirm, run
 from mqs.discover.store import (
-    ChangeKind,
     Diff,
     Inventory,
     InventoryError,
@@ -224,24 +222,3 @@ def add_inventory_args(parser: argparse.ArgumentParser) -> None:
                         help="only devices with radios")
     parser.add_argument("--confirmed-only", action="store_true",
                         help="only devices read off the device itself")
-
-
-def known_devices(path: Path) -> list[Candidate]:
-    """The inventory as a list, merged — what a batch is planned from."""
-    return merge_candidates(load(path).devices)
-
-
-def seen_sources(devices: Sequence[Candidate]) -> set[Source]:
-    return {s for d in devices for s in d.sources}
-
-
-def serious_changes(diff: Diff) -> list[str]:
-    return [f"{c.kind.value} {c.name} {c.detail}".strip()
-            for c in diff.changes if c.serious]
-
-
-def kind_counts(diff: Diff) -> dict[ChangeKind, int]:
-    counts = dict.fromkeys(ChangeKind, 0)
-    for change in diff.changes:
-        counts[change.kind] += 1
-    return counts
