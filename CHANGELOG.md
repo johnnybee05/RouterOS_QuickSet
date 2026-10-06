@@ -11,6 +11,68 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [Nevydáno]
+
+### Přidáno
+
+- **Bezpečná aktualizace zařízení s rádiem.** Od RouterOS 7.13 jsou ovladače rádií
+  samostatné balíčky (`wireless`, `wifi-qcom`, `wifi-qcom-ac`) a nahrát `routeros.npk`
+  bez toho správného znamená zařízení bez bezdrátového rozhraní — na druhém konci PtP
+  spoje i bez cesty zpátky. Aplikace proto sadu balíčků **čte ze zařízení**, ne z názvu
+  modelu: podle rozhraní v `/interface wireless`, `/interface wifi` a `/interface w60g`
+  a podle nainstalovaných balíčků. Bez načtených rádií neplánuje nic — prázdný seznam
+  není „zařízení nemá rádio“, ale „nikdo se nedíval“. Chybějící ovladač pro cílovou verzi
+  update odmítne; běžný balíček (`container`, `gps`, …) jde povolit jmenovitě
+  (`--allow-missing-package`). Pravidla jsou v editovatelném
+  `wireless_packages.yaml`, uživatelská kopie v `%LOCALAPPDATA%` přebíjí.
+- **Zastávky na trase.** Z verzí pod 7.12 se na 7.13+ neskáče přímo: doplní se mezikrok
+  7.12.x, kde se wireless balíčky konvertují. Skládá se to s dosavadní bránou 6.49.22,
+  takže anténa na 6.48.6 jede na 7.16.1 přes `6.49.22` a `7.12.x`, tři restarty.
+  Zastávka na 7.12 platí **jen pro zařízení s rádiem** — zařízení bez něj nemá co
+  konvertovat, a hEX S bez antény proto jede dál dvěma skoky, jak bylo ověřeno.
+- **Volba mezi `wifi-qcom` a `wifi-qcom-ac`** u zařízení jedoucích na `wifiwave2`. Ptá se
+  v pořadí: zadaná volba, co nabízí samo zařízení (7.23 vypisuje balíčky, které pro tu
+  desku MikroTik vydává), mapovací soubor, a když nic — **zeptá se vás**
+  (`--wifi-package`). Nehádá: špatná volba smaže konfiguraci rozhraní.
+- **Kontrola po každém restartu.** Shoda verzí všech balíčků (nic `scheduled` ani
+  `disabled`) a porovnání bezdrátových rozhraní se stavem předtím. Rozlišuje chybějící
+  menu (ovladač se nenačetl), chybějící rozhraní (ovladač ano, rádio ne) a nespuštěné
+  rozhraní (spoj je dole). Zmizelé rádio zastaví trasu i dávku okamžitě, i na
+  mezizastávce. U AP se navíc po poslední zastávce čeká na návrat stanic.
+- **Stahování balíčků** z `download.mikrotik.com` do lokální cache (`--download`,
+  výchozí vypnuto). Stažený soubor se přijme, jen když jeho hlavička odpovídá balíčku,
+  verzi i architektuře — chybová stránka uložená pod správným názvem by se jinak nahrála
+  a vzala s sebou rádio. Adresář `Update` má přednost před cache.
+- **`mqs scan` a `mqs inventory`.** Hledání MikroTiků několika zdroji naráz: MNDP,
+  `/ip neighbor` a registrační tabulky už dosažených zařízení, volitelně SNMPv2c
+  a omezený sken portů. Každý zdroj má vlastní timeout, takže jeden pomalý nezdrží
+  ostatní. Výsledky se slučují podle sériového čísla, jinak podle sdílené MAC — podle IP
+  adresy nikdy, dvě zařízení na jedné adrese se ukážou jako konflikt. Zařízení je
+  bezdrátové proto, že má rádia; mapovací soubor `wireless_models.yaml` jen dodá
+  kategorii. Inventář se ukládá do JSON, exportuje do CSV (středníky, kvůli Excelu)
+  a druhý scan hlásí změny — **zmizelé rádio** a **verze dolů** jsou vážné a ukončí
+  `mqs scan` nenulově.
+- **`mqs fleet` — dávkový update.** Pořadí od nejvzdálenějších zařízení k páteři,
+  sestavené z registračních a neighbor tabulek; `--here` posune zařízení, za kterým sedí
+  počítač, na konec. Neúplná topologie si vyžádá `--confirm-order`. Paralelismus výchozí
+  1 a zařízení, za kterým něco visí, běží vždycky samo. `--dry-run` vypíše celý plán
+  bez jediné změny. Při prvním selhání se dávka zastaví a řekne, kolik zařízení
+  zůstalo neaktualizovaných.
+- `mqs version` vypisuje nalezená rádia a celou trasu ještě před otázkou, a umí
+  `--dry-run`.
+
+### Změněno
+
+- **Chybějící balíček zastaví plán.** Dřív to bylo varování a update pokračoval — balíček
+  pak po restartu zmizel a zjistilo se to později. Ovladač rádia nejde přebít vůbec,
+  ostatní balíčky jmenovitě.
+- **Napříč hlavní verzí se wireless ovladač naopak doplňuje.** v6 ho nese v bundlu, v7
+  potřebuje vlastní soubor, takže anténa jdoucí z v6 na v7 dostane `wireless-<verze>.npk`
+  — dřív se všechny balíčky napříč hlavní verzí jen zahodily s varováním.
+
+Podrobnosti, včetně toho, co je a co není ověřené na skutečném hardwaru:
+[docs/WIRELESS.md](docs/WIRELESS.md).
+
 ## [0.3.0] – 2026-10-05
 
 ### Přidáno

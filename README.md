@@ -281,6 +281,65 @@ zálohy `pre-quickset-*` a ponechá jen posledních N (výchozí 3, v CLI `--kee
 protože hodiny zařízení jsou po resetu do synchronizace NTP posunuté. Právě vytvořená
 záloha se nesmaže nikdy, protože z ní obnovuje rollback pojistka.
 
+### Antény a bezdrátové spoje
+
+Na zařízení s rádiem je update nebezpečnější než na routeru: od RouterOS 7.13 jsou
+ovladače rádií samostatné balíčky (`wireless`, `wifi-qcom`, `wifi-qcom-ac`) a nahrát
+`routeros.npk` bez ovladače znamená, že se zařízení vrátí bez rozhraní — a na druhém
+konci PtP spoje i bez cesty zpátky.
+
+Aplikace proto sadu balíčků **kopíruje ze zařízení**, neodvozuje ji z názvu modelu:
+
+- přečte rozhraní v `/interface wireless`, `/interface wifi` a `/interface w60g`
+  a nainstalované balíčky, a z toho určí, který ovladač je potřeba,
+- **bez načtených rádií neplánuje nic** — prázdný seznam neznamená „nemá rádio“,
+  znamená „nikdo se nedíval“,
+- chybějící ovladač pro cílovou verzi update **odmítne** (běžný balíček jde povolit
+  jmenovitě přes `--allow-missing-package`),
+- nikdy nepřepíná ovladač; u `wifiwave2` jdoucího na 7.13+ se nejdřív zeptá zařízení,
+  pak mapovacího souboru, a když ani to nestačí, **zeptá se vás** (`--wifi-package`),
+- na trasu doplní zastávky: 6.49.22 před v7 a 7.12.x před 7.13 (ta druhá jen u zařízení
+  s rádiem, protože se tam konvertují právě wireless balíčky),
+- po **každém** restartu porovná rozhraní se stavem předtím a u AP počká, až se vrátí
+  stanice. Zmizelé rádio trasu i dávku okamžitě zastaví.
+
+```powershell
+# co by se stalo, bez jediné změny na zařízení
+.\.venv\Scripts\python.exe -m mqs.cli version --host 192.168.55.70 ... --to 7.16.1 --dry-run
+
+# balíčky se v adresáři Update nenajdou? stáhnou se a ověří podle hlavičky
+.\.venv\Scripts\python.exe -m mqs.cli version --host 192.168.55.70 ... --to 7.16.1 --download
+```
+
+Podrobnosti a co je a není ověřené na železe: [docs/WIRELESS.md](docs/WIRELESS.md).
+
+### Najít zařízení v síti a aktualizovat je po dávkách
+
+`mqs scan` hledá MikroTiky několika zdroji naráz (MNDP, `/ip neighbor` a registrační
+tabulky už dosažených zařízení, volitelně SNMP a omezený sken portů), slučuje výsledky
+a zapisuje inventář. Aktualizovat jde **jen zařízení ve stavu POTVRZENO**, tedy to, ke
+kterému se aplikace přihlásila a přečetla ho přímo.
+
+```powershell
+# poslech MNDP, přihlášení ke každému nalezenému, zápis inventáře
+.\.venv\Scripts\python.exe -m mqs.cli scan --login --user bee --key $HOME\.ssh\id_rsa --ssh-port 122
+
+# tabulka do Excelu
+.\.venv\Scripts\python.exe -m mqs.cli inventory --export antény.csv --wireless-only
+
+# co by dávka udělala a v jakém pořadí — nic nemění
+.\.venv\Scripts\python.exe -m mqs.cli fleet --to 7.16.1 --dry-run
+```
+
+Pořadí dávky jde od nejvzdálenějších zařízení k páteři, sestavené z registračních
+a neighbor tabulek. Když je strom neúplný, aplikace to řekne a chce `--confirm-order`.
+Paralelismus je výchozí 1 a zařízení, za kterým něco visí, běží vždycky samo. Při prvním
+selhání se dávka zastaví a vypíše, kolik zařízení se už neaktualizovalo.
+
+Druhý scan hlásí změny proti předchozímu; **zmizelé rádio** a **verze dolů** jsou vážné
+a `mqs scan` kvůli nim skončí nenulovým návratovým kódem, aby si toho všimla i plánovaná
+úloha.
+
 ### Připojení
 
 | Transport | Port | Poznámka |
