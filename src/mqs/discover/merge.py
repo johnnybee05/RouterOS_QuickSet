@@ -58,6 +58,19 @@ def merge_candidates(candidates: Sequence[Candidate]) -> list[Candidate]:
     return devices
 
 
+def find_match(devices: Sequence[Candidate], candidate: Candidate) -> Candidate | None:
+    """The device in ``devices`` that is the same box as ``candidate``, by the same rules
+    the merge uses: serial number, else a shared MAC, never an address.
+
+    Needed outside the merge because a device's key changes the first time somebody logs
+    in — it is keyed by MAC until it can be keyed by serial — and a comparison that keyed
+    on the key alone would report every first login as one device gone and another
+    arrived.
+    """
+    index = _match(devices, candidate.macs, candidate.serial_number)
+    return devices[index] if index is not None else None
+
+
 def _match(devices: Sequence[Candidate], macs: Sequence[str], serial: str) -> int | None:
     """The device these MAC addresses belong to, or None for a new one."""
     if serial:

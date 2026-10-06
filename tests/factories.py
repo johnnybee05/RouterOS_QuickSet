@@ -21,6 +21,7 @@ from mqs.model.inventory import (
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.version import RosVersion
+from mqs.transport.discovery import stack_of
 
 FIVE_PORTS = [f"ether{i}" for i in range(1, 6)]
 
@@ -55,6 +56,7 @@ def make_inventory(
     port_types = port_types or {}
     port_switch = port_switch or {}
     default_names = default_names or {}
+    snapshot = radios if radios is not None else WirelessSnapshot(collected=True)
     return DeviceInventory(
         resource=ResourceInfo(version=RosVersion.parse(version), board_name=board_name,
                               architecture=architecture, free_hdd_space=free_hdd_space,
@@ -63,7 +65,10 @@ def make_inventory(
                                     factory_firmware=factory_firmware,
                                     current_firmware=version, upgrade_firmware=version)
         if factory_firmware or model else None,
-        radios=radios if radios is not None else WirelessSnapshot(collected=True),
+        radios=snapshot,
+        # Derived from the radios, as `collect_inventory` derives it: the label and the
+        # snapshot come from one read on a real device and must not disagree here either.
+        wireless=stack_of(snapshot),
         has_flash_dir=has_flash_dir,
         identity="MikroTik",
         interfaces=[
