@@ -17,6 +17,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from mqs.discover.candidates import Sighting, Source
+from mqs.model.version import RosVersion
 
 SNMP_PORT = 161
 DEFAULT_TIMEOUT_S = 2.0
@@ -205,10 +206,10 @@ class SnmpReply:
 
     @property
     def version(self) -> str:
-        """RouterOS writes `RouterOS RB760iGS` or similar in sysDescr; the version is in
-        sysDescr on some releases and not on others, so this stays best-effort."""
-        words = self.sys_descr.split()
-        return next((w for w in words if w[:1].isdigit() and "." in w), "")
+        """RouterOS writes `RouterOS RB760iGS` or similar in sysDescr; whether the version
+        is in there at all varies by release, so this stays best-effort."""
+        found = RosVersion.find(self.sys_descr)
+        return str(found) if found else ""
 
 
 def query(address: str, community: str, *, timeout_s: float = DEFAULT_TIMEOUT_S,

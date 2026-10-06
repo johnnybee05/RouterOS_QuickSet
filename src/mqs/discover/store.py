@@ -139,8 +139,10 @@ def compare(before: Sequence[Candidate], after: Sequence[Candidate]) -> Diff:
         previous = find_match(list(before), device)
         if previous is None:
             kind = ChangeKind.RADIO_NEW if device.wireless else ChangeKind.NEW
+            # `ros_version`, not the raw string: an announcement carries its build time.
+            found = device.ros_version
             changes.append(Change(kind, device.key, _name(device),
-                                  device.version or device.confidence.value))
+                                  str(found) if found else device.confidence.value))
             continue
         matched.add(id(previous))
         changes.extend(_compare_one(previous, device))

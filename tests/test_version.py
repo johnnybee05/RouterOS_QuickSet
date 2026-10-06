@@ -61,3 +61,36 @@ def test_pydantic_field_roundtrip():
 def test_pydantic_field_invalid():
     with pytest.raises(ValidationError):
         _Holder(version="x.y")
+
+
+# A version quoted inside a longer line, which is how every passive source gives one.
+
+
+def test_the_version_is_found_inside_an_mndp_announcement():
+    """7.23.6 announces `7.23.6 (long-term) 2026-09-14 10:14:57` — OVĚŘENO on an RB4011
+    and a hAP ac3 on the lab network, 2026-10-06. Strict parsing yields nothing there,
+    and two scans then never notice a device that changed version."""
+    assert RosVersion.find("7.23.6 (long-term) 2026-09-14 10:14:57") == \
+        RosVersion.parse("7.23.6")
+
+
+def test_the_version_is_found_inside_a_sentence():
+    assert RosVersion.find("RouterOS 7.16.1 on RB760iGS") == RosVersion.parse("7.16.1")
+
+
+def test_a_date_is_not_mistaken_for_a_version():
+    assert RosVersion.find("2026-09-14 10:14:57") is None
+
+
+def test_a_line_with_no_version_has_none():
+    assert RosVersion.find("no version here") is None
+    assert RosVersion.find("") is None
+
+
+def test_a_prerelease_inside_a_line_is_found_whole():
+    assert RosVersion.find("7.16rc3 (testing) 2026-01-01") == RosVersion.parse("7.16rc3")
+
+
+def test_a_clean_version_is_found_as_itself():
+    for text in ("6.49.10", "7.23.6 (long-term)", "7.16"):
+        assert RosVersion.find(text) == RosVersion.parse(text)

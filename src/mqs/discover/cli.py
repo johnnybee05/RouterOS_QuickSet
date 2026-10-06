@@ -60,8 +60,11 @@ def print_devices(devices: Sequence[Candidate], out: Any) -> None:
         mark = {Confidence.CONFIRMED: "++", Confidence.PROBABLE: "+ ",
                 Confidence.UNKNOWN: "? "}[device.confidence]
         name = device.identity or "-"
-        print(f"  {mark} {name:20} {device.address or '-':15} "
-              f"{device.version or '-':10} {verdict.summary:24} "
+        # The version, not the sentence it arrived in: an announcement carries the build
+        # time after it and would push every later column off the line.
+        version = device.ros_version
+        print(f"  {mark} {name[:24]:24} {device.address or '-':15} "
+              f"{str(version) if version else '-':10} {verdict.summary:24} "
               f"{', '.join(sorted(s.value for s in device.sources))}", file=out)
         if device.login_error:
             print(f"       login refused: {device.login_error}", file=out)

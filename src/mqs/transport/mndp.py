@@ -105,10 +105,10 @@ class DiscoveredDevice:
 
     @property
     def ros_version(self) -> RosVersion | None:
-        try:
-            return RosVersion.parse(self.version)
-        except ValueError:
-            return None
+        """7.23.6 announces itself as `7.23.6 (long-term) 2026-09-14 10:14:57` — the
+        build time comes with it (OVĚŘENO on an RB4011 and a hAP ac3, 2026-10-06), so the
+        version is found inside the string rather than parsed from the whole of it."""
+        return RosVersion.find(self.version)
 
     @property
     def has_link_local_ipv6(self) -> bool:

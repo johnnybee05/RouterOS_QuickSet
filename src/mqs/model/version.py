@@ -14,6 +14,11 @@ _VERSION_RE = re.compile(
     r"(?P<pre>(?:alpha|beta|rc)\d*)?"
     r"(?:\s*\((?P<channel>[\w-]+)\))?\s*$"
 )
+# The same thing unanchored, for a version quoted inside a longer line. The number has to
+# have a dot in it so a build date (`2026-09-14`) or a bare `10:14:57` cannot pass for one.
+_LOOSE_VERSION_RE = re.compile(
+    r"\b\d+\.\d+(?:\.\d+)?(?:alpha|beta|rc)?\d*(?:\s*\([\w-]+\))?"
+)
 
 
 @total_ordering
@@ -55,6 +60,27 @@ class RosVersion(BaseModel):
     @classmethod
     def parse(cls, text: str) -> RosVersion:
         return cls(**cls._parts(text))
+
+    @classmethod
+    def find(cls, text: str) -> RosVersion | None:
+        """The version inside a free-form string, or None.
+
+        `/system resource` gives a version and nothing else, so `parse` is strict about
+        it. The places a version arrives *described* are the ones that need this: an MNDP
+        announcement carries the build time after it (`7.23.6 (long-term) 2026-09-14
+        10:14:57`, OVĚŘENO on an RB4011 and a hAP ac³ running 7.23.6, 2026-10-06), SNMP
+        puts it in a sentence, and a neighbour table repeats whatever the neighbour said.
+
+        Strict parsing there does not fail loudly — it quietly yields no version, and a
+        comparison between two scans then never notices a device that moved.
+        """
+        match = _LOOSE_VERSION_RE.search(text)
+        if match is None:
+            return None
+        try:
+            return cls.parse(match.group(0))
+        except ValueError:
+            return None
 
     def _key(self) -> tuple[int, int, int, int, str]:
         # A prerelease sorts before the final release of the same number.

@@ -186,11 +186,16 @@ class Candidate(BaseModel):
 
     @property
     def ros_version(self) -> RosVersion | None:
-        text = self.version or (str(self.inventory.version) if self.inventory else "")
-        try:
-            return RosVersion.parse(text) if text else None
-        except ValueError:
-            return None
+        """The version as something comparable.
+
+        `find` rather than `parse`: a version read off the device is clean, but one from
+        an announcement comes with the build time after it, and a strict parse there
+        yields nothing at all — which would mean two scans never noticing a device that
+        moved version.
+        """
+        if self.inventory is not None:
+            return self.inventory.version
+        return RosVersion.find(self.version) if self.version else None
 
     @property
     def address(self) -> str:
