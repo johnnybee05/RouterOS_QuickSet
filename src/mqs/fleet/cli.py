@@ -216,16 +216,23 @@ def _allow_missing(args: argparse.Namespace) -> list[str]:
     return list(getattr(args, "allow_missing_package", None) or ())
 
 
-def updater(args: argparse.Namespace, out: Any,
+def updater(args: argparse.Namespace, out: Any, *,
+            changer_factory: Callable[..., Any] | None = None,
             **deps: Any) -> Callable[[DeviceStep], None]:
     """Run one device's version change, the same way `mqs version` runs one.
 
     Raising is how a device reports failure to the batch, so nothing here swallows an
     error: a device that did not come back must stop everything behind it.
+
+    ``changer_factory`` is the same seam `mqs version` has, and it is here for the same
+    reason: without it the batch's actual work — the part that reboots hardware — could
+    only be tested by rebooting hardware.
     """
     from mqs.apply.session import build_version_context, session_after_version_change
     from mqs.apply.version_change import VersionChangeAborted, VersionChanger
     from mqs.cli import hang_up, open_device, replace_host
+
+    build = changer_factory or VersionChanger
 
     def update(step: DeviceStep) -> None:
         address = step.device.address
@@ -238,7 +245,7 @@ def updater(args: argparse.Namespace, out: Any,
                 on_event=lambda event: _event(step, event, out),
                 download_dir=Path(args.download_dir) if getattr(args, "download_dir", None)
                 else None)
-            report = VersionChanger(context).run()
+            report = build(context).run()
             session_after_version_change(session, report)
             if not report.succeeded:
                 failed = [c.message for c in report.checks if not c.ok]

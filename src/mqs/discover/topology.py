@@ -178,8 +178,13 @@ class UpdateOrder:
 
     @property
     def needs_confirmation(self) -> bool:
-        """An incomplete picture means the order is a suggestion for someone to approve."""
-        return not self.topology.complete
+        """An incomplete picture means the order is a suggestion for someone to approve.
+
+        Except where there is nothing to get wrong: the order of one device is the device,
+        whatever the tree around it looks like. Asking there would train the answer out of
+        anyone updating a single CPE.
+        """
+        return len(self.devices) > 1 and not self.topology.complete
 
     @property
     def keys(self) -> list[str]:

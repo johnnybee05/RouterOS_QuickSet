@@ -181,3 +181,15 @@ def test_the_tree_reads_as_lines_for_a_confirmation():
     lines = describe(build([core, leaf, alone]), [core, leaf, alone])
     assert "core (wlan2) -> leaf" in lines
     assert "alone: no link found" in lines
+
+
+def test_the_order_of_one_device_is_never_in_doubt():
+    """Whatever the tree around it looks like, there is nothing to get wrong — and asking
+    would train the answer out of anyone updating a single CPE."""
+    alone = update_order([device("cpe-1")])  # no links at all
+    assert alone.topology.orphans and not alone.needs_confirmation
+
+
+def test_two_devices_with_no_link_between_them_still_need_confirming():
+    pair = update_order([device("a"), device("b")])
+    assert pair.needs_confirmation

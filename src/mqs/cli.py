@@ -962,9 +962,9 @@ def cmd_fleet_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:
     The updater is built even for a dry run and simply not called: building it costs
     nothing and reaches nothing, and passing it in keeps the one code path.
     """
+    found_for = deps.pop("found_for", None)
     changer = deps.pop("update_one", None) or updater(args, out, **deps)
-    return cmd_fleet(args, out, update_one=changer,
-                     found_for=deps.pop("found_for", None))
+    return cmd_fleet(args, out, update_one=changer, found_for=found_for)
 
 
 COMMANDS: dict[str, Callable[..., int]] = {
