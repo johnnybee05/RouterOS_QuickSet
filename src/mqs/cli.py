@@ -59,6 +59,12 @@ from mqs.apply.version_change import (
     available_versions,
     plan_version,
 )
+from mqs.discover.cli import (
+    add_inventory_args,
+    add_scan_args,
+    cmd_inventory,
+    cmd_scan,
+)
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
@@ -848,6 +854,17 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("-v", "--verbose", action="store_true",
                            help="add the technical detail of each step")
 
+    scan_cmd = sub.add_parser(
+        "scan", allow_abbrev=False,
+        help="find MikroTik devices, say which are antennas, write the inventory")
+    add_scan_args(scan_cmd)
+    _add_connection_args(scan_cmd, host_required=False)
+
+    inventory_cmd = sub.add_parser(
+        "inventory", allow_abbrev=False,
+        help="show or export what the last scan wrote (reads only)")
+    add_inventory_args(inventory_cmd)
+
     version_cmd = sub.add_parser("version", allow_abbrev=False,
                                  help="list the RouterOS versions the Update directory can "
                                  "put on this device, or put one of them on it")
@@ -885,11 +902,55 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def device_reader(args: argparse.Namespace, out: Any,
+                  **deps: Any) -> Callable[[Any], Any]:
+    """Log in to one found device and read it, with the credentials the scan was given.
+
+    Opened and closed per device on purpose: a survey of two hundred antennas holding two
+    hundred sessions is a way to run a device out of them, and this is the one part of
+    detection that uses credentials at all.
+    """
+
+    def read(candidate: Any) -> Any:
+        address = candidate.address
+        if not address:
+            raise CliError("no address to connect to")
+        session = open_device(replace_host(args, address), out, **deps)
+        inventory = session.inventory
+        # Hanging up is not part of reading the device. The inventory is already in hand,
+        # and throwing it away because a session would not close cleanly would turn a
+        # read device back into a guess — on a survey of two hundred, repeatedly.
+        try:
+            hang_up(session, out)
+        except Exception as exc:  # reported, never fatal to the read
+            print(f"  … {address}: session left open ({exc})", file=out)
+        return inventory
+
+    return read
+
+
+def replace_host(args: argparse.Namespace, host: str) -> argparse.Namespace:
+    """The same arguments pointed at another device. `--mac` is dropped: a scan reaches
+    devices by address, and the MAC route is for one device the user named."""
+    copy = argparse.Namespace(**vars(args))
+    copy.host = host
+    copy.mac = None
+    return copy
+
+
+def cmd_scan_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:
+    """`mqs scan`, with the login step wired to this CLI's connection arguments."""
+    reader = device_reader(args, out, **deps) if args.login else None
+    return cmd_scan(args, out, open_device=reader)
+
+
 COMMANDS: dict[str, Callable[..., int]] = {
     "discover": cmd_discover,
     "connect": cmd_connect,
     "apply": cmd_apply,
     "version": cmd_version,
+    "scan": cmd_scan_cli,
+    "inventory": cmd_inventory,
 }
 
 
