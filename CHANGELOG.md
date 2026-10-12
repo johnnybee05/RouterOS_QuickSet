@@ -84,6 +84,13 @@ Podrobnosti, včetně toho, co je a co není ověřené na skutečném hardwaru:
   v RouterOS 7), takže záloha a export zůstaly na zařízení jen s hláškou „SSH
   authentication failed“. Aplikace se teď zařízení zeptá a napíše příčinu i nápravu:
   zadat ten klíč v připojení.
+- **Zálohy se stahují přes API.** Na RouterOS 7 jdou záloha a export po spojení, na kterém
+  už aplikace je, bez druhého přihlášení přes SSH — takže projdou i tam, kde SSH heslo
+  odmítne, je omezené na jinou síť nebo vypnuté. Zařízení data převede do base64; holé
+  čtení přes API by z binární zálohy potichu vypustilo bajty. SFTP a SCP zůstávají jako
+  záloha a pro RouterOS 6.
+- **Připojení přes API k zařízení bez rádia nespadne.** RouterOS 7.23 odpovídá na
+  neexistující menu dvěma chybami najednou a ty aplikace nebrala jako „menu tu není“.
 
 ## [0.3.0] – 2026-10-05
 

@@ -23,7 +23,14 @@ from mqs.apply.version_change import VersionContext, VersionPlan, VersionReport
 from mqs.generator.base import GenerationResult
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
-from mqs.transport.base import AuthError, ConnectionParams, Transport, TransportError
+from mqs.transport.api_files import ApiFileStrategy
+from mqs.transport.base import (
+    AuthError,
+    ConnectionParams,
+    Transport,
+    TransportError,
+    TransportKind,
+)
 from mqs.transport.discovery import (
     collect_inventory,
     probe_features,
@@ -465,6 +472,12 @@ def build_uploader_factory(session: DeviceSession,
                     strategies.insert(0, MacTelnetStrategy(console))
                 else:
                     strategies.append(MacTelnetStrategy(console))
+        # Downloads go first over the API session itself, ahead of the console too: no
+        # second login to be refused, as SSH refused the password of a user with a key on
+        # an RB4011 (2026-10-12), and none to type into. RouterOS 6 has no `/file read`.
+        # Uploads skip it: it only downloads.
+        if transport.kind == TransportKind.API_SSL and session.inventory.version.major >= 7:
+            strategies.insert(0, ApiFileStrategy(transport))
         with contextlib.suppress(OSError):  # no route to the device: skip HTTP + fetch
             strategies.append(HttpFetchStrategy(transport,
                                                 route_source_address(session.params.host)))

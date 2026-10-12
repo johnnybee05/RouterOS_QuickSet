@@ -1,8 +1,10 @@
 """File transfer to and from RouterOS (spec 4.6).
 
-The RouterOS API cannot transfer files and SFTP is not reliable across versions, so
-uploads try several strategies in order and fall back automatically:
+The RouterOS API has no file transfer of its own and SFTP is not reliable across
+versions, so uploads try several strategies in order and fall back automatically:
 
+0. downloads only: the API session itself, `/file read` converted to base64 on the
+   device (api_files.py); it goes first on RouterOS 7, because it needs no second login,
 1. SFTP over the SSH connection,
 2. SCP over the same paramiko transport,
 3. the MAC-Telnet console, when the device was reached by MAC (mactelnet/files.py);
@@ -35,6 +37,7 @@ class UploadStrategy(StrEnum):
     SFTP = "sftp"
     SCP = "scp"
     MAC_TELNET = "mac-telnet"
+    API = "api"  # download only (transport/api_files.py)
     HTTP_FETCH = "http-fetch"
     LENT_ADDRESS = "lent-address"
     LINE_BY_LINE = "line-by-line"
@@ -185,6 +188,8 @@ class FileUploader:
     def upload(self, data: bytes, remote_path: str) -> UploadResult:
         attempts: list[tuple[UploadStrategy, str]] = []
         for strategy in self.strategies:
+            if not hasattr(strategy, "upload"):
+                continue
             try:
                 strategy.upload(data, remote_path)
             except Exception as exc:

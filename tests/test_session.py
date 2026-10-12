@@ -26,6 +26,7 @@ from mqs.apply.session import (
     session_after_apply,
 )
 from mqs.model.profile import DeviceProfile
+from mqs.transport.api_files import ApiFileStrategy
 from mqs.transport.base import (
     AuthError,
     CommandError,
@@ -72,13 +73,13 @@ def test_over_mac_telnet_files_go_through_the_console_first():
     address lent to the device, and /tool fetch is off under device-mode.
     """
     assert order(by_mac(MacConnectMethod.MAC_TELNET)) == [
-        UploadStrategy.MAC_TELNET, UploadStrategy.SFTP, UploadStrategy.SCP]
+        UploadStrategy.API, UploadStrategy.MAC_TELNET, UploadStrategy.SFTP, UploadStrategy.SCP]
 
 
 def test_over_link_local_ssh_goes_first_and_the_console_is_a_fallback():
     assert order(by_mac(MacConnectMethod.LINK_LOCAL)) == [
-        UploadStrategy.SFTP, UploadStrategy.SCP, UploadStrategy.MAC_TELNET,
-        UploadStrategy.LENT_ADDRESS]
+        UploadStrategy.API, UploadStrategy.SFTP, UploadStrategy.SCP,
+        UploadStrategy.MAC_TELNET, UploadStrategy.LENT_ADDRESS]
 
 
 def test_over_link_local_a_big_file_can_still_get_an_address_lent_to_it():
@@ -108,7 +109,21 @@ def test_routeros_6_moves_no_files_over_its_console(method):
 
 
 def test_a_session_by_address_has_no_console():
-    assert order(make_session()) == [UploadStrategy.SFTP, UploadStrategy.SCP]
+    assert order(make_session()) == [UploadStrategy.API, UploadStrategy.SFTP, UploadStrategy.SCP]
+
+
+def test_downloads_go_over_the_api_session_first():
+    """No second login: SSH refused the password of a user with a key (RB4011,
+    2026-10-12) while the API session that would have carried the files was open."""
+    session = make_session()
+    strategy = build_uploader_factory(session, IMPORT)(session.transport).strategies[0]
+    assert isinstance(strategy, ApiFileStrategy) and strategy.transport is session.transport
+
+
+def test_an_ssh_session_downloads_over_its_own_sftp():
+    session = DeviceSession(PARAMS, FakeTransport(kind=TransportKind.SSH),
+                            make_inventory("7.20.7", FIVE_PORTS))
+    assert order(session) == [UploadStrategy.SFTP, UploadStrategy.SCP]
 
 
 class FakeMacSession:
@@ -220,7 +235,7 @@ def test_a_refused_file_login_says_why_once(monkeypatch):
     session = make_session()
     session.transport = ssh_settings(RB4011_SSH, ["admin"])
     uploader = build_uploader_factory(session, IMPORT)(session.transport)
-    ssh = uploader.strategies[0].ssh
+    ssh = next(s for s in uploader.strategies if s.name == UploadStrategy.SFTP).ssh
     for _ in range(2):
         with pytest.raises(AuthError, match=r"yes-if-no-key\): give that key"):
             ssh.open_sftp()
