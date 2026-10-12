@@ -565,9 +565,10 @@ def plan_route(
     """The versions between ``current`` and ``target``, stops included.
 
     Gates are re-checked from every stop, so they compose without knowing about each
-    other: an antenna on 6.4x going to 7.16 collects the 6.49.22 gate and then, from
-    there, the 7.12 one — `6.4x -> 6.49.22 -> 7.12.x -> 7.16`, three reboots. A gate with
-    nothing available inside its range is an error, never a jump.
+    other: an antenna on 6.4x going to 7.16 collects the v6 gate (the newest v6 from
+    6.49.22 up) and then, from there, the 7.12 one — `6.4x -> 6.49.23 -> 7.12.x -> 7.16`,
+    three reboots. A gate with nothing available inside its range is an error, never a
+    jump, unless the device is inside that range already.
 
     ``has_drivers`` says whether this device runs a wireless driver at all; the default is
     the careful answer, because a gate skipped by mistake is a radio lost.
@@ -576,18 +577,23 @@ def plan_route(
     stops: list[RosVersion] = []
     position = current
     for _ in range(MAX_STOPS):
-        gate = next((g for g in rules.gates
-                     if g.applies(position, target, has_drivers)), None)
-        if gate is None:
-            break
-        inside = sorted((v for v in available if gate.holds(v)), reverse=True)
-        if not inside:
+        stop: RosVersion | None = None
+        for gate in rules.gates:
+            if not gate.applies(position, target, has_drivers):
+                continue
+            inside = sorted((v for v in available if gate.holds(v)), reverse=True)
+            if inside and inside[0] > position:
+                stop = inside[0]
+                break
+            if inside or gate.holds(position):
+                # Done with this gate: the device is at the newest version it would stop
+                # at, or past it, or inside its range with nothing newer to go to (a
+                # 6.49.23 device with no v6 package on this PC still crosses). The v6 gate
+                # keeps applying on the way through v6, so the next one has to be asked.
+                continue
             return Route((), (issue(gate.code, version=str(target), current=str(position),
                                     gate=str(gate.via_at_least)),))
-        stop = inside[0]
-        if stop <= position:
-            # The gate wants a version the device already has or has passed: it has done
-            # its job, and going on is not this loop's business.
+        if stop is None:
             break
         stops.append(stop)
         position = stop

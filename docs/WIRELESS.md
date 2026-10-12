@@ -96,11 +96,12 @@ Do 2026-10-05 bylo obojí jen varování a update pokračoval.
 
 | brána | podmínka | zastávka |
 |---|---|---|
-| `v6_to_v7` | pod 6.49.22, cíl ≥ 7 | nejnovější 6.49.22+ ve v6 |
+| `v6_to_v7` | na v6, cíl ≥ 7 | nejvyšší v6 v adresáři (aspoň 6.49.22); kdo ji už má nebo je výš, jde přímo |
 | `pre_712_to_713` | pod 7.12, cíl ≥ 7.13, **a zařízení má rádio** | nejnovější 7.12.x |
 
 Brány se vyhodnocují znovu z každé zastávky, takže se skládají samy: anténa na 6.48.6
-mířící na 7.16.1 jede `6.48.6 → 6.49.22 → 7.12.x → 7.16.1`, tři restarty.
+mířící na 7.16.1 jede `6.48.6 → 6.49.23 → 7.12.x → 7.16.1` (6.49.23 jako nejvyšší v6
+v adresáři), tři restarty.
 
 **Proč je 7.12 jen pro zařízení s rádiem:** ta zastávka existuje kvůli konverzi wireless
 balíčků, takže zařízení bez nich nemá co konvertovat. Je to zároveň to, co smiřuje
@@ -116,8 +117,9 @@ Názvy jsou MikroTikovy a v každé verzi jiné:
 
 ```
 v7   routeros-7.23.7-arm.npk      wifi-qcom-7.23.7-arm.npk
-v6   routeros-mmips-6.49.21.npk
-x86  routeros-7.23.7.npk          (bez architektury)
+v6   routeros-mmips-6.49.21.npk   wireless-6.49.23-mmips.npk
+x86  routeros-7.23.7.npk          (bez architektury; v6 balík routeros-x86-6.49.23.npk)
+ppc  routeros-7.24.4-ppc.npk      (zařízení říká powerpc; v6 balík routeros-powerpc-6.49.23.npk)
 ```
 
 Architektura v URL je `architecture-name` ze zařízení, **ne** ta z hlavičky: soubor pro

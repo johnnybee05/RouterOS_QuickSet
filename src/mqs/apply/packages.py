@@ -1,9 +1,16 @@
 """RouterOS packages in the "Update" directory: reading them, and picking them for a device.
 
-The directory holds `.npk` packages as MikroTik publishes them, one per architecture
-(routeros-7.23.7-arm.npk, routeros-mmips-6.49.21.npk, ...). What a package is comes from
-its own header, not from its file name: the header names the package, its version and the
-architecture it is built for, so a renamed file is still picked correctly.
+The directory holds `.npk` packages as MikroTik publishes them, one directory per version
+and in it one per architecture:
+
+    Update\\6.49.23\\mmips\\routeros-mmips-6.49.23.npk
+    Update\\7.24.4\\arm\\routeros-7.24.4-arm.npk, wifi-qcom-7.24.4-arm.npk, ...
+
+What a package is comes from its own header, not from its file name nor from the directory
+it sits in: the header names the package, its version and the architecture it is built
+for, so a renamed or misfiled package is still picked correctly. The layout is what a
+message points at when a package is missing (`package_dir`), and a flat directory of
+`.npk` files still reads the same.
 
 This is the layer both plans stand on: `apply/update.py` moves a device forward inside its
 own major version, `apply/version_change.py` takes it to a version the user names, in either
@@ -78,6 +85,15 @@ class NpkPackage:
 
     @property
     def is_main(self) -> bool:
+        """RouterOS itself: `system` in v7, the `routeros-<arch>` bundle in v6.
+
+        Not a v6 `system`: MikroTik publishes the bundle split into its parts as well
+        (`system-6.49.23-mmips.npk` next to `routeros-mmips-6.49.23.npk`, both in the same
+        version directory), and that part alone is RouterOS without ipv6, dhcp, ppp and
+        the rest of the bundle.
+        """
+        if self.name == MAIN_PACKAGE and self.version.major < 7:
+            return False
         return is_main_package(self.name)
 
     @property
@@ -146,9 +162,29 @@ def read_npk(path: Path) -> NpkPackage:
 
 DOWNLOAD_BASE = "https://download.mikrotik.com/routeros"
 # The x86 package carries no architecture in its file name (`routeros-7.23.7.npk`), which
-# is also why its header says `i386` while the device says `x86`. NUTNO OVĚŘIT for the
-# extra packages of that architecture.
+# is also why its header says `i386` while the device says `x86`. The extra packages of
+# that architecture carry none either (`wireless-7.24.4.npk`, `calea-6.49.23.npk`).
 URL_ARCH_OMITTED = frozenset({"x86", "x86_64"})
+# /system resource architecture-name -> the architecture in a file name, and the name of
+# the directory the Update directory keeps it in. The same as the device's everywhere but
+# PowerPC, whose files say `ppc` (`routeros-7.24.4-ppc.npk`, `wireless-6.49.23-ppc.npk`) —
+# except the v6 bundle, which is `routeros-powerpc-6.49.23.npk`. Read from MikroTik's own
+# 6.49.23 and 7.24.4 packages; that the device says `powerpc` is NUTNO OVĚŘIT.
+FILE_ARCHITECTURES: dict[str, str] = {"powerpc": "ppc", "x86_64": "x86"}
+
+
+def file_arch(device_arch: str) -> str:
+    """The architecture as MikroTik's file names and the Update directory write it."""
+    return FILE_ARCHITECTURES.get(device_arch, device_arch)
+
+
+def package_dir(directory: Path, version: RosVersion, device_arch: str) -> Path:
+    """Where the Update directory keeps ``version`` for a device: `Update\\7.24.4\\arm`.
+
+    Only ever used to tell the user where a missing package belongs; finding packages
+    does not depend on it (`scan_update_dir`).
+    """
+    return directory / str(version) / file_arch(device_arch)
 
 
 def npk_file_name(package: str, version: RosVersion, device_arch: str) -> str:
@@ -156,21 +192,24 @@ def npk_file_name(package: str, version: RosVersion, device_arch: str) -> str:
 
     The architecture in the name is the device's own `architecture-name` (`mipsbe`,
     `mmips`, `arm`), **not** the one in the header — a mipsbe file is called `-mipsbe.npk`
-    and says `mips` inside. The two orders are the versions' own:
+    and says `mips` inside. Every package puts the version first, except the v6 bundle:
 
         v7   routeros-7.23.7-arm.npk        wifi-qcom-7.23.7-arm.npk
-        v6   routeros-mmips-6.49.21.npk
+        v6   routeros-mmips-6.49.21.npk     wireless-6.49.23-mmips.npk
 
     Only the name is built here. Whether the file is the right one is settled by reading
     its header after it arrives (`read_npk`), never by trusting this.
     """
-    name = MAIN_PACKAGE_PREFIX if is_main_package(package) else package
     text = str(version)
+    if is_main_package(package) and version.major < 7:
+        # The bundle names the architecture even on x86 (`routeros-x86-6.49.23.npk`), and
+        # on PowerPC in full (`routeros-powerpc-6.49.23.npk`).
+        bundle_arch = "x86" if device_arch in URL_ARCH_OMITTED else device_arch
+        return f"{MAIN_PACKAGE_PREFIX}-{bundle_arch}-{text}.npk"
+    name = MAIN_PACKAGE_PREFIX if is_main_package(package) else package
     if device_arch in URL_ARCH_OMITTED:
         return f"{name}-{text}.npk"
-    if version.major >= 7:
-        return f"{name}-{text}-{device_arch}.npk"
-    return f"{name}-{device_arch}-{text}.npk"
+    return f"{name}-{text}-{file_arch(device_arch)}.npk"
 
 
 def npk_url(package: str, version: RosVersion, device_arch: str) -> str:
@@ -200,19 +239,28 @@ class UpdateDir:
 
 
 def scan_update_dir(directory: Path) -> UpdateDir:
-    """Every `.npk` in ``directory`` (not its subdirectories), newest first."""
+    """Every `.npk` in ``directory`` and below it, newest first.
+
+    Below it is where they are: `Update\\<version>\\<architecture>\\`. No part of that
+    path is taken on trust — a package is what its header says — so a file in the wrong
+    directory is still found as what it is, and the same file twice (a copy left in the
+    top level) only means the first one by path is the one used.
+
+    An unreadable file is named by its path below ``directory``: the same `wireless.npk`
+    can be in eight architecture directories, and "which one" is the point.
+    """
     if not directory.is_dir():
         return UpdateDir(directory, exists=False)
     packages: list[NpkPackage] = []
     unreadable: list[tuple[str, str]] = []
-    for path in sorted(directory.iterdir()):
-        if not path.is_file() or path.suffix.lower() != ".npk":
+    for path in sorted(directory.rglob("*"), key=lambda p: p.relative_to(directory).parts):
+        if path.suffix.lower() != ".npk" or not path.is_file():
             continue
         try:
             packages.append(read_npk(path))
         except (OSError, NpkError, struct.error) as exc:
-            unreadable.append((path.name, str(exc)))
-    packages.sort(key=lambda p: p.version, reverse=True)
+            unreadable.append((str(path.relative_to(directory)), str(exc)))
+    packages.sort(key=lambda p: p.version, reverse=True)  # stable: path order within one
     return UpdateDir(directory, True, tuple(packages), tuple(unreadable))
 
 

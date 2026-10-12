@@ -11,6 +11,28 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [Nevydáno]
+
+### Změněno
+
+- **Nová struktura adresáře `Update`:** `Update\<verze>\<architektura>\*.npk`, tak jak
+  balíčky leží u MikroTiku (`Update\7.24.4\arm\routeros-7.24.4-arm.npk`). Aplikace čte
+  adresář včetně podadresářů; co balíček je, dál určuje jen jeho hlavička. Hláška
+  o chybějícím balíčku říká, do kterého podadresáře patří.
+- **Z v6 na v7 vždy přes nejvyšší RouterOS 6 v adresáři `Update`.** Zařízení na 6.49.22
+  s 6.49.23 v adresáři jede `6.49.22 → 6.49.23 → 7.x`; přímo přechází jen zařízení, které
+  nejvyšší v6 z adresáře už má. Spodní hranice MikroTiku 6.49.22 platí dál.
+
+### Opraveno
+
+- Plánovač trasy po splnění jedné brány skončil a další už nezkoumal; s novým pravidlem
+  pro v6 by tak anténa přeskočila zastávku na 7.12.x.
+- V adresáři v6 leží vedle balíku `routeros-<arch>` i jeho část `system-…` se stejnou
+  hlavičkou „system“. Ta se už nepočítá za RouterOS — nahrála by RouterOS bez ipv6, dhcp,
+  ppp a dalších částí balíku.
+- Názvy souborů pro stahování: PowerPC je `-ppc` (v6 balík `routeros-powerpc-…`), v6 balík
+  pro x86 je `routeros-x86-…` a samostatné v6 balíčky mají verzi před architekturou.
+
 ## [0.4.0] – 2026-10-12
 
 ### Přidáno

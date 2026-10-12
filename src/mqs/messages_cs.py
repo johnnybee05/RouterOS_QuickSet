@@ -343,7 +343,7 @@ MESSAGES: dict[str, str] = {
     "version.unknown_arch": "Architekturu zařízení „{arch}“ aplikace nezná, přejít na jinou "
     "verzi nelze.",
     "version.no_package": "V adresáři {dir} není balíček RouterOS {version} pro architekturu "
-    "{arch}.",
+    "{arch}. Patří do {where}.",
     "version.same": "Zařízení už má RouterOS {version}.",
     "version.below_factory": "RouterOS {version} je starší než verze, se kterou byla deska "
     "vyrobena ({floor}). Níž než na {floor} se tohle zařízení dostat nedá.",
@@ -352,7 +352,9 @@ MESSAGES: dict[str, str] = {
     "Downgrade na {version} může zařízení odmítnout.",
     "version.v7_needs_649": "Na RouterOS 7 se dá přejít až z {gate}, zařízení má {current}. "
     "V adresáři {dir} ale není balíček v6 ve verzi {gate} nebo novější, kterým by se přechod "
-    "udělal ve dvou krocích.",
+    "udělal ve dvou krocích (patří do {dir}\\<verze>\\<architektura>).",
+    "version.via_last_v6": "Na RouterOS {version} se přechází přes nejvyšší RouterOS 6 "
+    "v adresáři Update: nejdřív {current} → {via}, teprve z {via} na {version}.",
     "version.crosses_major": "Přechod mezi RouterOS 6 a 7 (z {current} na {version}): "
     "mění se hlavní verze RouterOS, po přechodu nastavení překontrolujte.",
     "version.v7_config_converted": "Z RouterOS 6 na {version} převede konfiguraci RouterOS "

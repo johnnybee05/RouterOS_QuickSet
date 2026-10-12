@@ -11,6 +11,7 @@ from mqs.apply.packages import (
     ARCHITECTURES,
     NpkError,
     UpdateDir,
+    package_dir,
     read_npk,
     scan_update_dir,
 )
@@ -99,14 +100,43 @@ def test_scan_takes_npk_files_newest_first_and_names_the_unusable(tmp_path):
     write(folder, "routeros-7.23.7-arm.npk", npk())
     write(folder, "broken.NPK", b"garbage")
     write(folder, "readme.txt", b"not a package")
-    (folder / "old").mkdir()
-    write(folder / "old", "routeros-7.24.0-arm.npk", npk(version=(7, 24, 0)))
     found = scan_update_dir(folder)
     assert found.exists
     assert [p.file_name for p in found.packages] == ["routeros-7.23.7-arm.npk",
                                                      "routeros-7.22.1-arm.npk"]
     assert [name for name, _ in found.unreadable] == ["broken.NPK"]
     assert not scan_update_dir(tmp_path / "missing").exists
+
+
+def test_scan_reads_the_version_and_architecture_directories(tmp_path):
+    """`Update/<version>/<architecture>/`, as the directory is kept. The path is only
+    where to look: what a package is still comes from its header."""
+    folder = tmp_path / "Update"
+    write(folder / "7.24.4" / "arm", "routeros-7.24.4-arm.npk", npk(version=(7, 24, 4)))
+    write(folder / "7.24.4" / "arm", "wireless-7.24.4-arm.npk",
+          npk("wireless", (7, 24, 4)))
+    write(folder / "7.24.4" / "mmips", "routeros-7.24.4-mmips.npk",
+          npk(version=(7, 24, 4), arch="mmips"))
+    write(folder / "6.49.23" / "mmips", "routeros-mmips-6.49.23.npk",
+          npk("routeros-mmips", (6, 49, 23), "mmips", bundle=True))
+    write(folder / "6.49.23" / "mmips", "broken.npk", b"garbage")
+    # misfiled: the header says what it is, the directory does not
+    write(folder / "7.24.4" / "mmips", "routeros-7.23.8-arm.npk", npk(version=(7, 23, 8)))
+    found = scan_update_dir(folder)
+    assert [(p.name, str(p.version), p.architecture) for p in found.packages] == [
+        ("system", "7.24.4", "arm"), ("wireless", "7.24.4", "arm"),
+        ("system", "7.24.4", "mmips"), ("system", "7.23.8", "arm"),
+        ("routeros-mmips", "6.49.23", "mmips")]
+    # the same file name is in every architecture directory: say which one
+    assert [name for name, _ in found.unreadable] == [
+        str(Path("6.49.23") / "mmips" / "broken.npk")]
+
+
+def test_where_a_version_belongs_in_the_update_directory(tmp_path):
+    v = RosVersion.parse
+    assert package_dir(tmp_path, v("7.24.4"), "arm") == tmp_path / "7.24.4" / "arm"
+    # MikroTik's PowerPC directory and files say `ppc`, the device `powerpc`
+    assert package_dir(tmp_path, v("6.49.23"), "powerpc") == tmp_path / "6.49.23" / "ppc"
 
 
 def device(version: str = "7.20.7", arch: str = "arm", packages=(), free: int = 0):

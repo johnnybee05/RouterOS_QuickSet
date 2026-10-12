@@ -105,8 +105,17 @@ def cache_at(tmp_path: Path, site: FakeSite) -> PackageCache:
     # v6 puts them the other way round, and the main package is the bundle
     ("routeros", "6.49.21", "mmips", "routeros-mmips-6.49.21.npk"),
     ("routeros", "6.49.22", "mipsbe", "routeros-mipsbe-6.49.22.npk"),
-    # x86 carries no architecture at all
+    # x86 carries no architecture at all, except in the name of the v6 bundle
     ("routeros", "7.23.7", "x86", "routeros-7.23.7.npk"),
+    ("wireless", "7.24.4", "x86", "wireless-7.24.4.npk"),
+    ("routeros", "6.49.23", "x86", "routeros-x86-6.49.23.npk"),
+    ("wireless", "6.49.23", "x86", "wireless-6.49.23.npk"),
+    # PowerPC is `ppc` in a file name, but the v6 bundle spells it out
+    ("routeros", "7.24.4", "powerpc", "routeros-7.24.4-ppc.npk"),
+    ("routeros", "6.49.23", "powerpc", "routeros-powerpc-6.49.23.npk"),
+    ("wireless", "6.49.23", "powerpc", "wireless-6.49.23-ppc.npk"),
+    # a v6 package outside the bundle has the version first, like a v7 one
+    ("wireless", "6.49.23", "mmips", "wireless-6.49.23-mmips.npk"),
     # a zero patch is not written, matching MikroTik's own 7.16
     ("routeros", "7.16", "arm", "routeros-7.16-arm.npk"),
 ])

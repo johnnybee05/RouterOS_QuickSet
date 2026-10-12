@@ -7,8 +7,8 @@ is here, and it differs in every part that matters:
 * the **target is named by the user** — a downgrade is never implicit,
 * an older package installs by `/system package downgrade`, which reboots by itself,
 * the board's **factory version is a floor**: nothing older goes on it,
-* v6 → v7 is allowed only from 6.49.22 (`V6_TO_V7_FROM`), so a device below that takes
-  **two hops**,
+* v6 → v7 always goes through the newest v6 in the Update directory, which has to be
+  6.49.22 (`V6_TO_V7_FROM`) or newer, so a device below it takes **two hops**,
 * and the configuration is not converted downwards, so a device that goes from v7 to v6
   may come back somewhere else entirely — or nowhere this PC can reach.
 
@@ -56,6 +56,7 @@ from mqs.apply.packages import (
     find_packages,
     main_packages,
     package_arch,
+    package_dir,
     scan_update_dir,
     space_issue,
     unreadable_issues,
@@ -93,9 +94,10 @@ from mqs.transport.mac_connect import MacConnectResult, MacRoute
 from mqs.transport.upload import FileUploader, UploadFailed
 
 # RouterOS 7 is reached from 6.49.22 and no earlier release: MikroTik moved the gate up to
-# the last v6 release (2026-09-28), so 6.49.21 no longer crosses. Still read as a minimum
-# and not as an exact version — a v6 release newer than 6.49.22, should one ever appear,
-# would cross straight over instead of being sent back to 6.49.22 first.
+# 6.49.22 (2026-09-28), so 6.49.21 no longer crosses. A minimum, not the stop itself: the
+# route goes through the newest v6 in the Update directory (6.49.23 once it was there), and
+# this is only how old that one may be. The rule itself is the `v6_to_v7` gate in
+# `mqs/data/wireless_packages.yaml`; this constant names its floor for the tests and docs.
 V6_TO_V7_FROM = RosVersion(major=6, minor=49, patch=22)
 # After the command that installs: how long to wait for an answer that cannot come, then
 # how long to leave the device alone before reconnecting. Installing a package took the
@@ -253,7 +255,8 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
     wanted = next((p for p in mains if p.version == target), None)
     if wanted is None:
         return stop("version.no_package", version=str(target), arch=device_arch or "?",
-                    dir=str(found.directory))
+                    dir=str(found.directory),
+                    where=str(package_dir(found.directory, target, device_arch or "?")))
 
     going_back = target < current
     if going_back and floor is not None and target < floor:
@@ -282,6 +285,11 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
     if target.major == 7 and current.major == 6:
         notes.append(_issue("version.v7_config_converted", Severity.WARNING,
                             version=str(target)))
+        last_v6 = [v for v in route.stops if v.major == 6]
+        if last_v6:
+            # The extra reboot is the user's own rule, and it should not look like a bug.
+            notes.append(_issue("version.via_last_v6", Severity.INFO, version=str(target),
+                                via=str(last_v6[-1]), current=str(current)))
     if target.major == 6 and current.major == 7:
         notes.append(_issue("version.v6_config_lost", Severity.WARNING, version=str(target)))
 
@@ -291,7 +299,8 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
         main = next((p for p in mains if p.version == version), None)
         if main is None:  # plan_route only ever picks from `mains`
             return stop("version.no_package", version=str(version),
-                        arch=device_arch or "?", dir=str(found.directory))
+                        arch=device_arch or "?", dir=str(found.directory),
+                        where=str(package_dir(found.directory, version, device_arch or "?")))
         hops.append(_hop(inventory, found, arch, main, position, notes, state, rules,
                          wifi_package=wifi_package, allow_missing=allow_missing))
         position = version

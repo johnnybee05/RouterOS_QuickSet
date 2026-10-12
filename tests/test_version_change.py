@@ -45,14 +45,15 @@ def v6_npk(version: tuple[int, int, int], arch: str = "mmips") -> bytes:
 
 
 def mmips_dir(tmp_path: Path, *versions: tuple[int, int, int]) -> Path:
-    """The Update directory as it stands on this PC: v6 and v7 for the same board."""
+    """The Update directory as it stands on this PC: v6 and v7 for the same board, laid
+    out the way it is kept, `Update/<version>/mmips/`."""
     folder = tmp_path / "Update"
     for version in versions or ((6, 49, 12), (6, 49, 21), (6, 49, 22), (7, 23, 5)):
+        text = ".".join(map(str, version))
         if version[0] == 6:
-            write(folder, f"routeros-mmips-{version[0]}.{version[1]}.{version[2]}.npk",
-                  v6_npk(version))
+            write(folder / text / "mmips", f"routeros-mmips-{text}.npk", v6_npk(version))
         else:
-            write(folder, f"routeros-{version[0]}.{version[1]}.{version[2]}-mmips.npk",
+            write(folder / text / "mmips", f"routeros-{text}-mmips.npk",
                   npk("system", version, "mmips"))
     folder.mkdir(exist_ok=True)
     return folder
@@ -170,11 +171,59 @@ def test_the_release_below_the_gate_no_longer_crosses_by_itself(tmp_path):
 
 
 def test_past_the_gate_would_cross_in_one_hop(tmp_path):
-    """The gate stays a minimum: nothing newer than 6.49.22 exists today, but a release
-    that did would cross by itself instead of being sent back to 6.49.22."""
+    """The gate stays a minimum: a device on the newest v6 crosses by itself instead of
+    being sent back to 6.49.22."""
     folder = mmips_dir(tmp_path, (6, 49, 22), (6, 49, 23), (7, 23, 5))
     plan = plan_version(mmips("6.49.23"), scan_update_dir(folder), V("7.23.5"))
     assert [str(h.version) for h in plan.hops] == ["7.23.5"]
+    assert "version.via_last_v6" not in codes(plan.issues)
+
+
+@pytest.mark.parametrize("current", ["6.49.12", "6.49.21", "6.49.22"])
+def test_v6_goes_to_v7_through_the_newest_v6_in_the_directory(tmp_path, current):
+    """The user's rule: always through the newest v6 the Update directory holds — also
+    from 6.49.22, which MikroTik would let cross by itself, and never via an older v6
+    that happens to be there as well."""
+    folder = mmips_dir(tmp_path, (6, 49, 12), (6, 49, 22), (6, 49, 23), (7, 23, 8),
+                       (7, 24, 4))
+    plan = plan_version(mmips(current), scan_update_dir(folder), V("7.24.4"))
+    assert not plan.blocked, plan.issues
+    assert [str(h.version) for h in plan.hops] == ["6.49.23", "7.24.4"]
+    assert [p.file_name for p in plan.hops[0].packages] == ["routeros-mmips-6.49.23.npk"]
+    note = next(i for i in plan.issues if i.code == "version.via_last_v6")
+    assert note.severity == Severity.INFO
+    assert f"{current} → 6.49.23" in note.message
+
+
+def test_the_v6_bundle_is_uploaded_and_not_its_split_system_package(tmp_path):
+    """MikroTik's v6 directory holds the bundle and its parts side by side. The part
+    called `system` is RouterOS too, by its header, but without ipv6, dhcp, ppp and the
+    rest: offering it would list every v6 twice, uploading it would take them away."""
+    folder = mmips_dir(tmp_path, (6, 49, 23), (7, 24, 4))
+    write(folder / "6.49.23" / "mmips", "system-6.49.23-mmips.npk",
+          npk("system", (6, 49, 23), "mmips"))
+    write(folder / "6.49.23" / "mmips", "ipv6-6.49.23-mmips.npk",
+          npk("ipv6", (6, 49, 23), "mmips"))
+    found = scan_update_dir(folder)
+    offers = available_versions(mmips("6.49.12"), found)
+    assert [str(o.version) for o in offers] == ["7.24.4", "6.49.23"]
+    plan = plan_version(mmips("6.49.12"), found, V("7.24.4"))
+    assert [h.file_names for h in plan.hops] == ["routeros-mmips-6.49.23.npk",
+                                                 "routeros-7.24.4-mmips.npk"]
+
+
+def test_a_device_newer_than_the_directory_s_v6_crosses_by_itself(tmp_path):
+    """Nothing newer to stop at, and sending it back down to 6.49.23 would be a
+    downgrade nobody asked for."""
+    folder = mmips_dir(tmp_path, (6, 49, 23), (7, 24, 4))
+    plan = plan_version(mmips("6.49.24"), scan_update_dir(folder), V("7.24.4"))
+    assert [str(h.version) for h in plan.hops] == ["7.24.4"]
+
+
+def test_a_device_past_the_gate_crosses_without_any_v6_in_the_directory(tmp_path):
+    plan = plan_version(mmips("6.49.23"), scan_update_dir(mmips_dir(tmp_path, (7, 24, 4))),
+                        V("7.24.4"))
+    assert not plan.blocked and [str(h.version) for h in plan.hops] == ["7.24.4"]
 
 
 @pytest.mark.parametrize("held", [(6, 49, 12), (6, 49, 21)])
@@ -266,8 +315,11 @@ def test_a_wifi_radio_cannot_go_back_to_v6(tmp_path):
 
 
 def test_a_version_the_directory_does_not_hold(tmp_path):
-    plan = plan_version(mmips(), scan_update_dir(mmips_dir(tmp_path)), V("6.48.6"))
+    folder = mmips_dir(tmp_path)
+    plan = plan_version(mmips(), scan_update_dir(folder), V("6.48.6"))
     assert plan.blocked and codes(plan.issues) == {"version.no_package"}
+    # ... and says where in the Update directory it belongs
+    assert str(folder / "6.48.6" / "mmips") in plan.issues[-1].message
 
 
 def test_a_package_for_another_architecture_is_not_offered(tmp_path):
@@ -298,7 +350,7 @@ def test_a_package_that_does_not_fit_where_the_reboot_installs_it_from(tmp_path,
                             free_hdd_space=1 * MB, factory_firmware="6.42.4",
                             packages=[PackageInfo(name="routeros-mmips", version="6.49.21")])
     folder = mmips_dir(tmp_path)
-    big = folder / "routeros-mmips-6.49.12.npk"
+    big = folder / "6.49.12" / "mmips" / "routeros-mmips-6.49.12.npk"
     big.write_bytes(v6_npk((6, 49, 12)) + b"\0" * (2 * MB))
     plan = plan_version(device, scan_update_dir(folder), V("6.49.12"))
     assert plan.blocked and not plan.changes and codes(plan.issues) == {code}

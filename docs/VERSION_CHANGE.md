@@ -73,6 +73,14 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 - A device below the gate is not refused: the planner returns a **two-hop route**, first to the
   newest 6.49.x ≥ 6.49.22 in the Update directory, then to the v7 package. Without such a
   package in the directory it is refused with a message naming the file that is missing.
+- **Since 2026-10-12 every v6 device goes through the newest v6 in the Update directory**, the
+  user's rule: a 6.49.22 device with 6.49.23 in the directory takes `6.49.22 → 6.49.23 → 7.x`,
+  although MikroTik would let it cross by itself. Only a device already on that newest v6, or
+  past it, crosses in one hop — also when the directory holds no v6 at all, as long as the
+  device is at 6.49.22 or newer. `V6_TO_V7_FROM` stays the floor of that newest v6, and the
+  rule itself is the `v6_to_v7` gate in `wireless_packages.yaml` (`when_below: 7.0.0`). The
+  plan says so in an INFO line, `version.via_last_v6`. The 6.49.22 → 6.49.23 hop is NUTNO
+  OVĚŘIT on hardware.
 - **v7 → v6** is a downgrade like any other, with the floor rule and one addition: the
   configuration does not come back (§5.4), so it is gated behind the same typed-identity
   confirmation as a reset.

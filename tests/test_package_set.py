@@ -268,8 +268,19 @@ def test_an_explicit_choice_outside_the_split_is_refused():
     # both gates, composed: v6 -> 6.49.22 -> 7.12.x -> target
     ("6.48.6", "7.16.1", ["6.48.6", "6.49.22", "7.12.4", "7.16.1"],
      ["6.49.22", "7.12.4", "7.16.1"]),
-    # already past the v6 gate, so only the 7.12 one is left
+    # already on the newest v6 there is, so only the 7.12 one is left
     ("6.49.22", "7.16.1", ["6.49.22", "7.12.4", "7.16.1"], ["7.12.4", "7.16.1"]),
+    # v7 always through the newest v6 available, from below the gate and from inside it
+    # (7.12.4 as the target keeps the radio gate out of it)
+    ("6.48.6", "7.12.4", ["6.49.22", "6.49.23", "7.12.4"], ["6.49.23", "7.12.4"]),
+    ("6.49.22", "7.12.4", ["6.49.22", "6.49.23", "7.12.4"], ["6.49.23", "7.12.4"]),
+    # ... and both gates still compose through it
+    ("6.49.22", "7.16.1", ["6.49.23", "7.12.4", "7.16.1"], ["6.49.23", "7.12.4", "7.16.1"]),
+    # inside the v6 range with nothing newer to go to: straight over
+    ("6.49.23", "7.12.4", ["7.12.4"], ["7.12.4"]),
+    ("6.49.24", "7.12.4", ["6.49.23", "7.12.4"], ["7.12.4"]),
+    # a v6 move that does not reach v7 is not sent anywhere else
+    ("6.49.12", "6.49.22", ["6.49.22", "6.49.23"], ["6.49.22"]),
     # the newest version inside a gate's range is the one picked
     ("7.10.2", "7.16.1", ["7.12.0", "7.12.4", "7.16.1"], ["7.12.4", "7.16.1"]),
 ])

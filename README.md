@@ -138,7 +138,21 @@ v pořádku, nejde aplikovat.
 ### Aktualizace RouterOS při resetu
 
 Vedle `MikrotikQuickSetPlus.exe` může ležet adresář **`Update`** s balíčky RouterOS tak, jak
-je stahujete od MikroTiku (`routeros-7.23.7-arm.npk`, `routeros-7.23.7-mmips.npk` …). Když
+je stahujete od MikroTiku — v podadresáři pro každou verzi a v něm pro každou architekturu:
+
+```
+Update\
+  6.49.23\mmips\routeros-mmips-6.49.23.npk, wireless-6.49.23-mmips.npk, …
+  6.49.23\arm\  …
+  7.24.4\arm\   routeros-7.24.4-arm.npk, wifi-qcom-7.24.4-arm.npk, …
+  7.24.4\mmips\ …
+```
+
+Názvy podadresářů jsou jen pořádek: co balíček je (jméno, verze, architektura), čte
+aplikace z jeho hlavičky, takže soubor ve špatném podadresáři i přejmenovaný soubor najde
+jako to, čím opravdu je. Podadresář `ppc` patří zařízením s `architecture-name` `powerpc`.
+V adresáři v6 leží vedle balíku `routeros-<arch>-6.49.x.npk` i jeho jednotlivé části
+(`system-…`, `ipv6-…`, …); RouterOS 6 se instaluje vždy jako celý balík. Když
 je v režimu *Reset + aplikovat* zaškrtnuté *Aktualizovat RouterOS z adresáře Update*
 (výchozí stav), aplikace:
 
@@ -209,11 +223,12 @@ Jak to funguje:
    (`factory-software`) a aplikace ji bere jako dno: mmips hEX S RB760iGS má 6.42.4, arm
    hEX S E60iUGS 7.20.7 — a **na v6 se tedy nikdy nedostane**. V seznamu verzí taková verze
    zůstane, jen nejde vybrat a v bublině je důvod.
-3. **Na v7 se přechází jen z 6.49.22** (od 28. 9. 2026; dřív stačila 6.49.21). Bráno
-   jako minimum, ne jako přesná verze — případná novější v6 by šla přímo. Zařízení
-   s něčím starším aplikace nepošle nikam naslepo: naplánuje **dva kroky**, nejdřív na
-   nejnovější v6 z adresáře (nejméně 6.49.22), pak na v7. Když v adresáři takový balíček
-   není, odmítne to a řekne, který soubor chybí.
+3. **Na v7 se přechází vždy přes nejvyšší RouterOS 6 v adresáři `Update`** (dnes 6.49.23):
+   zařízení na v6 nejdřív dostane tuhle verzi, teprve z ní jde na v7 — **dva kroky**, i když
+   by MikroTik pustil na v7 přímo už 6.49.22. Ta nejvyšší v6 musí být aspoň 6.49.22 (od
+   28. 9. 2026 MikroTik nic staršího na v7 nepustí); když v adresáři taková není, aplikace
+   přechod odmítne a řekne, který soubor a kam chybí. Přímo na v7 jde jen zařízení, které
+   už má nejvyšší v6 z adresáře nebo novější.
 4. **Konfiguraci převádí RouterOS, a jen nahoru.** Z v6 na v7 ji převede sám při
    restartu (na hEX S mmips zůstaly identity, služby a jejich porty, adresy i uživatelé),
    zpět z v7 na v6 ji nepřevádí — co jste nastavil na v7, se nemusí zachovat. Aplikace
@@ -298,8 +313,8 @@ Aplikace proto sadu balíčků **kopíruje ze zařízení**, neodvozuje ji z ná
   jmenovitě přes `--allow-missing-package`),
 - nikdy nepřepíná ovladač; u `wifiwave2` jdoucího na 7.13+ se nejdřív zeptá zařízení,
   pak mapovacího souboru, a když ani to nestačí, **zeptá se vás** (`--wifi-package`),
-- na trasu doplní zastávky: 6.49.22 před v7 a 7.12.x před 7.13 (ta druhá jen u zařízení
-  s rádiem, protože se tam konvertují právě wireless balíčky),
+- na trasu doplní zastávky: nejvyšší v6 z adresáře před v7 a 7.12.x před 7.13 (ta druhá
+  jen u zařízení s rádiem, protože se tam konvertují právě wireless balíčky),
 - po **každém** restartu porovná rozhraní se stavem předtím a u AP počká, až se vrátí
   stanice. Zmizelé rádio trasu i dávku okamžitě zastaví.
 

@@ -41,6 +41,11 @@ def arm_dir(tmp_path: Path, *entries: tuple[str, str]) -> Path:
     for name, text in entries:
         version = V(text)
         parts = (version.major, version.minor, version.patch)
+        if name == "routeros" and version.major < 7:
+            # v6 RouterOS is the bundle; a v6 `system` is only one part of it
+            (folder / f"routeros-arm-{text}.npk").write_bytes(
+                npk("routeros-arm", parts, "arm", bundle=True))
+            continue
         header = "system" if name == "routeros" else name
         (folder / f"{name}-{text}-arm.npk").write_bytes(npk(header, parts, "arm"))
     return folder
@@ -124,7 +129,7 @@ def test_a_three_stop_route_is_printed_stop_by_stop(router, tmp_path):
              if line.strip()[:2] in ("1.", "2.", "3.")]
     assert stops == [
         # The v6 stop needs no driver file: the bundle carries it. The two v7 ones do.
-        "1. 6.49.22 (reboot): routeros-6.49.22-arm.npk",
+        "1. 6.49.22 (reboot): routeros-arm-6.49.22.npk",
         "2. 7.12.4 (reboot): routeros-7.12.4-arm.npk, wireless-7.12.4-arm.npk",
         "3. 7.16.1 (reboot): routeros-7.16.1-arm.npk, wireless-7.16.1-arm.npk",
     ]
