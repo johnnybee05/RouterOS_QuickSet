@@ -21,7 +21,14 @@ from dataclasses import dataclass, field, replace
 from ipaddress import IPv4Interface
 
 from mqs.generator.base import GenerationResult
-from mqs.generator.blocks.firewall import MANGLE, NAT, OWN_REGEX, remove_own
+from mqs.generator.blocks.firewall import (
+    IPV6_FILTER,
+    IPV6_SETTINGS,
+    MANGLE,
+    NAT,
+    OWN_REGEX,
+    remove_own,
+)
 from mqs.generator.ir import Command, Comment, Find, Item, Script, Section, SectionKey
 from mqs.generator.render import render_script
 from mqs.issues import Issue, Severity
@@ -50,8 +57,9 @@ ADOPT_KEYS: dict[str, tuple[str, ...]] = {
 _ADDRESS_KEYS = {"address", "dst-address"}
 ROUTE = "/ip route"
 # Tables whose rules of an earlier run go once the profile adds nothing to them. The
-# filter is not among them: dropping its rules would open the router.
-OWN_RULE_TABLES = (NAT, MANGLE)
+# filter is not among them: dropping its rules would open the router. The IPv6 filter
+# goes only along with IPv6 itself (`_ipv6_switched_off`).
+OWN_RULE_TABLES = (NAT, MANGLE, IPV6_FILTER)
 
 
 @dataclass(frozen=True)
@@ -241,15 +249,29 @@ def adopt_existing(
     return replace(result, script=script, text=text), issues
 
 
+def _ipv6_switched_off(script: Script) -> bool:
+    """The script turns IPv6 off at once (v7 `disable-ipv6=yes`).
+
+    The v6 `/system package disable ipv6` waits for a reboot, which an import never does,
+    so IPv6 would run on without its filter until then: not counted.
+    """
+    return bool(script.find(IPV6_SETTINGS, "set", disable_ipv6="yes"))
+
+
 def _drop_own_rules(generated: Script, existing: ExistingObjects, script: Script,
                     issues: list[Issue]) -> bool:
-    """Remove our NAT / MSS clamping rules the profile no longer adds (switched off)."""
+    """Remove our NAT / MSS clamping rules the profile no longer adds (switched off), and
+    our IPv6 filter rules when the script switches IPv6 off."""
     dropped = False
     for table in OWN_RULE_TABLES:
         count = existing.own_rules.get(table, 0)
         if not count or generated.find(table, "add"):
             continue  # nothing there, or the script replaces them itself
-        script.section(SectionKey.FIREWALL).add(
+        if table == IPV6_FILTER and not _ipv6_switched_off(generated):
+            continue  # IPv6 stays on: without its filter the router would be open over it
+        # The IPv6 rules go after the hardening block has switched IPv6 off (section 5).
+        key = SectionKey.SYSTEM if table == IPV6_FILTER else SectionKey.FIREWALL
+        script.section(key).add(
             Comment("Rules of an earlier QuickSet run the profile no longer adds"),
             remove_own(table),
         )

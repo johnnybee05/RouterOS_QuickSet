@@ -26,7 +26,17 @@ u opravného vydání.
   z WAN přes IPv6 neotevře. Kontrola před aplikací varuje, když je aplikace připojená přes
   budoucí WAN port a IPv6 filtr bez správy z WAN by spojení přes IPv6 zahodil, i když je
   základní filtr vypnutý. Ve v6 se pravidla vygenerují jen s povoleným balíčkem `ipv6`.
-  Ověřeno na hEX S s RouterOS 7.24.4: IPv6 naběhne hned, bez restartu.
+  Checklist po aplikaci ověří, že je IPv6 zapnuté a pravidla jsou na začátku tabulky.
+  Když se volba později vypne a hardening blok IPv6 vypíná, import stará IPv6 pravidla
+  odstraní. Ověřeno na hEX S s RouterOS 7.24.4 (bridge i router, přes IPv4 i IPv6
+  link-local): IPv6 naběhne hned bez restartu, z WAN projde jen správa a ostatní porty
+  se zahodí.
+
+### Opraveno
+
+- Spojení přes IPv6 (link-local) neukazovalo port, na kterém do zařízení přišlo
+  (`session port: ?`), takže kontrola před aplikací nemohla varovat před zablokováním.
+  Port se teď najde v tabulce `/ipv6 neighbor`.
 
 ## [0.4.3] – 2026-10-12
 

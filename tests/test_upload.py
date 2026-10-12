@@ -186,3 +186,4 @@ def test_uploader_download_fallback(tmp_path):
 
 def test_route_source_address():
     assert route_source_address("127.0.0.1") == "127.0.0.1"
+    assert route_source_address("::1") == "::1"

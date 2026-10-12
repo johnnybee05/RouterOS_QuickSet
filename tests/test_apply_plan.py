@@ -594,6 +594,42 @@ def test_import_removes_our_rules_the_profile_no_longer_adds():
         own_rules={"/ip firewall nat": 1})) is result
 
 
+def test_import_removes_our_ipv6_rules_only_with_ipv6_switched_off():
+    options = ApplyOptions(ApplyMode.IMPORT)
+    existing = ExistingObjects(own_rules={"/ipv6 firewall filter": 16})
+
+    # IPv6 off: the hardening block switches it off, then the old rules go.
+    _, _, result = _setup()
+    changed = prepare_import(result, options, existing)
+    text = changed.text
+    removal = '/ipv6 firewall filter\nremove [ find where comment~"^quickset: " ]'
+    assert removal in text
+    assert text.index("set disable-ipv6=yes") < text.index(removal)
+    assert {"table": "/ipv6 firewall filter", "count": 16} in [
+        i.params for i in adopt_existing(result, existing)[1]
+        if i.code == "apply.own_rules_removed"]
+
+    # IPv6 left on (the block no longer switches it off): the rules stay.
+    profile = router_profile(FIVE_PORTS, identity="R1")
+    block = profile.services.hardening_text.replace("/ipv6 settings\nset disable-ipv6=yes\n", "")
+    kept_on = profile.model_copy(update={"services": profile.services.model_copy(
+        update={"hardening_text": block})})
+    _, _, result = _setup(profile=kept_on)
+    assert prepare_import(result, options, existing) is result
+
+    # IPv6 on: the firewall block replaces its rules itself.
+    on = profile.model_copy(update={"firewall": profile.firewall.model_copy(
+        update={"ipv6": True})})
+    _, _, result = _setup(profile=on)
+    changed = prepare_import(result, options, existing)
+    assert len([c for c in changed.script.commands()
+                if c.path == "/ipv6 firewall filter" and c.verb == "remove"]) == 1
+
+    # v6 disables the package only at the next reboot, which an import does not do.
+    _, _, result = _setup("6.49.10")
+    assert "/ipv6 firewall filter\nremove" not in prepare_import(result, options, existing).text
+
+
 def test_apply_messages_format():
     profile, _, result = _setup()
     text = binding.set_ssh_port(profile.services.hardening_text, 2222)

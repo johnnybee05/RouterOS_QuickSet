@@ -226,6 +226,23 @@ def test_session_interface():
     assert session_interface(FakeTransport({}), "10.0.0.2") is None
 
 
+def test_session_interface_over_ipv6():
+    """A link-local session is found in the neighbor table (as 7.24.4 lists it)."""
+    replies = {
+        "/ipv6/neighbor/print": [{"address": "fe80::a728:61f8:82be:4172",
+                                  "interface": "ether1-uplink",
+                                  "mac-address": "BC:FC:E7:C9:5D:A1", "status": "reachable"},
+                                 {"address": "fe80::1", "interface": "bridge1",
+                                  "mac-address": "11:22:33:44:55:66"}],
+        "/interface/bridge/host/print": [{"mac-address": "11:22:33:44:55:66",
+                                          "bridge": "bridge1", "on-interface": "ether3"}],
+    }
+    fake = FakeTransport(replies)
+    assert session_interface(fake, "fe80::a728:61f8:82be:4172") == "ether1-uplink"
+    assert session_interface(fake, "fe80::1") == "ether3"
+    assert session_interface(fake, "fe80::2") is None
+
+
 def test_value_helpers():
     assert to_bool({"disabled": "true"}, "disabled")
     assert to_bool({"_flags": "XR"}, "disabled", "X")

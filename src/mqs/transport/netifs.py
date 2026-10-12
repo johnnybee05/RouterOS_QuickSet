@@ -98,7 +98,16 @@ def list_ipv4_interfaces(
 
 
 def route_source_address(host: str) -> str:
-    """Local IPv4 address the OS would use to reach `host` (UDP connect sends nothing)."""
+    """Local address the OS would use to reach `host` (UDP connect sends nothing).
+
+    An IPv6 host (`fe80::…%21` over link-local) gives our IPv6 address, without the
+    scope: that is how the device lists it in `/ipv6 neighbor`.
+    """
+    if ":" in host:
+        sockaddr = socket.getaddrinfo(host, 9, socket.AF_INET6, socket.SOCK_DGRAM)[0][4]
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as sock:
+            sock.connect(sockaddr)
+            return str(sock.getsockname()[0]).split("%")[0]
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.connect((host, 9))
         return sock.getsockname()[0]

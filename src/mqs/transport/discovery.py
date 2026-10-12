@@ -344,8 +344,13 @@ def probe_features(transport: Transport, version: RosVersion) -> dict[str, bool]
 
 
 def session_interface(transport: Transport, client_ip: str) -> str | None:
-    """Port our management session arrives on (lockout guard), via ARP and bridge hosts."""
-    arp = _optional(transport, "/ip/arp/print") or []
+    """Port our management session arrives on (lockout guard), via ARP and bridge hosts.
+
+    Over IPv6 (a link-local session) the neighbor table stands in for ARP; it lists
+    address, interface and mac-address the same way (7.24.4, 2026-10-12).
+    """
+    table = "/ipv6/neighbor/print" if ":" in client_ip else "/ip/arp/print"
+    arp = _optional(transport, table) or []
     entry = next((a for a in arp if a.get("address") == client_ip), None)
     if entry is None:
         return None

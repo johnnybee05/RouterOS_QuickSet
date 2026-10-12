@@ -252,6 +252,8 @@ MESSAGES: dict[str, str] = {
     "{actual})",
     "verify.wan_vlan": "Rozhraní {name}: VLAN {vlan} na portu {port}",
     "verify.dhcp_client": "DHCP klient na {interface} (stav: {status})",
+    "verify.ipv6": "IPv6 filtr: {expected} pravidel na začátku tabulky (na zařízení: {actual}, "
+    "disable-ipv6: {disabled})",
     "verify.hw_offload":"HW offload odpovídá požadavku (rozdílů: {count})",
     "verify.offload_not_active": "Port {port}: hw=yes je nastaveno, ale offload na zařízení "
     "neběží. Důvod podle detekce: {reason}",

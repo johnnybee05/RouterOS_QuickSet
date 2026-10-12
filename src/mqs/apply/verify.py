@@ -11,6 +11,7 @@ from typing import Any
 from mqs.capabilities.offload import OffloadPlan
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import bridge_enabled, wan_link, wan_port, wan_vlan_interface
+from mqs.generator.blocks.firewall import COMMENT_PREFIX, IPV6_FILTER, IPV6_SETTINGS
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
@@ -129,6 +130,7 @@ def verify_configuration(
     checks.extend(_check_wan_vlan(transport, profile))
     checks.extend(_check_default_route(transport, profile))
     checks.extend(_check_dhcp_clients(transport, profile))
+    checks.extend(_check_ipv6(transport, result))
 
     if result.offload.offered and any(p.hw is not None for p in result.offload.ports):
         try:
@@ -398,6 +400,34 @@ def _check_dhcp_clients(transport: Transport, profile: DeviceProfile) -> list[Ch
         checks.append(CheckResult("verify.dhcp_client", enabled,
                                   {"interface": interface, "status": status or "-"}))
     return checks
+
+
+def _check_ipv6(transport: Transport, result: GenerationResult) -> list[CheckResult]:
+    """IPv6 switched on by the firewall settings: it is on, and our IPv6 filter rules lead
+    the table in the script's order, enabled.
+
+    The hardening block runs after the firewall section; had its `disable-ipv6=yes` stayed
+    in, IPv6 would be off again with every rule in place and nothing would say so.
+    """
+    expected = [(r.arg("chain"), r.arg("comment"))
+                for r in result.script.find(IPV6_FILTER, "add")]
+    if not expected:
+        return []
+    switched_on = bool(result.script.find(IPV6_SETTINGS, "set", disable_ipv6="no"))
+    try:
+        settings = transport.execute("/ipv6/settings/print") if switched_on else []
+        rows = [r for r in transport.execute("/ipv6/firewall/filter/print")
+                if not to_bool(r, "dynamic", "D")]
+    except CommandError:
+        settings, rows = [], []
+    disabled = settings[0].get("disable-ipv6", "-") if settings else "-"
+    own = [r for r in rows if r.get("comment", "").startswith(COMMENT_PREFIX)]
+    leading = [(r.get("chain"), r.get("comment")) for r in rows[:len(expected)]]
+    ok = (leading == expected and len(own) == len(expected)
+          and not any(to_bool(r, "disabled", "X") for r in own)
+          and (not switched_on or disabled == "no"))
+    return [CheckResult("verify.ipv6", ok, {"disabled": disabled, "expected": len(expected),
+                                            "actual": len(own)})]
 
 
 def _same_address(value: str, expected: IPv4Interface) -> bool:

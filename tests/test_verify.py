@@ -218,6 +218,34 @@ def test_a_tagged_wan_is_checked_on_its_vlan_interface():
         assert not next(c for c in checks if c.code == "verify.wan_vlan").ok
 
 
+def test_ipv6_switched_on_is_checked():
+    profile, _ = setup()
+    profile = profile.model_copy(update={"firewall": profile.firewall.model_copy(
+        update={"ipv6": True})})
+    result = generate(profile, TargetContext.from_inventory(rb4011_inventory()))
+    ours = [{"chain": r.arg("chain"), "comment": r.arg("comment"), "disabled": "false"}
+            for r in result.script.find("/ipv6 firewall filter", "add")]
+    theirs = [{"chain": "input", "comment": "defconf: drop all"}]
+
+    def check(settings, rows):
+        fake = device_after_apply(**{"/ipv6/settings/print": [{"disable-ipv6": settings}],
+                                     "/ipv6/firewall/filter/print": rows})
+        checks, _ = verify_configuration(fake, profile, result)
+        return next(c for c in checks if c.code == "verify.ipv6")
+
+    assert check("no", ours + theirs).ok
+    # The hardening block's disable-ipv6=yes got through after all.
+    assert not check("yes", ours + theirs).ok
+    # The device's own rules ended up above ours.
+    assert not check("no", theirs + ours).ok
+    # One of ours is disabled.
+    assert not check("no", [{**ours[0], "disabled": "true"}, *ours[1:]]).ok
+
+    plain, result = setup()
+    checks, _ = verify_configuration(device_after_apply(), plain, result)
+    assert "verify.ipv6" not in [c.code for c in checks]
+
+
 def test_an_untagged_wan_has_no_vlan_check():
     profile, result = setup()
     checks, _ = verify_configuration(device_after_apply(), profile, result)
