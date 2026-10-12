@@ -28,9 +28,10 @@ u opravného vydání.
     logu na stránce, po dávce se zařízení znovu načtou. *Zastavit dávku* ji ukončí po
     zařízení, které se právě aktualizuje.
 
-  Ověřeno v labu na dvou hEX S (7.24.4 a 6.49.12): hledání, přihlášení i plán. Samotná
-  dávka přes okno na železe zatím neběžela – jede ale stejným kódem jako `mqs fleet`
-  a jednotlivý přechod verze, které ověřené jsou.
+  Ověřeno v labu na dvou hEX S (7.24.4 a 6.49.12): hledání, přihlášení i plán. Celou
+  dávkou prošel hEX S RB760iGS: 6.49.22 → 6.49.23 včetně zálohy, kontroly po restartu,
+  RouterBOOT 6.49.12 → 6.49.23 a nového načtení stavu. Dávka víc zařízení v pořadí
+  a zařízení s rádiem na železe zatím neběžely.
 
 ### Opraveno
 
