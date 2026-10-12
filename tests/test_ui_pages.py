@@ -539,8 +539,12 @@ def test_firewall_ipv6_checkbox(window):
     assert not page.ipv6.isChecked()
     page.ipv6.setChecked(True)
     assert window.controller.profile.firewall.ipv6
+    # The IPv6 input chain opens management from WAN even without the basic filter.
+    page.basic_filter.setChecked(False)
+    assert page.wan_management.isEnabled() == window.controller.profile.wan.enabled
     page.ipv6.setChecked(False)
     assert not window.controller.profile.firewall.ipv6
+    assert not page.wan_management.isEnabled()
 
 
 def test_remote_dns_follows_basic_filter(window):

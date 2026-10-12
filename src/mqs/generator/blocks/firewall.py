@@ -82,11 +82,13 @@ def negate(match: dict[str, str]) -> dict[str, str]:
 
 
 def wan_management(profile: DeviceProfile, script: Script, access: AccessReport,
-                   wan_in: dict[str, str]) -> list[Command]:
+                   wan_in: dict[str, str], path: str = FILTER,
+                   prefix: str = "") -> list[Command]:
     """Accept the management services from WAN, on the ports the script leaves them on.
 
     A service the script leaves disabled stays closed, and SNMP is opened only when the
-    script enables it. With a management subnet only that subnet is accepted.
+    script enables it. With a management subnet only that subnet is accepted (an IPv4
+    subnet: the IPv6 filter does not call this then).
     """
     source: dict[str, str] = {}
     if profile.services.management_subnet is not None:
@@ -100,23 +102,30 @@ def wan_management(profile: DeviceProfile, script: Script, access: AccessReport,
         ports.append(("SNMP", "udp", SNMP_PORT))
     ports.append(("discovery", "udp", MNDP_PORT))
     return [
-        rule(FILTER, "input", "accept", f"accept {label} from WAN",
+        rule(path, "input", "accept", f"{prefix}accept {label} from WAN",
              protocol=protocol, **{"dst-port": str(port)}, **wan_in, **source)
         for label, protocol, port in ports
     ]
 
 
-def ipv6(ctx: TargetContext, wan_in: dict[str, str]) -> tuple[list[Item], list[Issue]]:
-    """IPv6 switched on, with a forward filter in the order of the IPv4 one.
+def ipv6(profile: DeviceProfile, ctx: TargetContext, script: Script, access: AccessReport,
+         lan_in: dict[str, str], wan_in: dict[str, str]) -> tuple[list[Item], list[Issue]]:
+    """IPv6 switched on, with an input and a forward filter in the order of the IPv4 ones.
 
     v7: `disable-ipv6=no` comes first, so the rules go into a running IPv6; the hardening
     block loses its `disable-ipv6` (blocks.system), or section 5 would switch it off again.
     v6 has no such setting: IPv6 is the `ipv6` package, and its menus exist only while the
     package is enabled. Enabling it takes a reboot, so a script cannot add the rules in the
     same run: without an enabled package nothing is emitted.
+
+    The input chain is there whether or not the IPv4 basic filter is: without it every
+    service of the router answers over IPv6. ICMPv6 must stay open (neighbor discovery),
+    and so must DHCPv6 replies from a link-local address, or a WAN that takes a prefix by
+    DHCPv6 never gets one (both as in defconf).
     """
     if ctx.major == 6 and ctx.ipv6_package != Ipv6PackageState.ENABLED:
         return [], [Issue("firewall.ipv6_v6_package", Severity.WARNING, "firewall.ipv6")]
+    issues: list[Issue] = []
     items: list[Item] = []
     if ctx.has("ipv6_disable_setting"):
         items += [Comment("IPv6: on, whatever the hardening block says"),
@@ -124,6 +133,34 @@ def ipv6(ctx: TargetContext, wan_in: dict[str, str]) -> tuple[list[Item], list[I
     items += [
         Comment("IPv6 firewall: replace the rules of an earlier QuickSet run"),
         remove_own(IPV6_FILTER),
+        Comment("IPv6 firewall: input (traffic to the router itself)"),
+        rule(IPV6_FILTER, "input", "accept", "IPv6: accept est/rel",
+             **{"connection-state": ["established", "related", "untracked"]}),
+        rule(IPV6_FILTER, "input", "drop", "IPv6: drop invalid",
+             **{"connection-state": "invalid"}),
+        rule(IPV6_FILTER, "input", "accept", "IPv6: accept ICMPv6", protocol="icmpv6"),
+        rule(IPV6_FILTER, "input", "accept", "IPv6: accept to local loopback",
+             **{"dst-address": "::1/128"}),
+    ]
+    if wan_in:
+        items.append(rule(IPV6_FILTER, "input", "accept", "IPv6: accept DHCPv6 client",
+                          protocol="udp", **{"dst-port": "546", "src-address": "fe80::/10"},
+                          **wan_in))
+    if lan_in:
+        items.append(rule(IPV6_FILTER, "input", "accept", "IPv6: accept from LAN", **lan_in))
+    if wan_in and profile.firewall.wan_management:
+        if profile.services.management_subnet is None:
+            items += wan_management(profile, script, access, wan_in, IPV6_FILTER, "IPv6: ")
+        else:
+            # The subnet is IPv4: over IPv6 nothing would match it, so WAN stays closed.
+            issues.append(Issue("firewall.ipv6_management_subnet", Severity.INFO,
+                                "services.management_subnet"))
+    if lan_in:
+        items.append(rule(IPV6_FILTER, "input", "drop", "IPv6: drop all not coming from LAN",
+                          **negate(lan_in)))
+    elif wan_in:
+        items.append(rule(IPV6_FILTER, "input", "drop", "IPv6: drop all from WAN", **wan_in))
+    items += [
         Comment("IPv6 firewall: forward (traffic through the router)"),
         rule(IPV6_FILTER, "forward", "accept", "IPv6: accept est/rel",
              **{"connection-state": ["established", "related", "untracked"]}),
@@ -135,7 +172,7 @@ def ipv6(ctx: TargetContext, wan_in: dict[str, str]) -> tuple[list[Item], list[I
         items.append(rule(IPV6_FILTER, "forward", "drop", "IPv6: drop nove z WAN", **wan_in))
     items += [Comment("IPv6 firewall: keep the rules above those already on the device"),
               keep_own_first(ctx, IPV6_FILTER)]
-    return items, []
+    return items, issues
 
 
 def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
@@ -209,7 +246,7 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
                     keep_own_first(ctx))
 
     if firewall.ipv6:
-        ipv6_items, ipv6_issues = ipv6(ctx, wan_in)
+        ipv6_items, ipv6_issues = ipv6(profile, ctx, script, access, lan_in, wan_in)
         section.add(*ipv6_items)
         issues += ipv6_issues
 

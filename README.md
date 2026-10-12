@@ -113,9 +113,11 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
    z dřívějšího běhu nahradí a filtr se zařadí nad pravidla, která už na zařízení jsou.
    Při zapnutí FastTracku se aplikace zeptá na tvarování provozu. Volba **Zapnout IPv6**
    nastaví `disable-ipv6=no` (přebije `disable-ipv6=yes` z hardening bloku) a přidá IPv6
-   forward filtr: established/related/untracked → invalid → ICMPv6 → drop nových spojení
-   z WAN. Chain input IPv6 nefiltruje. Ve v6 je IPv6 balíček `ipv6`; pravidla se vygenerují
-   jen tehdy, je-li povolený.
+   filtr, i bez základního filtru. Input: established/related/untracked → invalid →
+   ICMPv6 → loopback → DHCPv6 klient na WAN → LAN → správa z WAN → drop všeho, co
+   nepřišlo z LAN. Forward: established/related/untracked → invalid → ICMPv6 → drop nových
+   spojení z WAN. Je-li zadaná management podsíť (IPv4), správa z WAN se přes IPv6
+   neotevře. Ve v6 je IPv6 balíček `ipv6`; pravidla se vygenerují jen tehdy, je-li povolený.
 5. **Služby a hardening**: DNS, SSH port, SNMP, NTP a časové pásmo ve formuláři, pod nimi
    celý blok jako text.
    - *Povolit vzdálené DNS dotazy* (`/ip dns allow-remote-requests`, výchozí vypnuto) určuje,

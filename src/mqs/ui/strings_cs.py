@@ -186,14 +186,17 @@ FIREWALL_WAN_MANAGEMENT = "Povolit správu z WAN (api-ssl, SSH, Winbox, SNMP, di
 FIREWALL_WAN_MANAGEMENT_HELP = (
     "Otevře z WAN porty služeb tak, jak je nastaví hardening blok (např. SSH 122). "
     "Vypnuté služby se neotevírají. Je-li zadaná management podsíť, pravidla přijímají "
-    "jen z ní."
+    "jen z ní. Se zapnutým IPv6 platí i pro IPv6 filtr (s management podsítí se přes IPv6 "
+    "neotevře)."
 )
 FIREWALL_IPV6 = "Zapnout IPv6 (přebije disable-ipv6=yes z hardening bloku)"
 FIREWALL_IPV6_HELP = (
     "Nastaví /ipv6 settings disable-ipv6=no a hardening blok ho už nevypne. Přidá IPv6 "
-    "forward filtr: accept established/related/untracked, drop invalid, accept ICMPv6, drop "
-    "nových spojení z WAN. Chain input se nefiltruje. Ve v6 musí být balíček ipv6 povolený, "
-    "jinak se nevygeneruje nic."
+    "filtr i bez základního filtru. input: accept established/related/untracked, drop "
+    "invalid, accept ICMPv6, loopback, DHCPv6 klient na WAN, accept z LAN, (správa z WAN), "
+    "drop všeho, co nepřišlo z LAN. forward: established/related/untracked, drop invalid, "
+    "accept ICMPv6, drop nových spojení z WAN. Ve v6 musí být balíček ipv6 povolený, jinak "
+    "se nevygeneruje nic."
 )
 FASTTRACK_GROUP = "FastTrack"
 FASTTRACK_ENABLED = "Zapnout FastTrack"

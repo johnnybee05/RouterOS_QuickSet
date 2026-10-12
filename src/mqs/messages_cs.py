@@ -75,6 +75,8 @@ MESSAGES: dict[str, str] = {
     "akcelerace.",
     "firewall.ipv6_overrides_hardening": "IPv6 je zapnuté v nastavení firewallu: "
     "disable-ipv6=yes z hardening bloku se vynechá a skript nastaví disable-ipv6=no.",
+    "firewall.ipv6_management_subnet": "Management podsíť je IPv4, takže správa z WAN se "
+    "přes IPv6 neotevře; z LAN zůstane přístupná.",
     "firewall.ipv6_v6_package": "Ve v6 je IPv6 balíček ipv6 a ten není povolený (nebo jeho "
     "stav není známý), IPv6 filtr se nevygeneruje. Povolte balíček (/system package enable ipv6), "
     "restartujte zařízení a aplikujte znovu.",
@@ -191,6 +193,10 @@ MESSAGES: dict[str, str] = {
     "apply.lockout_wan": "Aplikace je k zařízení připojená přes port {port}, který se stane WAN. "
     "Základní filtr bez správy z WAN tam zahodí nová spojení, takže se po aplikaci přes "
     "tento port znovu nepřipojí. Zapněte „Povolit správu z WAN“ nebo se připojte z LAN.",
+    "apply.lockout_wan_ipv6": "Aplikace je k zařízení připojená přes port {port}, který se "
+    "stane WAN. Přes IPv4 se znovu připojí, ale IPv6 filtr bez správy z WAN tam zahodí nová "
+    "spojení, i na link-local adresu, přes kterou jde připojení přes MAC. Zapněte „Povolit "
+    "správu z WAN“, připojte se z LAN nebo přes IPv4.",
     "apply.session_by_mac_on_wan_pppoe": "Aplikace je k zařízení připojená přes MAC na portu "
     "{port}, na kterém poběží PPPoE. Po aplikaci se vrátí stejně, přes adresu zapůjčenou na "
     "tomto portu; správa z WAN zůstane dostupná ({paths}).",

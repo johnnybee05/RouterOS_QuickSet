@@ -8,6 +8,7 @@ from mqs.apply.reconnect import address_after_apply
 from mqs.apply.update import routerboot_note
 from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import WAN_LIST, wan_l3_interface, wan_port, wan_vlan_interface
+from mqs.generator.blocks.firewall import IPV6_FILTER
 from mqs.issues import Issue, Severity, has_errors
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
@@ -165,6 +166,11 @@ def _wan_session(profile: DeviceProfile, result: GenerationResult, port: str, *,
         return Issue("apply.lockout_wan_vlan", W, "wan.interface", params)
     if closed:
         return Issue("apply.lockout_wan", W, "firewall.wan_management", {"port": port})
+    if not firewall.wan_management and result.script.find(IPV6_FILTER, "add", chain="input"):
+        # IPv4 stays open without the basic filter, but the IPv6 input chain (there with
+        # IPv6 on, whatever the basic filter) drops the session if it came over IPv6, as
+        # a connect by MAC does over the link-local address when it can.
+        return Issue("apply.lockout_wan_ipv6", W, "firewall.wan_management", {"port": port})
     # The filter is off, or it lets the management services in from WAN.
     return Issue("apply.session_on_wan", INFO, "wan.interface", {"port": port, "paths": paths})
 

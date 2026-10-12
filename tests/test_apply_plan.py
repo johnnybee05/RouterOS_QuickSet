@@ -316,6 +316,19 @@ def test_lockout_warnings():
                        [], ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
     assert "apply.session_on_wan" in codes(issues)
 
+    # IPv6 on: its input chain closes WAN over IPv6 even without the basic filter.
+    ipv6 = no_filter.model_copy(update={"firewall": no_filter.firewall.model_copy(
+        update={"ipv6": True})})
+    issues = preflight(ipv6, generate(ipv6, TargetContext.from_inventory(inventory)),
+                       [], ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
+    assert "apply.lockout_wan_ipv6" in codes(issues)
+    assert "apply.session_on_wan" not in codes(issues)
+    managed = ipv6.model_copy(update={"firewall": ipv6.firewall.model_copy(
+        update={"wan_management": True})})
+    issues = preflight(managed, generate(managed, TargetContext.from_inventory(inventory)),
+                       [], ApplyOptions(ApplyMode.IMPORT), inventory, session_port="ether1")
+    assert "apply.session_on_wan" in codes(issues)
+
     pppoe = profile.model_copy(update={"wan": profile.wan.model_copy(update={
         "settings": PppoeWan(username="u")})})
     pppoe_result = generate(pppoe, TargetContext.from_inventory(inventory))

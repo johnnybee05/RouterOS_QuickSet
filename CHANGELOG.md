@@ -17,10 +17,15 @@ u opravného vydání.
 
 - **Zapnutí IPv6 v nastavení firewallu.** Volba *Zapnout IPv6* nastaví
   `/ipv6 settings set disable-ipv6=no` a přebije tím `disable-ipv6=yes` z hardening bloku
-  (ten ho už znovu nevypne). Přidá IPv6 forward filtr: accept established/related/untracked,
-  drop invalid, accept ICMPv6 a drop nových spojení z WAN, s komentáři `quickset: IPv6: …`,
-  takže se při dalším běhu nahradí a zařadí nad pravidla, která už na zařízení jsou. Chain
-  input se nefiltruje. Ve v6 se pravidla vygenerují jen s povoleným balíčkem `ipv6`.
+  (ten ho už znovu nevypne). Přidá IPv6 filtr, i když je základní filtr vypnutý. Input:
+  established/related/untracked, drop invalid, ICMPv6, loopback, DHCPv6 klient na WAN,
+  přístup z LAN, správa z WAN na stejných portech jako u IPv4 a drop všeho, co nepřišlo
+  z LAN. Forward: established/related/untracked, drop invalid, ICMPv6 a drop nových spojení
+  z WAN. Pravidla mají komentáře `quickset: IPv6: …`, takže se při dalším běhu nahradí
+  a zařadí nad pravidla, která už na zařízení jsou. S management podsítí (IPv4) se správa
+  z WAN přes IPv6 neotevře. Kontrola před aplikací varuje, když je aplikace připojená přes
+  budoucí WAN port a IPv6 filtr bez správy z WAN by spojení přes IPv6 zahodil, i když je
+  základní filtr vypnutý. Ve v6 se pravidla vygenerují jen s povoleným balíčkem `ipv6`.
   Ověřeno na hEX S s RouterOS 7.24.4: IPv6 naběhne hned, bez restartu.
 
 ## [0.4.3] – 2026-10-12

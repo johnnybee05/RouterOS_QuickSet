@@ -231,18 +231,43 @@ def test_ipv6_on_overrides_the_hardening_block():
     assert text.index("disable-ipv6=no") < text.index("---- DNS / NTP")
 
     rules = result.script.find("/ipv6 firewall filter", "add")
-    assert [(r.arg("action"), r.arg("comment")) for r in rules] == [
-        ("accept", "quickset: IPv6: accept est/rel"),
-        ("drop", "quickset: IPv6: drop invalid"),
-        ("accept", "quickset: IPv6: accept ICMPv6"),
-        ("drop", "quickset: IPv6: drop nove z WAN"),
+    assert [(r.arg("chain"), r.arg("action"), r.arg("comment")) for r in rules] == [
+        ("input", "accept", "quickset: IPv6: accept est/rel"),
+        ("input", "drop", "quickset: IPv6: drop invalid"),
+        ("input", "accept", "quickset: IPv6: accept ICMPv6"),
+        ("input", "accept", "quickset: IPv6: accept to local loopback"),
+        ("input", "accept", "quickset: IPv6: accept DHCPv6 client"),
+        ("input", "accept", "quickset: IPv6: accept from LAN"),
+        ("input", "accept", "quickset: IPv6: accept api-ssl from WAN"),
+        ("input", "accept", "quickset: IPv6: accept SSH from WAN"),
+        ("input", "accept", "quickset: IPv6: accept Winbox from WAN"),
+        ("input", "accept", "quickset: IPv6: accept SNMP from WAN"),
+        ("input", "accept", "quickset: IPv6: accept discovery from WAN"),
+        ("input", "drop", "quickset: IPv6: drop all not coming from LAN"),
+        ("forward", "accept", "quickset: IPv6: accept est/rel"),
+        ("forward", "drop", "quickset: IPv6: drop invalid"),
+        ("forward", "accept", "quickset: IPv6: accept ICMPv6"),
+        ("forward", "drop", "quickset: IPv6: drop nove z WAN"),
     ]
-    assert all(r.arg("chain") == "forward" for r in rules)
-    assert rules[0].arg("connection-state") == "established,related,untracked"
-    assert rules[2].arg("protocol") == "icmpv6"
-    assert rules[3].arg("in-interface-list") == "WAN"
+    by_comment = {(r.arg("chain"), r.arg("comment")): r for r in rules}
+
+    def get(chain, comment):
+        return by_comment[(chain, f"quickset: IPv6: {comment}")]
+
+    assert get("forward", "accept est/rel").arg("connection-state") == (
+        "established,related,untracked")
+    assert get("forward", "accept ICMPv6").arg("protocol") == "icmpv6"
+    assert get("forward", "drop nove z WAN").arg("in-interface-list") == "WAN"
+    assert get("input", "accept to local loopback").arg("dst-address") == "::1/128"
+    dhcp = get("input", "accept DHCPv6 client")
+    assert (dhcp.arg("protocol"), dhcp.arg("dst-port"), dhcp.arg("src-address"),
+            dhcp.arg("in-interface-list")) == ("udp", "546", "fe80::/10", "WAN")
+    ssh = get("input", "accept SSH from WAN")
+    assert (ssh.arg("dst-port"), ssh.arg("in-interface-list")) == ("122", "WAN")
+    assert get("input", "accept from LAN").arg("in-interface-list") == "LAN"
+    assert get("input", "drop all not coming from LAN").arg("in-interface-list") == "!LAN"
     assert text.index('/ipv6 firewall filter\nremove [ find where comment~"^quickset: " ]') < (
-        text.index("add chain=forward action=accept comment=\"quickset: IPv6"))
+        text.index("add chain=input action=accept comment=\"quickset: IPv6"))
     moving = [i for i in result.script.items() if isinstance(i, KeepOwnFirst)]
     assert [m.menu for m in moving] == ["/ip firewall filter", "/ipv6 firewall filter"]
 
@@ -263,18 +288,42 @@ def test_ipv6_off_leaves_the_block_alone():
     assert "firewall.ipv6_overrides_hardening" not in codes(result.issues)
 
 
-def test_ipv6_without_wan_has_no_wan_drop():
+def test_ipv6_without_wan_has_no_wan_rules():
     result = generate(_ipv6_on(bridge_ap()), target("7.15.3"))
-    comments = [r.arg("comment") for r in result.script.find("/ipv6 firewall filter", "add")]
-    assert "quickset: IPv6: drop nove z WAN" not in comments
-    assert len(comments) == 3
+    rules = result.script.find("/ipv6 firewall filter", "add")
+    assert not any("WAN" in (r.arg("comment") or "") for r in rules)
+    assert [r.arg("comment") for r in rules if r.arg("chain") == "input"][-1] == (
+        "quickset: IPv6: drop all not coming from LAN")
+    assert len([r for r in rules if r.arg("chain") == "forward"]) == 3
+
+
+def test_ipv6_input_without_the_basic_filter_and_management():
+    profile = router_dhcp()
+    open_wan = _ipv6_on(_u(profile, firewall=_u(profile.firewall, basic_filter=False)))
+    rules = generate(open_wan, target("7.15.3")).script.find("/ipv6 firewall filter", "add",
+                                                             chain="input")
+    assert any(r.arg("comment") == "quickset: IPv6: accept SSH from WAN" for r in rules)
+    assert not generate(open_wan, target("7.15.3")).script.find("/ip firewall filter", "add")
+
+    closed = _ipv6_on(_u(profile, firewall=_u(profile.firewall, wan_management=False)))
+    rules = generate(closed, target("7.15.3")).script.find("/ipv6 firewall filter", "add")
+    assert not any(r.has_arg("dst-port") and r.arg("dst-port") != "546" for r in rules)
+
+    # The management subnet is IPv4: over IPv6 the WAN stays closed instead.
+    services = _u(profile.services, management_subnet=IPv4Network("10.0.0.0/24"))
+    subnet = generate(_ipv6_on(_u(profile, services=services)), target("7.15.3"))
+    rules = subnet.script.find("/ipv6 firewall filter", "add")
+    assert not any(r.has_arg("src-address") and r.arg("src-address") != "fe80::/10"
+                   for r in rules)
+    assert not any("from WAN" in (r.arg("comment") or "") for r in rules)
+    assert "firewall.ipv6_management_subnet" in codes(subnet.issues)
 
 
 def test_ipv6_on_v6_needs_the_enabled_package():
     enabled = generate(_ipv6_on(router_dhcp()), target("6.49.10"))
     assert "/system package\ndisable ipv6" not in enabled.text  # no longer switched off
     assert "disable-ipv6" not in enabled.text  # v6 has no such setting
-    assert len(enabled.script.find("/ipv6 firewall filter", "add")) == 4
+    assert len(enabled.script.find("/ipv6 firewall filter", "add")) == 16
     moving = [i for i in enabled.script.items() if isinstance(i, KeepOwnFirst)]
     assert all(m.block for m in moving)
 

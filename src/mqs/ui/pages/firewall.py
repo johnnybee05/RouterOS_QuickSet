@@ -95,4 +95,5 @@ class FirewallPage(Page):
 
     def refresh_state(self, profile: DeviceProfile) -> None:
         self.fasttrack_hw.setEnabled(profile.firewall.fasttrack.enabled)
-        self.wan_management.setEnabled(profile.firewall.basic_filter and profile.wan.enabled)
+        filtered = profile.firewall.basic_filter or profile.firewall.ipv6
+        self.wan_management.setEnabled(filtered and profile.wan.enabled)
