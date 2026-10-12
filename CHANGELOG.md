@@ -11,6 +11,27 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.4.3] – 2026-10-12
+
+### Změněno
+
+- **Před přechodem na RouterOS 7 se zapíše i RouterBOOT nejvyšší v6**, jak doporučuje
+  MikroTik: zařízení jde na v7 s nejnovější v6 RouterOS *i* jejím firmwarem. Zápis má
+  vlastní restart, probíhá po instalaci nejvyšší v6 z adresáře `Update` (nebo hned po
+  záloze, když už ji zařízení má) a před nahráním balíčku v7. Nezávisí na volbě
+  *Aktualizovat RouterBOOT*, ta dál řídí jen zápis cílového firmwaru na konci. Deska, která
+  už takový nebo novější RouterBOOT má, a zařízení bez RouterBOOTu (CHR, x86) ho přeskočí.
+  Plán to hlásí předem a restart navíc započítá; když se zápis nepovede, přechod se
+  zastaví a zařízení zůstane na v6. Ověřeno na hEX S RB760iGS: 6.49.22 → 6.49.23 →
+  RouterBOOT 6.49.23 → 7.24.4.
+
+### Opraveno
+
+- Na RouterOS 7.24 aplikace neznala nejnižší verzi, na kterou se dá zařízení vrátit, a
+  každý přechod hlásil, že ji zařízení neuvádí. RouterOS 7.24 přejmenoval
+  `factory-firmware` na `minimum-firmware` a `factory-software` na `minimum-version`;
+  aplikace teď čte staré i nové názvy. Ověřeno na hEX S RB760iGS se 7.24.4 (6.42.4).
+
 ## [0.4.2] – 2026-10-12
 
 ### Opraveno
