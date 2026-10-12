@@ -11,6 +11,15 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.5.1] – 2026-10-12
+
+### Opraveno
+
+- Hledání zařízení na stránce *Síť* hned selhalo s hláškou `progress(PyObject) only
+  accepts 1 argument(s), 2 given!` a nenašlo nic, ať byly zapnuté jakékoli zdroje. Průběh
+  jednotlivých zdrojů se předával vláknu na pozadí jako dvě hodnoty místo jedné. Ověřeno
+  v síti s hAP ac³, RB4011 a dvěma hEX S (7.24.4 a 6.49.12): MNDP našlo všechna čtyři.
+
 ## [0.5.0] – 2026-10-12
 
 ### Přidáno
