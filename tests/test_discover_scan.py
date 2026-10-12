@@ -324,6 +324,31 @@ def test_what_a_device_sees_joins_the_list_and_draws_the_tree():
     assert build(devices).links[0].child == devices[1].key
 
 
+def test_a_neighbour_heard_by_another_port_mac_is_still_the_same_box():
+    """One hAP came back as …:18 (MNDP), …:1B and …:1C (two neighbour tables) on
+    2026-10-12: same identity, same address, three MACs. One device, not three."""
+    from ipaddress import IPv4Address
+
+    from mqs.transport.mndp import DiscoveredDevice
+
+    hap = DiscoveredDevice(mac="08:55:31:F7:00:18", identity="hAP", version="7.23.6",
+                           platform="MikroTik", ipv4=IPv4Address("192.168.55.1"))
+    known = run(quick(), mndp_factory=lambda: FakeScanner([hap])).devices
+    heard = [Sighting(source=Source.NEIGHBOR, found_at=at, identity="hAP",
+                      address="192.168.55.1", macs=[mac], upstream=True)
+             for at, mac in (("a", "08:55:31:F7:00:1B"), ("b", "08:55:31:F7:00:1C"))]
+    devices = with_neighbours(known, heard)
+    assert len(devices) == 1
+    assert len(devices[0].macs) == 3
+
+
+def test_the_same_address_with_another_name_is_another_device():
+    known = run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices
+    other = Sighting(source=Source.NEIGHBOR, found_at="a", identity="someone-else",
+                     address=known[0].address, macs=[MAC_B])
+    assert len(with_neighbours(known, [other])) == 2
+
+
 def test_two_rows_become_one_once_a_serial_is_known():
     """The payoff of logging in: the SNMP row and the MNDP row are the same box."""
     plan = quick(subnets=("192.0.2.0/30",), snmp_community="public")

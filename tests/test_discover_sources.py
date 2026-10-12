@@ -29,6 +29,7 @@ from mqs.discover.sources import (
     read_device,
     read_neighbors,
     read_registrations,
+    seen_from,
 )
 from mqs.model.version import RosVersion
 from mqs.transport.mndp import DiscoveredDevice
@@ -158,6 +159,36 @@ def test_one_device_gives_up_both_kinds_at_once():
     })
     found = read_device(fake, V("7.15.3"), found_at="ap-1")
     assert {s.source for s in found} == {Source.NEIGHBOR, Source.REGISTRATION}
+
+
+def lab_switch() -> FakeTransport:
+    """What test-bridge listed on 2026-10-12: everything on the port the PC came in by."""
+    return FakeTransport({"/ip/neighbor/print": [
+        {"address": "192.168.55.1", "mac-address": "08:55:31:F7:00:1B",
+         "identity": "hAP", "platform": "MikroTik", "interface": "ether1-uplink,bridge1"},
+        {"address": "192.168.55.55", "mac-address": "BC:FC:E7:C9:5D:A1",
+         "interface": "ether1-uplink,bridge1"},
+        {"address": "10.0.0.2", "mac-address": "AA:BB:CC:00:00:05", "identity": "behind",
+         "platform": "MikroTik", "interface": "ether2"},
+    ]})
+
+
+def test_what_is_seen_on_the_session_port_is_not_behind_the_device():
+    found = seen_from(lab_switch(), V("7.24.4"), found_at="test-bridge",
+                      session_port="ether1-uplink")
+    assert {s.identity: s.upstream for s in found if s.identity} == {
+        "hAP": True, "behind": False}
+
+
+def test_this_pc_is_left_out_of_what_a_device_sees():
+    found = seen_from(lab_switch(), V("7.24.4"), found_at="test-bridge",
+                      session_port="ether1-uplink", own_addresses=["192.168.55.55"])
+    assert "192.168.55.55" not in [s.address for s in found]
+
+
+def test_without_a_session_port_nothing_is_taken_as_behind():
+    found = seen_from(lab_switch(), V("7.24.4"), found_at="test-bridge", session_port=None)
+    assert found and all(s.upstream for s in found)
 
 
 def test_a_crawl_carries_on_past_a_device_that_says_nothing():

@@ -185,6 +185,23 @@ def open_session(
                             fell_back=outcome.fell_back)
 
 
+@dataclass(frozen=True)
+class LoginSettings:
+    """How to log in to devices whose addresses come later: the window's credentials,
+    used by the *Síť* page for its logins and its batch, one address at a time."""
+
+    params: ConnectionParams  # the host in it is ignored
+    choice: TransportChoice = TransportChoice.AUTO
+    api_port: int | None = None
+    ssh_port: int | None = None
+
+    def open(self, host: str, *, cancelled: Callable[[], bool] = lambda: False,
+             on_step: Callable[[Any], None] = lambda step: None) -> DeviceSession:
+        return open_session(replace(self.params, host=host), self.choice,
+                            api_port=self.api_port, ssh_port=self.ssh_port,
+                            on_step=on_step, cancelled=cancelled)
+
+
 def open_mac_session(
     device: DiscoveredDevice,
     params: ConnectionParams,

@@ -89,6 +89,8 @@ def links_from_sightings(devices: Sequence[Candidate]) -> list[Link]:
         for sighting in device.sightings:
             if sighting.source not in (Source.REGISTRATION, Source.NEIGHBOR):
                 continue
+            if sighting.upstream:  # beside or above the device that saw it, not behind
+                continue
             parent = by_name.get(_normalise_name(sighting.found_at))
             if parent is None or parent == device.key:
                 continue

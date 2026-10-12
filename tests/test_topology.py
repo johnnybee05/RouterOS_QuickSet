@@ -83,6 +83,15 @@ def test_a_station_listing_its_ap_as_a_neighbour_keeps_the_registration_edge():
     assert tree.cycles == () and tree.complete
 
 
+def test_something_seen_upstream_is_never_an_edge():
+    """Seen on the port this PC came in by: beside the device, not behind it."""
+    router = device("router")
+    upstream = neighbour("router").model_copy(update={"upstream": True})
+    beside = device("hap", sightings=(upstream,))
+    tree = build([router, beside])
+    assert tree.links == ()
+
+
 def test_a_neighbour_seen_from_one_side_only_is_still_an_edge():
     router = device("router")
     behind = device("switch", sightings=(neighbour("router"),))

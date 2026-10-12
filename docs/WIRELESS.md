@@ -220,6 +220,12 @@ duplicitu, sloučit dvě do jednoho stojí update naplánovaný ze stavu cizího
 
 Stejná MAC s jiným sériovým číslem = jiné zařízení (přesunutá karta nebo deska).
 
+Výjimka pro to, co hlásí sousedé přihlášených zařízení: neighbor tabulka uvádí MAC portu,
+na kterém souseda slyšela, MNDP MAC portu, ze kterého se ohlásil. Jeden hAP ac³ tak přišel
+se třemi MAC (…:18, …:1B, …:1C) ze tří míst jednoho switche (2026-10-12). Takový záznam se
+proto přiřadí ke známému zařízení i podle **identity a adresy zároveň** — samotná adresa
+nestačí nikdy.
+
 ### 6.4 Klasifikace
 
 **Schopnost první, název druhý.** Zařízení je bezdrátové, protože má rádia — tečka.
@@ -237,8 +243,21 @@ stanice, která pak selže, selhala mimo dosah. Zařízení, za kterým sedí te
 (`--here`), jde poslední bez ohledu na hloubku.
 
 Neúplný strom — víc kořenů, osiřelé zařízení, smyčka — udělá z pořadí **návrh**, který
-chce `--confirm-order`. Smyčka se hlásí, nikdy se tiše nerozpojí: která hrana je ta stará,
-není co hádat.
+chce `--confirm-order` (v okně opsání cílové verze). Smyčka se hlásí, nikdy se tiše
+nerozpojí: která hrana je ta stará, není co hádat.
+
+Hrany stromu vznikají při přihlášení: zařízení se zeptá na `/ip neighbor` a registrační
+tabulky. Neighbor tabulka ale neříká směr — vidí souseda nahoře i dole. Rozhoduje proto
+port, kterým přišla relace tohoto počítače: co zařízení vidí **na něm**, je vedle něj nebo
+nad ním (switch s PC, router nad ním, AP, na kterém visí stanice), a hranou se nestane. Za
+zařízením je jen to, co vidí na ostatních portech. Bez známého portu relace se za zařízení
+nepočítá nic. Stejně se zahodí dvojice sousedů, kteří se vidí navzájem, a tenhle počítač
+sám (odpovídá na discovery taky). Na jednom switchi tedy strom nemá žádnou hranu a pořadí
+je poctivě jen návrh — tak to vyšlo na dvou hEX S v labu 2026-10-12.
+
+Plán se ukazuje z inventáře, tedy z posledního přihlášení. Než se na zařízení cokoli
+nahraje, naplánuje se znovu z toho, co hlásí teď; jiná trasa dávku zastaví dřív, než se
+zařízení dotkne.
 
 ### 6.6 Inventář
 

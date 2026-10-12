@@ -29,6 +29,7 @@ from mqs.apply.orchestrator import ApplyReport
 from mqs.apply.plan import DEFAULT_PASSWORD
 from mqs.apply.session import (
     DeviceSession,
+    LoginSettings,
     discover_session,
     end_session,
     find_session_port,
@@ -352,6 +353,21 @@ class DevicePage(Page):
             key_passphrase=self.key_passphrase.text(),
             ca_file=self.ca_file.text().strip() or None,
         )
+
+    def login_settings(self) -> LoginSettings | None:
+        """The credentials in the form, for logging in elsewhere (the *Síť* page).
+
+        None without a user name: there is nothing to log in with. The secrets are
+        registered for redaction exactly as a connect from this page registers them.
+        """
+        params = self.connection_params()
+        if not params.username:
+            return None
+        if self.registry is not None:
+            self.registry.add(params.password)
+            self.registry.add(params.key_passphrase)
+        return LoginSettings(params, TransportChoice(self.transport_choice.currentData()),
+                             api_port=self.api_port.value(), ssh_port=self.ssh_port.value())
 
     def _discover_session(
         self,

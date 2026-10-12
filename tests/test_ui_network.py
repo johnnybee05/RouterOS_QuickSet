@@ -58,7 +58,8 @@ def page(qtbot, tmp_path):
     widget = NetworkPage(ProfileController(), TaskRunner(), Dialogs(),
                          inventory_path=tmp_path / "inv.json",
                          scanner_factory=lambda: None,
-                         scan_fn=lambda *a, **k: ScanResult())
+                         scan_fn=lambda *a, **k: ScanResult(),
+                         update_dir=tmp_path / "Update")
     qtbot.addWidget(widget)
     return widget
 
@@ -129,7 +130,7 @@ def test_the_tree_is_shown_under_the_order(page):
     page.devices = [antenna("core", address="192.0.2.1", mode="ap-bridge"),
                     antenna("leaf", address="192.0.2.2", parent="core")]
     page._show()
-    assert "core (wlan1) -> leaf" in page.order_text.toPlainText()
+    assert "core (wlan1) → leaf" in page.order_text.toPlainText()
 
 
 def test_a_device_that_cannot_be_updated_is_listed_as_such(page):
@@ -255,7 +256,8 @@ def test_a_saved_inventory_is_loaded_on_open(qtbot, tmp_path):
                          devices=[antenna("sxt-01", address="192.0.2.5")]))
     widget = NetworkPage(ProfileController(), TaskRunner(), Dialogs(),
                          inventory_path=path, scanner_factory=lambda: None,
-                         scan_fn=lambda *a, **k: ScanResult())
+                         scan_fn=lambda *a, **k: ScanResult(),
+                         update_dir=tmp_path / "Update")
     qtbot.addWidget(widget)
     assert [d.identity for d in widget.devices] == ["sxt-01"]
     assert widget.table.rowCount() == 1
@@ -271,7 +273,8 @@ def test_an_unreadable_inventory_is_reported_and_the_page_still_opens(qtbot, tmp
     path.write_text(json.dumps({"format": 99, "devices": []}), encoding="utf-8")
     widget = NetworkPage(ProfileController(), TaskRunner(), Dialogs(),
                          inventory_path=path, scanner_factory=lambda: None,
-                         scan_fn=lambda *a, **k: ScanResult())
+                         scan_fn=lambda *a, **k: ScanResult(),
+                         update_dir=tmp_path / "Update")
     qtbot.addWidget(widget)
     assert widget.devices == [] and "nedá přečíst" in widget.status.text()
 
@@ -292,3 +295,228 @@ def test_an_empty_page_says_what_to_do_rather_than_counting_nothing(page):
     page._show()
     assert "Prohledat síť" in page.order_hint.text()
     assert page.table.rowCount() == 0
+
+
+# ------------------------------------------------------------------ logging in
+
+
+def settings(user: str = "bee"):
+    from mqs.apply.session import LoginSettings
+    from mqs.transport.base import ConnectionParams
+
+    return LoginSettings(ConnectionParams(host="", username=user, key_filename="id_rsa"),
+                         api_port=8729, ssh_port=122)
+
+
+class Opened:
+    """What open_fn hands back: a session with an inventory and a transport."""
+
+    def __init__(self, inventory) -> None:
+        self.inventory = inventory
+        self.transport = object()
+        self.session_port = "ether1"
+
+
+def select(page, *rows: int) -> None:
+    from PySide6.QtCore import QItemSelectionModel
+
+    page.table.clearSelection()
+    for row in rows:
+        page.table.selectionModel().select(
+            page.table.model().index(row, 0),
+            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+
+
+def test_logging_in_needs_a_selection(page):
+    page.devices = [guess("maybe")]
+    page._show()
+    assert not page.login_button.isEnabled()
+    select(page, 0)
+    assert page.login_button.isEnabled()
+
+
+def test_logging_in_without_a_user_on_the_device_page_says_so(page, monkeypatch):
+    shown: list[str] = []
+    monkeypatch.setattr(page.dialogs, "error", lambda parent, text: shown.append(text))
+    page.devices = [guess("maybe")]
+    page._show()
+    select(page, 0)
+    page.start_login()
+    assert shown and "Zařízení" in shown[0]
+
+
+def test_a_login_confirms_the_device_and_records_what_it_sees(page, qtbot, tmp_path):
+    """The AP's registration table names a station: it joins the list hanging off it."""
+    found = antenna("ap-1", address="192.0.2.9", mode="ap-bridge").inventory
+    opened: list[str] = []
+    closed: list[object] = []
+    page.login_settings = settings
+    page.open_fn = lambda s, host, cancelled: opened.append(host) or Opened(found)
+    page.close_fn = closed.append
+    asked: dict = {}
+
+    def neighbours(transport, version, *, found_at, session_port, own_addresses):
+        asked.update(session_port=session_port, own=own_addresses)
+        return [Sighting(source=Source.REGISTRATION, found_at=found_at, identity="cpe-1",
+                         macs=["AA:BB:CC:00:00:42"], via_interface="wlan1")]
+
+    page.neighbours_fn = neighbours
+    page.local_addresses_fn = lambda: ["192.168.55.55"]
+    page.devices = [guess("ap-1")]
+    page._show()
+    select(page, 0)
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_login()
+    assert opened == ["192.0.2.9"] and len(closed) == 1
+    assert asked == {"session_port": "ether1", "own": ["192.168.55.55"]}
+    assert texts(page, 0) == ["++", "+"]
+    assert texts(page, 1) == ["ap-1", "cpe-1"]
+    # Still only the AP selected, and the tree still shows what hangs off it.
+    assert "ap-1 (wlan1) → cpe-1" in page.order_text.toPlainText()
+    assert "Načteno 1" in page.status.text()
+    saved = json.loads((tmp_path / "inv.json").read_text(encoding="utf-8"))
+    assert saved["devices"][0]["inventory"] is not None
+
+
+def test_a_refused_login_is_counted_and_logged(page, qtbot):
+    from mqs.transport.base import AuthError
+
+    page.login_settings = settings
+
+    def refuse(s, host, cancelled):
+        raise AuthError("invalid user name or password")
+
+    page.open_fn = refuse
+    page.devices = [guess("locked")]
+    page._show()
+    select(page, 0)
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_login()
+    assert page.devices[0].login_error
+    assert "nepřihlášeno 1" in page.status.text()
+    assert "locked" in page.log_view.toPlainText()
+
+
+def test_the_page_says_whose_credentials_it_logs_in_with(page):
+    page.login_settings = settings
+    page._show_login_note()
+    assert "bee" in page.login_note.text() and "klíč" in page.login_note.text()
+    assert "122" in page.login_note.text()
+
+
+# ------------------------------------------------------------------ the batch
+
+
+def update_folder(tmp_path, *versions: str):
+    from factories import make_npk
+
+    folder = tmp_path / "Update"
+    folder.mkdir(parents=True, exist_ok=True)
+    for text in versions:
+        parts = tuple(int(p) for p in [*text.split("."), "0", "0"][:3])
+        (folder / f"routeros-{text}-arm.npk").write_bytes(make_npk("system", parts, "arm"))
+        (folder / f"wireless-{text}-arm.npk").write_bytes(make_npk("wireless", parts, "arm"))
+    return folder
+
+
+def chain_of_three() -> list[Candidate]:
+    return [antenna("core", address="192.0.2.1", mode="ap-bridge"),
+            antenna("relay", address="192.0.2.2", mode="ap-bridge", parent="core"),
+            antenna("leaf", address="192.0.2.3", parent="relay")]
+
+
+def test_the_target_offers_what_the_update_directory_holds(page, tmp_path):
+    update_folder(tmp_path, "7.15.3", "7.16.1")
+    page.load_packages()
+    assert [page.target.itemText(i) for i in range(page.target.count())] == [
+        "7.16.1", "7.15.3"]
+    assert page.target.currentText() == "7.16.1"
+
+
+def test_the_plan_names_every_file_each_device_gets(page, tmp_path):
+    update_folder(tmp_path, "7.15.3", "7.16.1")
+    page.load_packages()
+    page.devices = chain_of_three()
+    page._show()
+    text = page.order_text.toPlainText()
+    assert "1. leaf  (stanice, teď 7.15.3)" in text
+    assert "→ 7.16.1: routeros-7.16.1-arm.npk, wireless-7.16.1-arm.npk" in text
+    assert "3. core  (AP, teď 7.15.3, přes něj vede 2)" in text
+    assert "restartů celkem 3" in page.order_hint.text()
+    assert page.batch_button.isEnabled()
+
+
+def test_a_device_without_its_packages_blocks_the_batch(page, tmp_path):
+    update_folder(tmp_path, "7.15.3")
+    (tmp_path / "Update" / "routeros-7.16.1-arm.npk").write_bytes(
+        __import__("factories").make_npk("system", (7, 16, 1), "arm"))
+    page.load_packages()
+    page.target.setCurrentText("7.16.1")
+    page.devices = chain_of_three()
+    page._show()
+    assert "NELZE" in page.order_text.toPlainText()
+    assert "nespustí" in page.order_hint.text()
+    assert not page.batch_button.isEnabled()
+
+
+def test_the_selection_limits_the_batch(page, tmp_path):
+    update_folder(tmp_path, "7.15.3", "7.16.1")
+    page.load_packages()
+    page.devices = chain_of_three()
+    page._show()
+    select(page, 2)
+    plan = page.batch_plan()
+    assert [s.name for s in plan.steps] == ["leaf"]
+
+
+def test_a_batch_updates_every_device_leaves_first(page, qtbot, tmp_path, monkeypatch):
+    from test_fleet_end_to_end import Lab
+
+    devices = chain_of_three()
+    lab = Lab(tmp_path, {d.address: d for d in devices}, "7.16.1")
+    page.update_dir = lab.folder
+    page.load_packages()
+    page.target.setCurrentText("7.16.1")
+    page.login_settings = settings
+    page.open_fn = lambda s, host, cancelled: lab.sessions[host]
+    page.close_fn = lambda session: None
+    page.changer_factory = lab.changer
+    page.backup_dir = tmp_path / "backups"
+    from mqs.model.version import RosVersion
+    page.read_fn = lambda session: session.inventory.model_copy(update={
+        "resource": session.inventory.resource.model_copy(
+            update={"version": RosVersion.parse("7.16.1")})})
+    asked: list[str] = []
+    monkeypatch.setattr(page.dialogs, "question",
+                        lambda parent, title, text: asked.append(text) or True)
+    page.devices = devices
+    page._show()
+    assert page.batch_button.isEnabled()
+
+    with qtbot.waitSignal(page.devicesChanged, timeout=10000):
+        page.start_batch()
+    assert asked and "leaf, relay, core" in asked[0]
+    # The version, then RouterBOOT (on by default, as on the Aplikovat page).
+    assert all(router.reboots == 2 for router in lab.routers.values())
+    log = page.log_view.toPlainText()
+    assert log.index("OK leaf") < log.index("OK relay") < log.index("OK core")
+    assert "aktualizováno 3" in page.status.text()
+    assert texts(page, 6) == ["7.16.1", "7.16.1", "7.16.1"]
+    assert "už má 7.16.1" in page.order_text.toPlainText()
+
+
+def test_an_uncertain_order_must_be_confirmed_by_typing_the_version(page, tmp_path,
+                                                                    monkeypatch):
+    update_folder(tmp_path, "7.15.3", "7.16.1")
+    page.load_packages()
+    page.login_settings = settings
+    started: list[int] = []
+    page.open_fn = lambda *a: started.append(1)
+    prompts: list[str] = []
+    monkeypatch.setattr(page.dialogs, "ask_text",
+                        lambda parent, title, label, text="": prompts.append(label) or "ano")
+    page.devices = [antenna("a", address="192.0.2.1"), antenna("b", address="192.0.2.2")]
+    page._show()
+    page.start_batch()
+    assert prompts and "pořadí není jisté" in prompts[0] and "7.16.1" in prompts[0]
+    assert page._token is None and started == []

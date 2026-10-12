@@ -65,7 +65,7 @@ from mqs.discover.cli import (
     cmd_inventory,
     cmd_scan,
 )
-from mqs.discover.sources import read_device
+from mqs.discover.sources import seen_from
 from mqs.fleet.cli import add_fleet_args, cmd_fleet, updater
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
@@ -937,8 +937,10 @@ def device_reader(args: argparse.Namespace, out: Any, *,
         inventory = session.inventory
         if neighbours is not None:
             try:
-                neighbours.extend(read_device(session.transport, inventory.version,
-                                              found_at=inventory.identity))
+                neighbours.extend(seen_from(
+                    session.transport, inventory.version, found_at=inventory.identity,
+                    session_port=session.session_port,
+                    own_addresses=[str(i.address) for i in list_ipv4_interfaces()]))
             except Exception as exc:  # what it sees is extra; the read itself stands
                 print(f"  … {address}: neighbours not read ({exc})", file=out)
         # Hanging up is not part of reading the device. The inventory is already in hand,

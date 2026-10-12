@@ -14,7 +14,7 @@ of having several is that one can fail.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from mqs.discover.candidates import Sighting, Source
 from mqs.model.inventory import WirelessMenu
@@ -160,6 +160,31 @@ def read_device(transport: Transport, version: RosVersion, *,
     """Everything one reached device can say about the others: neighbours and stations."""
     return [*read_neighbors(transport, found_at=found_at),
             *read_registrations(transport, version, found_at=found_at)]
+
+
+def seen_from(transport: Transport, version: RosVersion, *, found_at: str,
+              session_port: str | None, own_addresses: Iterable[str] = ()) -> list[Sighting]:
+    """`read_device`, with what it says about direction made honest.
+
+    A neighbour table lists what is next to a device in every direction. What it sees on
+    the interface this PC's session came in by is beside it or upstream of it — the switch
+    the PC is on, the router above, the AP a station hangs off — and is marked so, which
+    keeps it out of the tree. Only what it sees on its *other* interfaces is behind it.
+    Without a session port nothing can be told apart, and nothing is taken as behind.
+    This PC itself answers discovery too, and is left out.
+
+    OVĚŘENO 2026-10-12 on two hEX S on one switch: every neighbour of each sat on its
+    session port (`ether1-uplink` on a bridge port, `ether1` on a plain port).
+    """
+    own = set(own_addresses)
+    found: list[Sighting] = []
+    for sighting in read_device(transport, version, found_at=found_at):
+        if sighting.address and sighting.address in own:
+            continue
+        if not session_port or sighting.via_interface == session_port:
+            sighting = sighting.model_copy(update={"upstream": True})
+        found.append(sighting)
+    return found
 
 
 def crawl(

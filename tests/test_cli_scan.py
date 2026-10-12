@@ -149,6 +149,7 @@ def test_a_login_also_records_what_the_device_sees(tmp_path, monkeypatch):
     class Session:
         inventory = antenna_inventory("ap-1")
         transport = Transport()
+        session_port = "ether1"  # the station is on wlan1: behind the AP
 
     code, out = run(scan_args(tmp_path, "--login", "--user", "admin"),
                     connect=lambda *a, **k: Session())

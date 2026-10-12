@@ -357,8 +357,16 @@ kterému se aplikace přihlásila a přečetla ho přímo.
 .\.venv\Scripts\python.exe -m mqs.cli fleet --to 7.16.1 --dry-run
 ```
 
+V okně je totéž na stránce **Síť**: *Prohledat síť* poslechne MNDP, *Přihlásit vybrané*
+se přihlásí k vybraným řádkům údaji ze stránky *Zařízení* a načte jejich stav, sousedy
+a registrační tabulky. Pod tabulkou je dávka: cílová verze (z adresáře `Update`), pro
+každé zařízení trasa a soubory, které dostane, a *Spustit dávku* po potvrzení. Vybrané
+řádky omezí dávku jen na ně. Průběh každého zařízení se vypisuje do logu na stránce
+a *Zastavit dávku* ji ukončí po zařízení, které se právě aktualizuje.
+
 Pořadí dávky jde od nejvzdálenějších zařízení k páteři, sestavené z registračních
-a neighbor tabulek. Když je strom neúplný, aplikace to řekne a chce `--confirm-order`.
+a neighbor tabulek. Když je strom neúplný, aplikace to řekne a chce `--confirm-order`
+(v okně opsat cílovou verzi); stejně tak u downgradu a přechodu mezi RouterOS 6 a 7.
 Paralelismus je výchozí 1 a zařízení, za kterým něco visí, běží vždycky samo. Při prvním
 selhání se dávka zastaví a vypíše, kolik zařízení se už neaktualizovalo.
 

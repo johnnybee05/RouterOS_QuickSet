@@ -63,8 +63,10 @@ class MainWindow(QMainWindow):
 
         self.device_page = DevicePage(self.controller, self.runner, self.dialogs, self.registry,
                                       **(device_kwargs or {}))
-        self.network_page = NetworkPage(self.controller, self.runner, self.dialogs,
-                                        **(network_kwargs or {}))
+        # The Síť page logs in with whatever the Zařízení page's form holds: one set of
+        # credentials in the window, not two that drift apart.
+        self.network_page = NetworkPage(self.controller, self.runner, self.dialogs, **{
+            "login_settings": self.device_page.login_settings, **(network_kwargs or {})})
         self.basic_page = BasicPage(self.controller)
         self.lan_page = LanBridgePage(self.controller)
         self.firewall_page = FirewallPage(

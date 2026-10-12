@@ -18,7 +18,15 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from mqs.discover.candidates import Candidate, Sighting, Source, confirmed, refused
+from mqs.discover.candidates import (
+    Candidate,
+    Sighting,
+    Source,
+    confirmed,
+    from_sighting,
+    merge_into,
+    refused,
+)
 from mqs.discover.merge import address_conflicts, merge_candidates, merge_sightings
 from mqs.discover.portscan import ScanLimits, TooManyAddresses
 from mqs.discover.portscan import scan as scan_ports
@@ -294,7 +302,31 @@ def with_neighbours(devices: Sequence[Candidate],
 
     A neighbour or a station already known gains the sighting, which is what the update
     order is drawn from; one nobody had heard of yet joins the list unconfirmed.
+
+    Known means a shared MAC, or else the same identity *and* the same address. The MAC
+    alone is not enough here: a neighbour table names the MAC of whichever port the
+    neighbour was heard on, and MNDP that of the port it announced from — one hAP ac³
+    came back as …:18, …:1B and …:1C from three places on one switch (2026-10-12).
     """
-    if not sightings:
-        return list(devices)
-    return merge_candidates([*devices, *merge_sightings(sightings)])
+    merged = list(devices)
+    for sighting in sightings:
+        seen = sighting.normalised()
+        index = _same_box(merged, seen)
+        if index is None:
+            merged.append(from_sighting(seen))
+        else:
+            merged[index] = merge_into(merged[index], seen)
+    return merged
+
+
+def _same_box(devices: Sequence[Candidate], seen: Sighting) -> int | None:
+    macs = set(seen.macs)
+    for index, device in enumerate(devices):
+        if macs & set(device.macs):
+            return index
+    if not (seen.identity and seen.address):
+        return None
+    for index, device in enumerate(devices):
+        if device.identity == seen.identity and seen.address in device.addresses:
+            return index
+    return None

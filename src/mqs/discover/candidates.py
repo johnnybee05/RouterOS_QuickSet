@@ -112,6 +112,9 @@ class Sighting(BaseModel):
     # in its registration table. This is what the topology is built from.
     via_interface: str = ""
     note: str = ""
+    # Seen on the interface this PC's own session came in by: beside the reporting device
+    # or upstream of it, never behind it — so a sighting, but not an edge of the tree.
+    upstream: bool = False
 
     def normalised(self) -> Sighting:
         return self.model_copy(update={"macs": sorted({normalise_mac(m) for m in self.macs
