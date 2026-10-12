@@ -168,6 +168,18 @@ def test_a_scan_merges_into_the_inventory_and_saves_it(page, qtbot, tmp_path):
     assert saved["devices"][0]["identity"] == "sxt-01"
 
 
+def test_a_scan_reporting_its_sources_still_lands(page, qtbot):
+    # The real scan calls on_source(source, state); the worker's progress takes one value.
+    def scan(plan, **k):
+        k["on_source"](Source.MNDP, "running")
+        k["on_source"](Source.MNDP, "ok")
+        return ScanResult((antenna("sxt-01", address="192.0.2.5"),), ())
+    page.scan_fn = scan
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_scan()
+    assert [d.identity for d in page.devices] == ["sxt-01"]
+
+
 def test_a_failed_source_is_reported_and_the_scan_still_lands(page, qtbot):
     found = ScanResult((antenna("sxt-01", address="192.0.2.5"),),
                        (SourceResult(Source.SCAN, (), "subnet too large", 0.1),))

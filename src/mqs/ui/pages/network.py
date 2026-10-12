@@ -214,7 +214,8 @@ class NetworkPage(Page):
 
         def task(token: CancelToken, report: Callable[[object], None]) -> ScanResult:
             return self.scan_fn(plan, mndp_factory=self.scanner_factory,
-                                on_source=report, cancelled=token.cancelled)
+                                on_source=lambda source, state: report((source, state)),
+                                cancelled=token.cancelled)
 
         self._token = self.runner.start(task, on_finished=self._scanned,
                                         on_failed=self._scan_failed)
