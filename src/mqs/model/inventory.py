@@ -86,7 +86,9 @@ class ResourceInfo(BaseModel):
     # The RouterOS version the board was shipped with, and the floor of any downgrade.
     # `/system resource factory-software` (6.42.4 on the mmips RB760iGS, 7.20 on the arm
     # hEX S E60iUGS, 2026-09-27). The RouterBOOT side of it is `factory-firmware`, which
-    # carries the patch number the resource field leaves out on v7.
+    # carries the patch number the resource field leaves out on v7. Since 7.24 the field
+    # is `minimum-version` (and the RouterBOOT one `minimum-firmware`); discovery reads
+    # either name into this one field.
     factory_software: str = ""
     free_memory: int = 0
     total_memory: int = 0
@@ -102,6 +104,7 @@ class RouterboardInfo(BaseModel):
     serial_number: str = ""
     # The firmware the board left the factory with: no RouterOS older than this goes on
     # it (6.42.4 on the mmips RB760iGS, 7.20.7 on the arm hEX S, 2026-09-27).
+    # `minimum-firmware` since 7.24, `factory-firmware` before it.
     factory_firmware: str = ""
     current_firmware: str = ""
     upgrade_firmware: str = ""

@@ -46,6 +46,14 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 `/system routerboard print` reports it as `factory-firmware`, next to `current-firmware` and
 `upgrade-firmware`, which the application already reads.
 
+**RouterOS 7.24 renamed both fields**: `factory-firmware` is now `minimum-firmware` and
+`/system resource factory-software` is now `minimum-version`, and the old names are gone —
+**OVĚŘENO** 2026-10-12 on the mmips hEX S on 7.24.4 (both 6.42.4). Until discovery learned
+the new names, every 7.24 board looked like a CHR (`version.no_factory_firmware`).
+`transport/discovery.py` reads either name (`MINIMUM_FIRMWARE_KEYS`,
+`MINIMUM_VERSION_KEYS`) into the same `factory_firmware` / `factory_software` fields, so
+everything below is unchanged.
+
 - `factory-firmware` is a **RouterBOOT** version, and the planner compares it with **RouterOS**
   versions. The two numbering schemes have run together since 6.x (the firmware ships inside
   the RouterOS package: after the update to 7.23.7 the hEX S offered `upgrade-firmware=7.23.7`),

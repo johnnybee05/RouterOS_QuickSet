@@ -352,7 +352,8 @@ MESSAGES: dict[str, str] = {
     "version.below_factory": "RouterOS {version} je starší než verze, se kterou byla deska "
     "vyrobena ({floor}). Níž než na {floor} se tohle zařízení dostat nedá.",
     "version.no_factory_firmware": "Zařízení neuvádí, se kterou verzí bylo vyrobeno "
-    "(factory-firmware ani factory-software), takže nejnižší možnou verzi aplikace nezná. "
+    "(minimum-firmware ani minimum-version, do RouterOS 7.23 factory-firmware a "
+    "factory-software), takže nejnižší možnou verzi aplikace nezná. "
     "Downgrade na {version} může zařízení odmítnout.",
     "version.v7_needs_649": "Na RouterOS 7 se dá přejít až z {gate}, zařízení má {current}. "
     "V adresáři {dir} ale není balíček v6 ve verzi {gate} nebo novější, kterým by se přechod "

@@ -102,6 +102,27 @@ def test_collect_inventory_v7_api():
     assert len(plan.groups) == 2
 
 
+def test_the_floor_under_its_724_names():
+    """7.24 renamed factory-firmware to minimum-firmware and factory-software to
+    minimum-version; the mmips hEX S on 7.24.4 printed only the new names (2026-10-12)."""
+    replies = rb4011_v7_api()
+    resource = replies["/system/resource/print"][0]
+    board = replies["/system/routerboard/print"][0]
+    resource["minimum-version"] = resource.pop("factory-software")
+    board["minimum-firmware"] = board.pop("factory-firmware")
+    inv = collect_inventory(FakeTransport(replies))
+    assert inv.routerboard.factory_firmware == "6.44.6"
+    assert inv.resource.factory_software == "6.44"
+    assert inv.version_floor == RosVersion.parse("6.44.6")
+
+
+def test_without_either_name_there_is_no_floor():
+    replies = rb4011_v7_api()
+    del replies["/system/resource/print"][0]["factory-software"]
+    del replies["/system/routerboard/print"][0]["factory-firmware"]
+    assert collect_inventory(FakeTransport(replies)).version_floor is None
+
+
 def hap_v6_ssh() -> dict:
     """SSH-style replies from `print terse`: flags instead of some booleans, units in sizes."""
     return {

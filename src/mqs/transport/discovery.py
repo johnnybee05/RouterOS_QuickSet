@@ -34,6 +34,13 @@ _UNITS = {None: 1, "B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3}
 # /console inspect is used to confirm parameters at runtime; NUTNO OVĚŘIT output format.
 FASTTRACK_PROBE_PATH = "ip,firewall,filter,add"
 
+# The floor of a downgrade, under each name RouterOS has given it: 7.24 renamed
+# `factory-firmware` (/system routerboard) to `minimum-firmware` and `factory-software`
+# (/system resource) to `minimum-version` — both 6.42.4 on the mmips RB760iGS on 7.24.4,
+# where the old names are gone (OVĚŘENO 2026-10-12).
+MINIMUM_FIRMWARE_KEYS = ("minimum-firmware", "factory-firmware")
+MINIMUM_VERSION_KEYS = ("minimum-version", "factory-software")
+
 
 def to_bool(item: dict[str, str], key: str, flag: str | None = None) -> bool:
     """Boolean property from an API reply (`yes`/`no`) or a terse line flag letter."""
@@ -74,6 +81,11 @@ def _first(reply: Reply) -> dict[str, str]:
     return reply[0] if reply else {}
 
 
+def _any_of(item: dict[str, str], keys: Sequence[str]) -> str:
+    """The first of ``keys`` the row carries a value for, "" when none."""
+    return next((item[key] for key in keys if item.get(key)), "")
+
+
 def _optional(transport: Transport, command_path: str, /, **args: object) -> Reply | None:
     """None when the menu does not exist on this device (e.g. no switch chip, CHR)."""
     try:
@@ -101,7 +113,7 @@ def collect_inventory(
             routerboard=to_bool(rb, "routerboard"),
             model=rb.get("model", ""),
             serial_number=rb.get("serial-number", ""),
-            factory_firmware=rb.get("factory-firmware", ""),
+            factory_firmware=_any_of(rb, MINIMUM_FIRMWARE_KEYS),
             current_firmware=rb.get("current-firmware", ""),
             upgrade_firmware=rb.get("upgrade-firmware", ""),
         )
@@ -165,7 +177,7 @@ def collect_inventory(
             board_name=resource.get("board-name", ""),
             architecture=resource.get("architecture-name", ""),
             uptime=resource.get("uptime", ""),
-            factory_software=resource.get("factory-software", ""),
+            factory_software=_any_of(resource, MINIMUM_VERSION_KEYS),
             free_memory=to_bytes(resource.get("free-memory")),
             total_memory=to_bytes(resource.get("total-memory")),
             free_hdd_space=to_bytes(resource.get("free-hdd-space")),

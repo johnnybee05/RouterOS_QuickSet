@@ -220,7 +220,8 @@ Jak to funguje:
    nahrání by tak stálo restart pro nic.
 2. **Níž než na „factory firmware" se jít nedá.** Verzi, se kterou byla deska vyrobena,
    hlásí `/system routerboard` (`factory-firmware`) i `/system resource`
-   (`factory-software`) a aplikace ji bere jako dno: mmips hEX S RB760iGS má 6.42.4, arm
+   (`factory-software`) — od RouterOS 7.24 pod názvy `minimum-firmware` a
+   `minimum-version`, aplikace čte oba — a bere ji jako dno: mmips hEX S RB760iGS má 6.42.4, arm
    hEX S E60iUGS 7.20.7 — a **na v6 se tedy nikdy nedostane**. V seznamu verzí taková verze
    zůstane, jen nejde vybrat a v bublině je důvod.
 3. **Na v7 se přechází vždy přes nejvyšší RouterOS 6 v adresáři `Update`** (dnes 6.49.23):
