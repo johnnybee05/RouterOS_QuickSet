@@ -11,6 +11,41 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.6.0] – 2026-10-12
+
+### Přidáno
+
+- **Dávkový update na stránce *Síť*.** Stránka dřív uměla jen hledat; teď:
+  - *Přihlásit vybrané* se přihlásí k vybraným řádkům údaji ze stránky *Zařízení* a načte
+    jejich stav, sousedy a registrační tabulky. Teprve přihlášené zařízení (`++`) jde
+    aktualizovat. Ke všemu, co scan slyšel, se aplikace nepřihlašuje – na cizí síti by to
+    bylo i cizí zařízení.
+  - Plán dávky: cílová verze z adresáře `Update`, pro každé zařízení trasa a soubory, které
+    dostane, co je zablokované a co už cílovou verzi má. Dál volba *Toto PC je za*, počet
+    zařízení najednou a RouterBOOT. Vybrané řádky omezí dávku jen na ně.
+  - *Spustit dávku* se nejdřív zeptá; když pořadí není jisté nebo jde o downgrade či
+    přechod mezi RouterOS 6 a 7, chce opsat cílovou verzi. Průběh každého zařízení jde do
+    logu na stránce, po dávce se zařízení znovu načtou. *Zastavit dávku* ji ukončí po
+    zařízení, které se právě aktualizuje.
+
+  Ověřeno v labu na dvou hEX S (7.24.4 a 6.49.12): hledání, přihlášení i plán. Samotná
+  dávka přes okno na železe zatím neběžela – jede ale stejným kódem jako `mqs fleet`
+  a jednotlivý přechod verze, které ověřené jsou.
+
+### Opraveno
+
+- Pořadí dávky se nikdy nesestavilo ze skutečné topologie: přihlášení (i `mqs scan
+  --login`) nečetlo neighbor ani registrační tabulky, takže pořadí víc zařízení bylo vždy
+  jen „návrh“. Teď je čte. Za zařízením se přitom počítá jen to, co vidí na jiném portu,
+  než kterým přišla relace z tohoto PC – neighbor tabulka sama směr neříká a na jednom
+  switchi vidí každý každého. Tenhle počítač se mezi zařízení nepočítá.
+- Jedno zařízení se v tabulce mohlo objevit víckrát: neighbor tabulky uvádějí MAC portu,
+  na kterém souseda slyšely (hAP ac³ přišel se třemi různými). Záznam souseda se teď ke
+  známému zařízení přiřadí i podle identity a adresy zároveň.
+- Dávka (i `mqs fleet`) plánovala z inventáře, který mohl být dny starý. Před nahráním na
+  každé zařízení se teď plán spočítá znovu z jeho aktuálního stavu; jiná trasa dávku
+  zastaví a zařízení zůstane netknuté.
+
 ## [0.5.1] – 2026-10-12
 
 ### Opraveno
