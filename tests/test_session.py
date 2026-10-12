@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network
 
@@ -25,7 +26,13 @@ from mqs.apply.session import (
     session_after_apply,
 )
 from mqs.model.profile import DeviceProfile
-from mqs.transport.base import CommandError, ConnectionParams, TransportError
+from mqs.transport.base import (
+    AuthError,
+    CommandError,
+    ConnectionParams,
+    TransportError,
+    TransportKind,
+)
 from mqs.transport.factory import ConnectOutcome
 from mqs.transport.mac_connect import MacConnectMethod, MacConnectResult, MacRoute
 from mqs.transport.mactelnet.client import MacTelnetAuthError
@@ -159,6 +166,73 @@ def test_an_ssh_port_that_did_not_answer_is_not_tried_for_every_file(monkeypatch
         with pytest.raises(TransportError):
             ssh.open_sftp()
     assert len(tried) == 1
+
+
+RB4011_SSH = {"password-authentication": "yes-if-no-key", "strong-crypto": "true"}
+
+
+def ssh_settings(settings: dict[str, str], key_users: list[str]) -> FakeTransport:
+    return FakeTransport({
+        "/ip/ssh/print": [settings],
+        "/user/ssh-keys/print": [{".id": f"*{i}", "user": u} for i, u in enumerate(key_users)],
+    })
+
+
+@pytest.mark.parametrize(("settings", "key_users", "says"), [
+    # RB4011, 7.23.8, 2026-10-12: johnnybee05 has a key and connected with the password.
+    (RB4011_SSH, ["admin"], "password-authentication=yes-if-no-key"),
+    ({"password-authentication": "no"}, [], "password-authentication=no"),
+    ({"always-allow-password-login": "false"}, ["admin"], "always-allow-password-login=no"),
+    (RB4011_SSH, ["bee"], None),  # someone else's key does not stop admin's password
+    ({"password-authentication": "yes"}, ["admin"], None),
+    ({"always-allow-password-login": "true"}, ["admin"], None),
+])
+def test_why_ssh_refuses_the_password(settings, key_users, says):
+    reason = session_mod.ssh_password_refusal(ssh_settings(settings, key_users), PARAMS)
+    if says is None:
+        assert reason is None
+    else:
+        assert says in reason
+
+
+def test_a_refused_key_is_not_blamed_on_the_password_policy():
+    with_key = replace(PARAMS, key_filename="id_rsa")
+    assert session_mod.ssh_password_refusal(ssh_settings(RB4011_SSH, ["admin"]),
+                                            with_key) is None
+
+
+def test_a_device_that_will_not_say_leaves_the_refusal_as_it_was():
+    assert session_mod.ssh_password_refusal(FakeTransport(), PARAMS) is None
+
+
+class RefusedSsh:
+    def __init__(self, params):
+        self.params = params
+
+    def connect(self):
+        raise AuthError(f"SSH authentication failed for {self.params.username}",
+                        TransportKind.SSH)
+
+
+def test_a_refused_file_login_says_why_once(monkeypatch):
+    """The backup download said only "SSH authentication failed for johnnybee05", twice."""
+    monkeypatch.setattr(session_mod, "SshTransport", RefusedSsh)
+    session = make_session()
+    session.transport = ssh_settings(RB4011_SSH, ["admin"])
+    uploader = build_uploader_factory(session, IMPORT)(session.transport)
+    ssh = uploader.strategies[0].ssh
+    for _ in range(2):
+        with pytest.raises(AuthError, match=r"yes-if-no-key\): give that key"):
+            ssh.open_sftp()
+    asked = [key for key, _ in session.transport.calls]
+    assert asked == ["/ip/ssh/print", "/user/ssh-keys/print"], "asked once, not per file"
+
+
+def test_a_refusal_the_device_cannot_explain_stays_as_it_was(monkeypatch):
+    monkeypatch.setattr(session_mod, "SshTransport", RefusedSsh)
+    ssh = LazySsh(PARAMS, refusal=lambda: None)
+    with pytest.raises(AuthError, match=r"^SSH authentication failed for admin$"):
+        ssh.open_sftp()
 
 
 @pytest.mark.parametrize(("method", "host", "expected_host"), [

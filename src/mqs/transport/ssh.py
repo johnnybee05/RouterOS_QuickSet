@@ -57,6 +57,7 @@ SINGLETON_MENUS = frozenset({
     "/system clock",
     "/system ntp client",
     "/ip dns",
+    "/ip ssh",
     "/ip neighbor discovery-settings",
     "/ipv6 settings",
     "/interface bridge settings",

@@ -77,6 +77,14 @@ u opravného vydání.
 Podrobnosti, včetně toho, co je a co není ověřené na skutečném hardwaru:
 [docs/WIRELESS.md](docs/WIRELESS.md).
 
+### Opraveno
+
+- **Nestažená záloha říká proč.** Uživatel s SSH klíčem se přes api-ssl přihlásí heslem,
+  ale SSH mu heslo odmítne (`/ip ssh password-authentication=yes-if-no-key`, výchozí
+  v RouterOS 7), takže záloha a export zůstaly na zařízení jen s hláškou „SSH
+  authentication failed“. Aplikace se teď zařízení zeptá a napíše příčinu i nápravu:
+  zadat ten klíč v připojení.
+
 ## [0.3.0] – 2026-10-05
 
 ### Přidáno

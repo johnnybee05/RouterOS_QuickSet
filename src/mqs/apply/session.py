@@ -23,8 +23,13 @@ from mqs.apply.version_change import VersionContext, VersionPlan, VersionReport
 from mqs.generator.base import GenerationResult
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
-from mqs.transport.base import ConnectionParams, Transport, TransportError
-from mqs.transport.discovery import collect_inventory, probe_features, session_interface
+from mqs.transport.base import AuthError, ConnectionParams, Transport, TransportError
+from mqs.transport.discovery import (
+    collect_inventory,
+    probe_features,
+    session_interface,
+    to_bool,
+)
 from mqs.transport.factory import TransportChoice, connect_transport
 from mqs.transport.mac_connect import (
     MacConnectMethod,
@@ -214,6 +219,43 @@ def open_mac_session(
         raise
 
 
+def ssh_password_refusal(transport: Transport, params: ConnectionParams) -> str | None:
+    """Why the device turns this account's password away over SSH, as far as it says.
+
+    RouterOS 7 by default takes no password over SSH from a user that has an SSH key
+    (`/ip ssh password-authentication=yes-if-no-key`), while api-ssl knows no keys and
+    takes it. A session connected with the password alone was therefore in, and only the
+    backup download failed, with nothing but "SSH authentication failed" to show for it
+    (RB4011, 7.23.8, 2026-10-12). Older versions are documented to say the same with
+    `always-allow-password-login=no` (NUTNO OVĚŘIT). Asked over the connection the session
+    already has;
+    None when it cannot say, or when a key was given and it was the key that was refused.
+    """
+    if params.key_filename:
+        return None
+    try:
+        settings = next(iter(transport.execute("/ip/ssh/print")), {})
+        has_key = any(row.get("user") == params.username
+                      for row in transport.execute("/user/ssh-keys/print"))
+    except TransportError:
+        return None
+    policy = settings.get("password-authentication")
+    if policy == "no":
+        return ("the device takes no password over SSH (/ip ssh "
+                "password-authentication=no): give the SSH key in the connection")
+    if not has_key:
+        return None
+    if policy == "yes-if-no-key":
+        setting = "password-authentication=yes-if-no-key"
+    elif policy is None and "always-allow-password-login" in settings \
+            and not to_bool(settings, "always-allow-password-login"):
+        setting = "always-allow-password-login=no"
+    else:
+        return None
+    return (f"{params.username} has an SSH key on the device, which then takes no password "
+            f"over SSH (/ip ssh {setting}): give that key in the connection")
+
+
 class LazySsh:
     """SSH connection opened only when a file strategy needs it (main transport is API).
 
@@ -223,12 +265,17 @@ class LazySsh:
 
     ``check`` runs once on the fresh connection and may refuse it: over a lent address
     that is the one place to ask whether the device answering is really ours.
+
+    ``refusal`` says why a refused login was refused (`ssh_password_refusal`), which then
+    goes into the error: "authentication failed" alone does not tell what to change.
     """
 
     def __init__(self, params: ConnectionParams,
-                 check: Callable[[SshTransport], None] | None = None) -> None:
+                 check: Callable[[SshTransport], None] | None = None,
+                 refusal: Callable[[], str | None] | None = None) -> None:
         self.params = params
         self.check = check
+        self.refusal = refusal
         self._transport: SshTransport | None = None
         self._error: Exception | None = None
 
@@ -239,6 +286,13 @@ class LazySsh:
             transport = SshTransport(self.params)
             try:
                 transport.connect()
+            except AuthError as exc:
+                reason = self.refusal() if self.refusal is not None else None
+                if reason is None:
+                    self._error = exc
+                    raise
+                self._error = AuthError(f"{exc}: {reason}", exc.kind)
+                raise self._error from exc
             except (TransportError, OSError) as exc:
                 self._error = exc
                 raise
@@ -389,7 +443,8 @@ def build_uploader_factory(session: DeviceSession,
         if isinstance(transport, SshTransport):
             ssh: Any = transport  # the application's own session, not ours to close
         else:
-            owned = LazySsh(replace(session.params, port=ssh_port))
+            owned = LazySsh(replace(session.params, port=ssh_port),
+                            refusal=lambda: ssh_password_refusal(transport, session.params))
             ssh = owned
         strategies: list[Any] = [SftpStrategy(ssh), ScpStrategy(ssh)]
         console: LazyConsole | None = None
