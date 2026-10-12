@@ -52,6 +52,20 @@ def test_a_disabled_package_is_caught():
     assert not check.ok and check.params["waiting"] == "wireless (disabled)"
 
 
+def test_a_package_that_was_disabled_before_the_update_is_not_its_doing():
+    """The v6 hEX S, whose profile switched `ipv6` off: the update leaves it as it was,
+    and the check must not fail every hop over it (2026-10-12)."""
+    fake = packages({"name": "routeros-mmips", "version": "6.49.22"},
+                    {"name": "ipv6", "version": "6.49.22", "disabled": "yes",
+                     "bundle": "routeros-mmips"},
+                    {"name": "wireless", "version": "6.49.22", "disabled": "yes",
+                     "bundle": "routeros-mmips"})
+    check = check_package_versions(fake, V("6.49.22"), disabled_before={"ipv6"})
+    assert not check.ok and check.params["waiting"] == "wireless (disabled)"
+    assert check_package_versions(fake, V("6.49.22"),
+                                  disabled_before={"ipv6", "wireless"}).ok
+
+
 def test_packages_only_offered_for_download_are_not_ours_to_check():
     """7.23 lists every package MikroTik publishes for the board; the ones with flag `A`
     are not installed and have no version to be wrong."""

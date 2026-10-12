@@ -79,8 +79,8 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
   past it, crosses in one hop — also when the directory holds no v6 at all, as long as the
   device is at 6.49.22 or newer. `V6_TO_V7_FROM` stays the floor of that newest v6, and the
   rule itself is the `v6_to_v7` gate in `wireless_packages.yaml` (`when_below: 7.0.0`). The
-  plan says so in an INFO line, `version.via_last_v6`. The 6.49.22 → 6.49.23 hop is NUTNO
-  OVĚŘIT on hardware.
+  plan says so in an INFO line, `version.via_last_v6`. **OVĚŘENO** on the mmips hEX S on
+  2026-10-12: 6.49.22 → 6.49.23 → 7.23.8 in one command (§11, row 15).
 - **v7 → v6** is a downgrade like any other, with the floor rule and one addition: the
   configuration does not come back (§5.4), so it is gated behind the same typed-identity
   confirmation as a reset.
@@ -404,6 +404,7 @@ Answered on hardware the same day (log rows in `docs/DIALECT_NOTES.md`):
 | 13 | the release just below the moved gate: 6.49.21 → 6.49.22 → 7.23.7 (2026-09-28) | the same command that crossed in **one** hop the day before planned `2x restart` and walked both, each verified on its own. What 6.49.21 gets is the ordinary route of a release below the gate, on hardware as well as in the planner's tests |
 | 12 | the moved gate, end to end: 6.49.12 → 6.49.22 → 7.23.7 (2026-09-28) | the plan named `routeros-mmips-6.49.22.npk` as the first hop with 6.49.21 sitting in the same directory, `2x restart` up front, both hops uploaded, installed, reconnected and verified on 192.168.55.254:122, the configuration converted on the way up and one `routeros 7.23.7` package at the end. Getting there took the way down first: 7.23.7 → 6.49.12 in one `/system package downgrade`, configuration intact |
 | 11 | the version row **in the window**, not on the command line | the user's own 6.49.21 → 6.49.12 and then the two-hop route to 7.23.7 both ran from the *Přejít na jinou verzi RouterOS* row, with the same steps in the log and the device read again afterwards; the reconnect there also offers the profile's addresses (`192.168.55.129, 192.168.88.1`), which the CLI does not when it runs without a profile |
+| 15 | the newest v6 in the Update directory as the stop, from a release that could cross by itself: 6.49.22 → 6.49.23 → 7.23.8 (2026-10-12) | the Update directory in its new layout (`<version>\<arch>\`, with 6.49.12, 6.49.22, 6.49.23, 7.23.8, 7.24.4 and every v6 split package next to its bundle) offered each v6 once. `version --to 7.23.8` from 6.49.22 planned `version.via_last_v6` and `2x restart` with `routeros-mmips-6.49.23.npk` first, then walked both hops over MAC-Telnet with 192.168.55.123 lent: backup fetched, sftp upload, reboot, reconnect, `OK RouterOS 6.49.23 (stable)`, then `OK RouterOS 7.23.8 (long-term)`, package parity OK after both. The board had come up from 6.49.21 to 6.49.22 the same way first. That first run also found a false FAIL: `ipv6`, switched off by the profile long before, counted as "waiting for a reboot"; the check now ignores a package that was disabled before the update |
 
 | 14 | the backup the standalone route takes, on hardware (2026-09-28) | `version --to 6.49.21 --download-dir …` on the board at 192.168.55.254, running 6.49.12: `flash/pre-quickset-20260928-194704.backup` and `.rsc` written and fetched here (17 453 B and 1 443 B, the export headed `by RouterOS 6.49.12`, `model = RB760iGS`), two older backup files pruned, and only then the package, the reboot, the reconnect and `OK RouterOS 6.49.21`. Before this the same command saved nothing at all |
 

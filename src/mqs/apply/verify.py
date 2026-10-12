@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface
 from typing import Any
@@ -195,13 +195,19 @@ def check_routeros_version(transport: Transport, expected: RosVersion) -> CheckR
                        {"expected": str(expected), "actual": text or "-"})
 
 
-def check_package_versions(transport: Transport, expected: RosVersion) -> CheckResult:
+def check_package_versions(transport: Transport, expected: RosVersion,
+                           disabled_before: Collection[str] = ()) -> CheckResult:
     """Every installed package is on ``expected``, and nothing is waiting for a reboot.
 
     A `wireless` left on 7.15.3 next to a `routeros` on 7.16.1 is the state that costs a
     radio, and RouterOS does not complain about it — so it is read back and checked. A
     package `scheduled` for enable, disable or uninstall is the same problem one reboot
     away, and is reported with the rest.
+
+    A disabled package counts only when the update disabled it: ``disabled_before`` names
+    the ones that already were, which the update left as it found them. The v6 hEX S with
+    `ipv6` switched off by its profile failed this check on every hop until it was said
+    (2026-10-12).
     """
     rows = transport.execute("/system/package/print")
     wrong: list[str] = []
@@ -214,7 +220,7 @@ def check_package_versions(transport: Transport, expected: RosVersion) -> CheckR
             continue  # offered for download, not installed: not ours to check
         if row.get("scheduled"):
             waiting.append(f"{name} ({row['scheduled']})")
-        elif to_bool(row, "disabled", "X"):
+        elif to_bool(row, "disabled", "X") and name not in disabled_before:
             waiting.append(f"{name} (disabled)")
         try:
             same = RosVersion.parse(version) == expected

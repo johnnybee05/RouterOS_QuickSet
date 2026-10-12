@@ -706,7 +706,9 @@ class VersionChanger:
             return  # nothing to compare against; the plan refuses this case earlier
         self._event("apply.step.radio_check", StepStatus.RUNNING)
         try:
-            packages = check_package_versions(self.transport, hop.version)
+            packages = check_package_versions(
+                self.transport, hop.version,
+                disabled_before={p.name for p in self.ctx.inventory.packages if p.disabled})
             after = collect_radios(self.transport, hop.version)
         except TransportError as exc:
             raise self._abort("apply.failed.version_install", repr(exc),

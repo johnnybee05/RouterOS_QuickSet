@@ -30,6 +30,9 @@ u opravného vydání.
 - V adresáři v6 leží vedle balíku `routeros-<arch>` i jeho část `system-…` se stejnou
   hlavičkou „system“. Ta se už nepočítá za RouterOS — nahrála by RouterOS bez ipv6, dhcp,
   ppp a dalších částí balíku.
+- Kontrola balíčků po přechodu na jinou verzi hlásila FAIL u balíčku, který byl vypnutý už
+  předtím (na hEX S `ipv6` vypnutý profilem). Teď hlásí jen balíček, který vypnula
+  aktualizace. Přechod 6.49.22 → 6.49.23 → 7.23.8 je ověřený na hEX S RB760iGS.
 - Názvy souborů pro stahování: PowerPC je `-ppc` (v6 balík `routeros-powerpc-…`), v6 balík
   pro x86 je `routeros-x86-…` a samostatné v6 balíčky mají verzi před architekturou.
 

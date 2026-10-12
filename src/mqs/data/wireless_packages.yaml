@@ -109,7 +109,8 @@ gates:
     # that could cross by itself (6.49.22 -> 6.49.23 -> 7.x); MikroTik lets nothing below
     # 6.49.22 cross at all, which is why that is the bottom of the range. The two-hop
     # route 6.49.12 -> 6.49.22 -> 7.23.7 is OVĚŘENO on the mmips hEX S, 2026-09-28
-    # (docs/VERSION_CHANGE.md §11); the stop at 6.49.23 from 6.49.22 is not, yet.
+    # (docs/VERSION_CHANGE.md §11), and so is the stop at 6.49.23 from 6.49.22 on the way
+    # to 7.23.8, 2026-10-12 (§11, row 15).
   - id: pre_712_to_713
     when_below: "7.12.0"
     when_target_at_least: "7.13.0"
