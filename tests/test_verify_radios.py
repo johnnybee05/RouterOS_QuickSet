@@ -60,10 +60,21 @@ def test_a_package_that_was_disabled_before_the_update_is_not_its_doing():
                      "bundle": "routeros-mmips"},
                     {"name": "wireless", "version": "6.49.22", "disabled": "yes",
                      "bundle": "routeros-mmips"})
-    check = check_package_versions(fake, V("6.49.22"), disabled_before={"ipv6"})
+    check = check_package_versions(fake, V("6.49.22"),
+                                   enabled_before={"routeros-mmips", "wireless"})
     assert not check.ok and check.params["waiting"] == "wireless (disabled)"
-    assert check_package_versions(fake, V("6.49.22"),
-                                  disabled_before={"ipv6", "wireless"}).ok
+    assert check_package_versions(fake, V("6.49.22"), enabled_before={"routeros-mmips"}).ok
+
+
+def test_a_package_v7_did_not_have_is_left_as_the_downgrade_brings_it_back():
+    """7.23.8 -> 6.49.12 on the same hEX S: v7 has no `ipv6` package of its own, and the
+    downgrade brings back v6's, disabled as the profile left it (2026-10-12)."""
+    fake = packages({"name": "routeros-mmips", "version": "6.49.12"},
+                    {"name": "ipv6", "version": "6.49.12", "disabled": "yes",
+                     "bundle": "routeros-mmips"},
+                    {"name": "system", "version": "6.49.12", "bundle": "routeros-mmips"})
+    before_on_v7 = {"routeros"}  # one package, enabled
+    assert check_package_versions(fake, V("6.49.12"), enabled_before=before_on_v7).ok
 
 
 def test_packages_only_offered_for_download_are_not_ours_to_check():

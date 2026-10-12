@@ -708,7 +708,9 @@ class VersionChanger:
         try:
             packages = check_package_versions(
                 self.transport, hop.version,
-                disabled_before={p.name for p in self.ctx.inventory.packages if p.disabled})
+                enabled_before={p.name for p in self.ctx.inventory.packages
+                                if p.installed and not p.disabled}
+                | {p.name for p in hop.packages})
             after = collect_radios(self.transport, hop.version)
         except TransportError as exc:
             raise self._abort("apply.failed.version_install", repr(exc),
