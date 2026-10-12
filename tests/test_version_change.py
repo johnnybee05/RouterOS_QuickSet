@@ -150,7 +150,9 @@ def test_v6_below_the_gate_goes_in_two_hops(tmp_path):
     assert [str(h.version) for h in plan.hops] == ["6.49.22", "7.23.5"]
     assert [h.install for h in plan.hops] == [Install.BY_REBOOT, Install.BY_REBOOT]
     assert [h.crosses_major for h in plan.hops] == [False, True]
-    assert plan.reboots == 2 and plan.crosses_major and plan.needs_confirmation
+    # Two installs and, between them, the RouterBOOT of 6.49.22 (MikroTik's advice).
+    assert [h.routerboot_first for h in plan.hops] == [False, True]
+    assert plan.reboots == 3 and plan.crosses_major and plan.needs_confirmation
     assert {"version.crosses_major", "version.v7_config_converted"} <= codes(plan.issues)
     # The way up converts the configuration; only the way down loses it.
     assert "version.v6_config_lost" not in codes(plan.issues)
@@ -512,19 +514,20 @@ def test_an_upgrade_is_installed_by_a_plain_reboot(tmp_path):
         "apply.step.version_install_reboot"}
 
 
-def test_two_hops_are_two_reboots(tmp_path):
+def test_two_hops_are_two_reboots_and_the_v6_firmware_one_more(tmp_path):
     router, runner, events, targets = changer(tmp_path, "7.23.5", current="6.49.12")
     report = runner.run()
     assert [str(v) for v in report.installed] == ["6.49.22", "7.23.5"]
-    assert router.reboots == 2 and len(targets) == 2
+    assert router.reboots == 3 and len(targets) == 3
     # The second package is uploaded after the first hop has rebooted, not before it.
     uploads = [e.params["file"] for e in events
                if e.step == "apply.step.version_upload" and e.status == StepStatus.OK]
     assert uploads == ["routeros-mmips-6.49.22.npk", "routeros-7.23.5-mmips.npk"]
-    # One version check and one package-parity check per hop. No radio line: this board
-    # has no radio, so comparing nothing with nothing is left out of the checklist.
-    assert [c.code for c in report.checks] == ["verify.routeros_version",
-                                               "verify.package_versions"] * 2
+    # One version check and one package-parity check per hop, and the RouterBOOT of
+    # 6.49.22 between them. No radio line: this board has no radio, so comparing nothing
+    # with nothing is left out of the checklist.
+    hop = ["verify.routeros_version", "verify.package_versions"]
+    assert [c.code for c in report.checks] == [*hop, "verify.routerboot", *hop]
 
 
 def test_a_package_the_device_ignores_stops_the_route(tmp_path):
@@ -607,15 +610,17 @@ def test_a_device_without_routerboot_says_nothing_about_it(tmp_path):
     assert plan.floor is None and plan.changes  # no floor to speak of, and it still goes
 
 
-def test_routerboot_is_written_once_after_the_last_hop(tmp_path):
+def test_routerboot_is_written_after_the_last_hop_and_before_v7_only(tmp_path):
     router, runner, events, targets = changer(tmp_path, "7.23.5", current="6.49.12",
                                               routerboot=True)
     report = runner.run()
     assert report.succeeded, [c.message for c in report.checks if not c.ok]
-    assert router.log.count("/system/routerboard/upgrade") == 1  # not once per hop
-    assert router.reboots == 3 and len(targets) == 3  # two hops, then the firmware
-    steps = [e.step for e in events]
-    assert steps.index("apply.step.routerboot") > steps.index("apply.step.version_installed")
+    # Not once per hop: the v6 firmware before the move to v7, the target's at the end.
+    assert router.log.count("/system/routerboard/upgrade") == 2
+    assert router.reboots == 4 and len(targets) == 4
+    written = [e.params["version"] for e in events
+               if e.step == "apply.step.routerboot" and e.status == StepStatus.OK]
+    assert written == ["6.49.22", "7.23.5"]
     assert report.checks[-1].code == "verify.routerboot" and report.checks[-1].ok
     assert report.checks[-1].message == "RouterBOOT 7.23.5 (na zařízení 7.23.5)"
 
@@ -669,6 +674,82 @@ def test_going_down_says_the_bootloader_stays(tmp_path):
     plan = plan_version(mmips("6.49.21"), scan_update_dir(mmips_dir(tmp_path)), V("6.49.12"))
     note = next(i for i in plan.issues if i.code == "version.routerboot_stays")
     assert "6.49.21" in note.message and "Snížit RouterBOOT" in note.message
+
+
+# ------------------------------------------------------------------ RouterBOOT before v7
+
+
+def with_firmware(inventory, current: str):
+    """The same board running an older (or newer) RouterBOOT than its RouterOS."""
+    board = inventory.routerboard.model_copy(update={
+        "current_firmware": current, "upgrade_firmware": str(inventory.version)})
+    return inventory.model_copy(update={"routerboard": board})
+
+
+def test_the_v6_firmware_is_written_before_the_move_to_v7(tmp_path):
+    """MikroTik's advice: the newest v6 RouterOS *and* its RouterBOOT, then v7. A board on
+    the newest v6 with an older bootloader still gets the extra reboot."""
+    inventory = with_firmware(mmips("6.49.22"), "6.42.4")
+    plan = plan_version(inventory, scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    assert [str(h.version) for h in plan.hops] == ["7.23.5"]
+    assert plan.hops[0].routerboot_first and plan.reboots == 2
+    note = next(i for i in plan.issues if i.code == "version.routerboot_before_v7")
+    assert note.severity == Severity.INFO
+    assert note.params == {"version": "7.23.5", "via": "6.49.22", "current": "6.42.4"}
+    planned = next(i for i in plan.issues if i.code == "version.planned")
+    assert planned.params["reboots"] == 2
+
+
+@pytest.mark.parametrize("firmware", ["6.49.22", "7.23.7"])
+def test_a_v6_firmware_already_current_or_newer_is_left_alone(tmp_path, firmware):
+    """7.23.7 is what a board keeps after going back from v7: newer than any v6, enough."""
+    inventory = with_firmware(mmips("6.49.22"), firmware)
+    plan = plan_version(inventory, scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    assert not plan.hops[0].routerboot_first and plan.reboots == 1
+    assert "version.routerboot_before_v7" not in codes(plan.issues)
+
+
+@pytest.mark.parametrize(("current", "target"), [("6.49.12", "6.49.22"),
+                                                 ("6.49.22", "6.49.12")])
+def test_inside_v6_the_firmware_waits_for_the_switch(tmp_path, current, target):
+    inventory = with_firmware(mmips(current), "6.42.4")
+    plan = plan_version(inventory, scan_update_dir(mmips_dir(tmp_path)), V(target))
+    assert not any(h.routerboot_first for h in plan.hops) and plan.reboots == 1
+
+
+def test_a_device_without_routerboot_goes_to_v7_without_it(tmp_path):
+    inventory = make_inventory("6.49.22", architecture="mmips", has_flash_dir=True,
+                               free_memory=227 * MB,
+                               packages=[PackageInfo(name="routeros-mmips",
+                                                     version="6.49.22")])
+    plan = plan_version(inventory, scan_update_dir(mmips_dir(tmp_path)), V("7.23.5"))
+    assert not plan.hops[0].routerboot_first and plan.reboots == 1
+
+
+def test_routerboot_goes_on_before_the_v7_package_is_uploaded(tmp_path):
+    router, runner, events, _ = changer(tmp_path, "7.23.5", current="6.49.12")
+    assert runner.run().succeeded
+    steps = [(e.step, e.status, e.params.get("version") or e.params.get("file"))
+             for e in events]
+    v6_done = steps.index(("apply.step.version_installed", StepStatus.OK, "6.49.22"))
+    written = steps.index(("apply.step.routerboot", StepStatus.OK, "6.49.22"))
+    v7_upload = steps.index(("apply.step.version_upload", StepStatus.RUNNING,
+                             "routeros-7.23.5-mmips.npk"))
+    assert v6_done < written < v7_upload
+    # Without the switch the target's own firmware is not written at the end.
+    assert router.firmware["current-firmware"] == "6.49.22"
+
+
+def test_a_refused_v6_firmware_stops_the_route_on_v6(tmp_path):
+    """The device is left on a working v6, and v7 is not even uploaded."""
+    router, runner, events, _ = changer(tmp_path, "7.23.5", current="6.49.12")
+    router.fail["/system/routerboard/upgrade"] = "not allowed"
+    with pytest.raises(VersionChangeAborted) as raised:
+        runner.run()
+    assert raised.value.issue.code == "apply.failed.version_routerboot"
+    assert "7.23.5" in raised.value.issue.message
+    assert router.version.startswith("6.49.22") and router.reboots == 1
+    assert not any(e.params.get("file") == "routeros-7.23.5-mmips.npk" for e in events)
 
 
 @pytest.mark.parametrize(("current", "available", "up", "down"), [

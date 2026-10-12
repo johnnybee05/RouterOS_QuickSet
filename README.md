@@ -228,7 +228,10 @@ Jak to funguje:
    by MikroTik pustil na v7 přímo už 6.49.22. Ta nejvyšší v6 musí být aspoň 6.49.22 (od
    28. 9. 2026 MikroTik nic staršího na v7 nepustí); když v adresáři taková není, aplikace
    přechod odmítne a řekne, který soubor a kam chybí. Přímo na v7 jde jen zařízení, které
-   už má nejvyšší v6 z adresáře nebo novější.
+   už má nejvyšší v6 z adresáře nebo novější. **Před instalací v7 se zapíše i RouterBOOT
+   té nejvyšší v6**, jak doporučuje MikroTik — samostatným restartem, nezávisle na volbě
+   *Aktualizovat RouterBOOT*, a jen když deska běží na starším firmwaru. Když se zápis
+   nepovede, přechod se zastaví a zařízení zůstane na v6.
 4. **Konfiguraci převádí RouterOS, a jen nahoru.** Z v6 na v7 ji převede sám při
    restartu (na hEX S mmips zůstaly identity, služby a jejich porty, adresy i uživatelé),
    zpět z v7 na v6 ji nepřevádí — co jste nastavil na v7, se nemusí zachovat. Aplikace

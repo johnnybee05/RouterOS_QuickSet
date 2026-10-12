@@ -337,6 +337,10 @@ MESSAGES: dict[str, str] = {
     "version.routerboot_after": "S RouterOS {version} přijde i novější RouterBOOT (teď "
     "{current}). Se zaškrtnutým krokem „Aktualizovat RouterBOOT“ se zapíše po posledním "
     "restartu a zařízení se restartuje ještě jednou; bez něj zůstane RouterBOOT starý.",
+    "version.routerboot_before_v7": "Před přechodem na RouterOS {version} se zapíše "
+    "RouterBOOT {via} (teď {current}), jak doporučuje MikroTik: RouterOS 7 se instaluje až "
+    "na desku s nejnovějším firmwarem v6. Zařízení se kvůli tomu jednou restartuje navíc; "
+    "konfigurace se nemění.",
     "version.planned": "Přechod z RouterOS {current} na {version}: {reboots}x restart, "
     "nahraje se {files}.",
     "version.no_dir": "Adresář s balíčky {dir} neexistuje, přejít na jinou verzi nelze.",
@@ -465,6 +469,9 @@ MESSAGES: dict[str, str] = {
     "apply.failed.version_install": "Instalaci RouterOS se nepodařilo spustit: {error}",
     "apply.failed.version_not_installed": "Zařízení se vrátilo s RouterOS {actual}, čekala se "
     "{expected}. Balíček se nenainstaloval a aplikace ho ze zařízení smazala.",
+    "apply.failed.version_routerboot": "RouterBOOT se před přechodem na RouterOS {version} "
+    "nepodařilo zapsat ({detail}). Přechod se zastavil, RouterOS 7 se neinstaloval a "
+    "zařízení běží dál na RouterOS 6.",
     "apply.failed.version_reconnect": "Po restartu se spojení nepodařilo obnovit ({attempts} "
     "pokusů, api-ssl {api_port}, SSH {ssh_port}): {error}",
     "apply.warning.version_leftover": "Balíček {files} zůstal po restartu na zařízení "

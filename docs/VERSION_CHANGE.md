@@ -81,6 +81,18 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
   rule itself is the `v6_to_v7` gate in `wireless_packages.yaml` (`when_below: 7.0.0`). The
   plan says so in an INFO line, `version.via_last_v6`. **OVĚŘENO** on the mmips hEX S on
   2026-10-12: 6.49.22 → 6.49.23 → 7.23.8 in one command (§11, row 15).
+- **Since 2026-10-12 the RouterBOOT of that newest v6 goes on before v7 does**, as MikroTik
+  recommends and on the user's word: the board crosses with the newest v6 RouterOS *and*
+  its firmware. The hop that crosses carries `Hop.routerboot_first` when the board's
+  `current-firmware` is behind the v6 it crosses from, and the runner writes the firmware
+  with a reboot of its own after the last v6 hop (or after the backup, when the device is
+  already on the newest v6) and before the v7 package is uploaded. It is part of the route,
+  not of the *Aktualizovat RouterBOOT* switch, which still only says whether the target's
+  firmware is written at the end. A firmware already there or newer (a v7 RouterBOOT left
+  behind by a downgrade) is left alone; a board without RouterBOOT (CHR, x86) skips it. The
+  plan says so in `version.routerboot_before_v7` (INFO) and counts the extra reboot in
+  `VersionPlan.reboots`. A write that fails stops the route on v6 with
+  `apply.failed.version_routerboot`, v7 not uploaded. NUTNO OVĚŘIT on hardware.
 - **v7 → v6** is a downgrade like any other, with the floor rule and one addition: the
   configuration does not come back (§5.4), so it is gated behind the same typed-identity
   confirmation as a reset.
@@ -270,6 +282,7 @@ The step itself lives in `apply/routerboot.py` and both callers use it unchanged
 |---|---|---|
 | apply (`ApplyOrchestrator`) | the *Aktualizovat RouterBOOT* switch, `--routerboot`, `--mode reset` | last, after the configuration is verified |
 | version change (`VersionChanger`) | the same switch; `mqs.cli version --routerboot` | once, after the **last** hop — an in-between version's firmware is of no interest |
+| version change, v6 → v7 | nothing: part of the route (§2.2) | before the hop that crosses, when the board's firmware is behind the v6 it crosses from |
 | nothing to install | `mqs.cli version --routerboot` with no `--to`, or `--to` the running version | on its own: one reboot, no configuration touched (`version.routerboot_pending` / `version.routerboot_none`) |
 | going **down** on purpose | *Snížit RouterBOOT* next to the switch above, `--routerboot-downgrade` (refused without `--routerboot`) | the same step, allowed to write a firmware older than the running one: `apply.step.routerboot_downgrade` |
 

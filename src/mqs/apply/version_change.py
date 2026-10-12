@@ -8,7 +8,8 @@ is here, and it differs in every part that matters:
 * an older package installs by `/system package downgrade`, which reboots by itself,
 * the board's **factory version is a floor**: nothing older goes on it,
 * v6 → v7 always goes through the newest v6 in the Update directory, which has to be
-  6.49.22 (`V6_TO_V7_FROM`) or newer, so a device below it takes **two hops**,
+  6.49.22 (`V6_TO_V7_FROM`) or newer, so a device below it takes **two hops**, and the
+  RouterBOOT of that v6 is written before the move to v7, as MikroTik recommends,
 * and the configuration is not converted downwards, so a device that goes from v7 to v6
   may come back somewhere else entirely — or nowhere this PC can reach.
 
@@ -128,6 +129,10 @@ class Hop:
     # the run can say what it is protecting, and so the check after the reboot knows which
     # packages must have come back in this version and not merely "all of them".
     drivers: frozenset[str] = frozenset()
+    # Write the RouterBOOT the running RouterOS carries before this hop is uploaded, with a
+    # reboot of its own. Set on the move from v6 to v7 when the board's firmware is behind
+    # the v6 the move starts from: MikroTik recommends the newest v6 firmware first.
+    routerboot_first: bool = False
 
     @property
     def main(self) -> NpkPackage:
@@ -172,7 +177,7 @@ class VersionPlan:
 
     @property
     def reboots(self) -> int:
-        return len(self.hops)
+        return len(self.hops) + sum(h.routerboot_first for h in self.hops)
 
 
 @dataclass(frozen=True)
@@ -293,6 +298,10 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
     if target.major == 6 and current.major == 7:
         notes.append(_issue("version.v6_config_lost", Severity.WARNING, version=str(target)))
 
+    # RouterBOOT comes with RouterOS: going up leaves a newer firmware waiting, going down
+    # leaves an older one, which the step then skips of its own accord.
+    board = state_from_inventory(inventory)
+    firmware = board.current
     hops: list[Hop] = []
     position = current
     for version in route.stops:
@@ -301,8 +310,18 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
             return stop("version.no_package", version=str(version),
                         arch=device_arch or "?", dir=str(found.directory),
                         where=str(package_dir(found.directory, version, device_arch or "?")))
-        hops.append(_hop(inventory, found, arch, main, position, notes, state, rules,
-                         wifi_package=wifi_package, allow_missing=allow_missing))
+        hop = _hop(inventory, found, arch, main, position, notes, state, rules,
+                   wifi_package=wifi_package, allow_missing=allow_missing)
+        if (hop.crosses_major and position.major == 6 and board.is_routerboard
+                and firmware_newer(str(position), firmware)):
+            # Not a hop of its own: nothing is installed, only the firmware the v6 already
+            # on the device carries is written, so RouterOS 7 starts from a current v6 board.
+            hop = replace(hop, routerboot_first=True)
+            notes.append(_issue("version.routerboot_before_v7", Severity.INFO,
+                                version=str(target), via=str(position),
+                                current=firmware or "?"))
+            firmware = str(position)
+        hops.append(hop)
         position = version
 
     # Each hop is uploaded after the one before it has rebooted, so they never have to
@@ -313,9 +332,6 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
         if no_room is not None:
             return VersionPlan(current, target, (), floor, (*notes, no_room))
 
-    # RouterBOOT comes with RouterOS: going up leaves a newer firmware waiting, going down
-    # leaves an older one, which the step then skips of its own accord.
-    board = state_from_inventory(inventory)
     if board.is_routerboard and target > current:
         notes.append(_issue("version.routerboot_after", Severity.INFO, version=str(target),
                             current=board.current or "?"))
@@ -324,12 +340,13 @@ def plan_version(inventory: DeviceInventory, found: UpdateDir, target: RosVersio
         # than a silent "RouterBOOT zůstává" at the end of the run.
         notes.append(_issue("version.routerboot_stays", Severity.INFO, version=str(target),
                             current=board.current))
-    planned = _issue("version.planned", Severity.INFO, current=str(current),
-                     version=str(target), reboots=len(hops),
-                     files=", ".join(h.file_names for h in hops))
-    return VersionPlan(current, target, tuple(hops), floor, (*notes, planned),
+    plan = VersionPlan(current, target, tuple(hops), floor, tuple(notes),
                        drivers=frozenset().union(*(h.drivers for h in hops)) if hops
                        else frozenset())
+    planned = _issue("version.planned", Severity.INFO, current=str(current),
+                     version=str(target), reboots=plan.reboots,
+                     files=", ".join(h.file_names for h in hops))
+    return replace(plan, issues=(*notes, planned))
 
 
 def _with_dir(issues: Sequence[Issue], found: UpdateDir) -> tuple[Issue, ...]:
@@ -514,6 +531,8 @@ class VersionChanger:
         self._backup()
         for hop in self.ctx.plan.hops:
             self._check_cancel()
+            if hop.routerboot_first:
+                self._routerboot_before(hop)
             uploader = self.ctx.uploader_factory(self.transport)
             try:
                 self._upload(hop, uploader)
@@ -559,17 +578,37 @@ class VersionChanger:
         """"Aktualizovat RouterBOOT", once, after the last hop.
 
         Not between hops: the firmware of an in-between version is of no interest, and a
-        reboot per hop is enough. The shared step decides whether there is anything to
-        write, so a downgrade ends with `apply.step.routerboot_current` and no reboot.
+        reboot per hop is enough — with the one exception of `_routerboot_before`. The
+        shared step decides whether there is anything to write, so a downgrade ends with
+        `apply.step.routerboot_current` and no reboot.
         """
         if not self.ctx.upgrade_routerboot:
             return
         self._check_cancel()
+        self._write_routerboot(allow_older=self.ctx.routerboot_downgrade)
+
+    def _routerboot_before(self, hop: Hop) -> None:
+        """The RouterBOOT of the newest v6, written before the hop that goes to v7.
+
+        MikroTik recommends it, so it is part of the route and not of the switch: the
+        switch only says whether the *target's* firmware is written at the end. A write
+        that fails, or a firmware that did not change, stops the route here — the device
+        is on a working v6, which is a better place to look at it than half way to v7.
+        """
+        self._check_cancel()
+        before = len(self.report.checks)
+        self._write_routerboot(allow_older=False)
+        failed = next((c for c in self.report.checks[before:] if not c.ok), None)
+        if failed is not None:
+            raise self._abort("apply.failed.version_routerboot", failed.message,
+                              version=str(hop.version), detail=failed.message)
+
+    def _write_routerboot(self, *, allow_older: bool) -> None:
         step = RouterbootUpgrade(
             transport=self.transport, event=self._event, warn=self._warn,
             reconnect=self._reconnect_returning, checks=self.report.checks,
             sleep=self.ctx.sleep, wait_s=self.ctx.routerboot_wait_s,
-            allow_older=self.ctx.routerboot_downgrade,
+            allow_older=allow_older,
         )
         try:
             self.report.transport = step.run()
