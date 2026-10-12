@@ -30,7 +30,7 @@ u opravného vydání.
   Když se volba později vypne a hardening blok IPv6 vypíná, import stará IPv6 pravidla
   odstraní. Ověřeno na hEX S s RouterOS 7.24.4 (bridge i router, přes IPv4 i IPv6
   link-local): IPv6 naběhne hned bez restartu, z WAN projde jen správa a ostatní porty
-  se zahodí.
+  se zahodí. Ověřeno i na hEX S RB760iGS s RouterOS 6.49.12 s povoleným balíčkem `ipv6`.
 
 ### Opraveno
 

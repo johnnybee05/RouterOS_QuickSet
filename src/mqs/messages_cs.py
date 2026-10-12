@@ -73,8 +73,8 @@ MESSAGES: dict[str, str] = {
     "Potvrďte, že tvarování provozu nepoužíváte.",
     "firewall.fasttrack_pppoe_no_hw": "FastTrack s PPPoE WAN funguje, ale bez hardwarové "
     "akcelerace.",
-    "firewall.ipv6_overrides_hardening": "IPv6 je zapnuté v nastavení firewallu: "
-    "disable-ipv6=yes z hardening bloku se vynechá a skript nastaví disable-ipv6=no.",
+    "firewall.ipv6_overrides_hardening": "IPv6 je zapnuté v nastavení firewallu, takže "
+    "disable-ipv6=yes z hardening bloku se vynechá a IPv6 se nevypne.",
     "firewall.ipv6_management_subnet": "Management podsíť je IPv4, takže správa z WAN se "
     "přes IPv6 neotevře; z LAN zůstane přístupná.",
     "firewall.ipv6_v6_package": "Ve v6 je IPv6 balíček ipv6 a ten není povolený (nebo jeho "
