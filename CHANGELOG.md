@@ -11,6 +11,17 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.4.2] – 2026-10-12
+
+### Opraveno
+
+- Kontrola balíčků hlásila CHYBA po přechodu z RouterOS 7 zpátky na 6 („čeká: ipv6
+  (disabled)“), přestože byly všechny balíčky na správné verzi. RouterOS 7 nemá `ipv6` jako
+  samostatný balíček a downgrade vrátí balíček z v6 vypnutý tak, jak ho tam nechal profil.
+  Vypnutý balíček je teď chyba jen tehdy, když před přechodem běžel, nebo ho přinesla sama
+  aktualizace. Ověřeno na hEX S RB760iGS: 6.49.12 → 6.49.22 a 6.49.22 → 6.49.23 → 7.23.8
+  → 6.49.22.
+
 ## [0.4.1] – 2026-10-12
 
 ### Změněno
