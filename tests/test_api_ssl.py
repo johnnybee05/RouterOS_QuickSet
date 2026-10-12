@@ -34,7 +34,10 @@ class FakeApi:
     def __call__(self, word: str, **kwargs):
         self.calls.append((word, kwargs))
         if word in self.traps:
-            raise ros_exc.TrapError(self.traps[word])
+            messages = self.traps[word]
+            if isinstance(messages, tuple):
+                raise ros_exc.MultiTrapError(*(ros_exc.TrapError(m) for m in messages))
+            raise ros_exc.TrapError(messages)
         if word in self.lost:
             raise ros_exc.ConnectionClosed("socket closed")
         return iter(self.data.get(word, []))
@@ -213,6 +216,15 @@ def test_a_name_means_the_configured_item_not_its_connections():
     # With nothing configured under the name, the device gets to say what it thinks.
     transport.execute_command(cmd("/interface", "set", selector="pppoe-out1", mtu=1480))
     assert api.calls[-1] == ("/interface/set", {"mtu": "1480", "numbers": "*20"})
+
+
+def test_a_menu_that_is_not_there_is_a_command_error_with_two_traps_too():
+    """7.23.5 answers a missing menu with two !trap; librouteros makes that a
+    MultiTrapError, and connecting to a hEX S without a radio crashed on it (2026-10-12)."""
+    api = FakeApi(traps={"/interface/wireless/print": (
+        "no such command or directory (wireless)", "no such command prefix")})
+    with pytest.raises(CommandError, match="no such command prefix"):
+        connected(api).execute("/interface/wireless/print")
 
 
 def test_traps_and_connection_loss():

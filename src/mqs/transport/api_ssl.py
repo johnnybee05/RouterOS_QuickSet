@@ -34,6 +34,13 @@ from mqs.transport.tls import anonymous_dh_context, peer_security_of, verified_c
 _AUTH_MARKERS = ("cannot log in", "invalid user name or password", "not logged in")
 
 
+# A refused command, from one !trap or from several. librouteros raises MultiTrapError,
+# which is no TrapError, for more than one, and 7.23.5 answers a menu that is not there
+# with two: "no such command or directory (wireless), no such command prefix" (hEX S
+# without a radio, 2026-10-12). It escaped as a crash where "menu missing" was expected.
+_TRAPS = (ros_exc.TrapError, ros_exc.MultiTrapError)
+
+
 def _to_text(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
@@ -113,7 +120,7 @@ class ApiSslTransport:
                 ssl_wrapper=wrapper,
                 login_method=login_method,
             )
-        except ros_exc.TrapError as exc:
+        except _TRAPS as exc:
             message = str(exc).lower()
             if any(marker in message for marker in _AUTH_MARKERS):
                 raise AuthError(
@@ -165,7 +172,7 @@ class ApiSslTransport:
             raise ConnectionLost("api-ssl transport is not connected")
         try:
             replies = list(self._api(word, **args))
-        except ros_exc.TrapError as exc:
+        except _TRAPS as exc:
             raise CommandError(word, str(exc)) from exc
         except TimeoutError as exc:
             raise ConnectionLost(f"api-ssl timed out during {word}") from exc
