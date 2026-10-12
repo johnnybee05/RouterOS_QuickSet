@@ -423,6 +423,11 @@ MESSAGES: dict[str, str] = {
     "fleet.blocked": "Dávka se nespustí: {count} zařízení nemá použitelný plán ({names}). "
     "Bývá to tentýž chybějící balíček pro všechna – zjistit to až po čtyřech restartech "
     "nikomu nepomůže.",
+    "fleet.stale": "Zařízení {name} je jinde, než říká inventář: plán počítal s RouterOS "
+    "{planned} a cestou {route}, zařízení teď hlásí {current} a cestu {fresh}. Nic se na "
+    "něm nezměnilo – přihlaste se k němu znovu a dávku zkontrolujte.",
+    "fleet.no_address": "Zařízení {name} nemá adresu, přes kterou by se dalo připojit.",
+    "fleet.check_failed": "Po přechodu neprošla kontrola: {detail}",
     # stahování balíčků z download.mikrotik.com
     "download.not_published": "MikroTik balíček {name} ve verzi {version} pro tuhle "
     "architekturu nevydává ({url}). Zkontrolujte, že ta verze pro tohle zařízení existuje.",

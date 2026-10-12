@@ -249,3 +249,52 @@ def confirm(
                               found_at=device.address))
         on_device(device, "confirmed")
     return merge_candidates(done)
+
+
+def log_in(
+    devices: Sequence[Candidate],
+    open_device: Callable[[Candidate], object],
+    *,
+    on_device: Callable[[Candidate, str], None] = lambda device, state: None,
+    cancelled: Callable[[], bool] = lambda: False,
+    now: Callable[[], float] = time.time,
+) -> list[Candidate]:
+    """Log in to each of ``devices`` the engineer picked, and read it again.
+
+    Unlike `confirm`, nothing is skipped: a device picked by hand is read even when it was
+    read before (that is how its state gets refreshed) or was refused before (the
+    credentials may have been fixed since). A device that refuses now loses what an
+    earlier login read, because an update is only ever planned from what can be read
+    today. One result per device, in the same order; a device not reached because the
+    run was cancelled comes back as it was.
+    """
+    done: list[Candidate] = []
+    for device in devices:
+        if cancelled():
+            done.append(device)
+            continue
+        on_device(device, "connecting")
+        try:
+            inventory = open_device(device)
+            if inventory is None:
+                raise ValueError("no answer")
+        except Exception as exc:  # any transport failure is a refusal, not a crash
+            done.append(refused(device.model_copy(update={"inventory": None}), str(exc)))
+            on_device(device, "failed")
+            continue
+        done.append(confirmed(device, inventory,  # type: ignore[arg-type]
+                              found_at=device.address).model_copy(update={"last_seen": now()}))
+        on_device(device, "confirmed")
+    return done
+
+
+def with_neighbours(devices: Sequence[Candidate],
+                    sightings: Sequence[Sighting]) -> list[Candidate]:
+    """What the reached devices said about the others, folded into the list.
+
+    A neighbour or a station already known gains the sighting, which is what the update
+    order is drawn from; one nobody had heard of yet joins the list unconfirmed.
+    """
+    if not sightings:
+        return list(devices)
+    return merge_candidates([*devices, *merge_sightings(sightings)])

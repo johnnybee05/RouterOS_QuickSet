@@ -65,6 +65,7 @@ from mqs.discover.cli import (
     cmd_inventory,
     cmd_scan,
 )
+from mqs.discover.sources import read_device
 from mqs.fleet.cli import add_fleet_args, cmd_fleet, updater
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
@@ -914,13 +915,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def device_reader(args: argparse.Namespace, out: Any,
+def device_reader(args: argparse.Namespace, out: Any, *,
+                  neighbours: list[Any] | None = None,
                   **deps: Any) -> Callable[[Any], Any]:
     """Log in to one found device and read it, with the credentials the scan was given.
 
     Opened and closed per device on purpose: a survey of two hundred antennas holding two
     hundred sessions is a way to run a device out of them, and this is the one part of
     detection that uses credentials at all.
+
+    While it is open, the device is also asked what it sees — its neighbours and the
+    stations on its radios — into ``neighbours``: that is what the update order is drawn
+    from, and what finds the devices behind the first radio hop.
     """
 
     def read(candidate: Any) -> Any:
@@ -929,6 +935,12 @@ def device_reader(args: argparse.Namespace, out: Any,
             raise CliError("no address to connect to")
         session = open_device(replace_host(args, address), out, **deps)
         inventory = session.inventory
+        if neighbours is not None:
+            try:
+                neighbours.extend(read_device(session.transport, inventory.version,
+                                              found_at=inventory.identity))
+            except Exception as exc:  # what it sees is extra; the read itself stands
+                print(f"  … {address}: neighbours not read ({exc})", file=out)
         # Hanging up is not part of reading the device. The inventory is already in hand,
         # and throwing it away because a session would not close cleanly would turn a
         # read device back into a guess — on a survey of two hundred, repeatedly.
@@ -952,8 +964,9 @@ def replace_host(args: argparse.Namespace, host: str) -> argparse.Namespace:
 
 def cmd_scan_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:
     """`mqs scan`, with the login step wired to this CLI's connection arguments."""
-    reader = device_reader(args, out, **deps) if args.login else None
-    return cmd_scan(args, out, open_device=reader)
+    neighbours: list[Any] = []
+    reader = device_reader(args, out, neighbours=neighbours, **deps) if args.login else None
+    return cmd_scan(args, out, open_device=reader, neighbours=neighbours)
 
 
 def cmd_fleet_cli(args: argparse.Namespace, out: Any, **deps: Any) -> int:

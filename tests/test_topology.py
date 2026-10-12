@@ -63,6 +63,33 @@ def test_a_device_is_matched_by_whatever_name_it_was_reported_under():
     assert {link.child for link in links} == {by_address.key, by_serial.key}
 
 
+def neighbour(on: str) -> Sighting:
+    return Sighting(source=Source.NEIGHBOR, found_at=on, via_interface="ether1")
+
+
+def test_two_routers_listing_each_other_as_neighbours_are_not_a_loop():
+    """Two routers on one switch: neither is behind the other, so there is no edge."""
+    a = device("router-a", sightings=(neighbour("router-b"),))
+    b = device("router-b", sightings=(neighbour("router-a"),))
+    tree = build([a, b])
+    assert tree.links == () and tree.cycles == ()
+
+
+def test_a_station_listing_its_ap_as_a_neighbour_keeps_the_registration_edge():
+    ap = device("ap-1", mode="ap-bridge", sightings=(neighbour("cpe-1"),))
+    station = device("cpe-1", sightings=(registered("ap-1"), neighbour("ap-1")))
+    tree = build([ap, station])
+    assert tree.links == (Link(ap.key, station.key, "wlan1", Source.REGISTRATION),)
+    assert tree.cycles == () and tree.complete
+
+
+def test_a_neighbour_seen_from_one_side_only_is_still_an_edge():
+    router = device("router")
+    behind = device("switch", sightings=(neighbour("router"),))
+    assert links_from_sightings([router, behind]) == [
+        Link(router.key, behind.key, "ether1", Source.NEIGHBOR)]
+
+
 def test_a_device_does_not_become_its_own_parent():
     lonely = device("ap-1", sightings=(registered("ap-1"),))
     assert links_from_sightings([lonely]) == []

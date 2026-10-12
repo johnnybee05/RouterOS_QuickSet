@@ -228,34 +228,29 @@ def updater(args: argparse.Namespace, out: Any, *,
     reason: without it the batch's actual work — the part that reboots hardware — could
     only be tested by rebooting hardware.
     """
-    from mqs.apply.session import build_version_context, session_after_version_change
-    from mqs.apply.version_change import VersionChangeAborted, VersionChanger
+    from mqs.apply.version_change import VersionChanger, plan_version
     from mqs.cli import hang_up, open_device, replace_host
+    from mqs.fleet.device import update_device
 
     build = changer_factory or VersionChanger
+    found_for = _packages_for(args)
 
     def update(step: DeviceStep) -> None:
-        address = step.device.address
-        if not address:
-            raise RuntimeError("no address to connect to")
-        session = open_device(replace_host(args, address), out, **deps)
-        try:
-            context = build_version_context(
-                step.plan, session,  # type: ignore[arg-type]
-                on_event=lambda event: _event(step, event, out),
-                download_dir=Path(args.download_dir) if getattr(args, "download_dir", None)
-                else None)
-            report = build(context).run()
-            session_after_version_change(session, report)
-            if not report.succeeded:
-                failed = [c.message for c in report.checks if not c.ok]
-                raise RuntimeError("; ".join(failed) or "a check did not pass")
-        except VersionChangeAborted as exc:
-            session_after_version_change(session, exc.report)
-            raise RuntimeError(exc.issue.message) from exc
-        finally:
-            with _quiet():
-                hang_up(session, out)
+        target = step.plan.target if step.plan is not None else None
+
+        def replan(inventory: Any) -> Any:
+            return plan_version(inventory, found_for(step.device), target,
+                                wifi_package=_wifi(args), allow_missing=_allow_missing(args))
+
+        update_device(
+            step,
+            lambda address: open_device(replace_host(args, address), out, **deps),
+            on_event=lambda event: _event(step, event, out),
+            close=lambda session: hang_up(session, out),
+            replan=replan if target is not None else None,
+            changer_factory=build,
+            download_dir=Path(args.download_dir) if getattr(args, "download_dir", None)
+            else None)
 
     return update
 
@@ -263,17 +258,6 @@ def updater(args: argparse.Namespace, out: Any, *,
 def _event(step: DeviceStep, event: Any, out: Any) -> None:
     if event.status.value in ("failed", "warning"):
         print(f"     {step.name}: {event.message}", file=out, flush=True)
-
-
-class _quiet:
-    """Closing a session is not part of updating a device: a failure there must not turn
-    a device that came back into a device that failed."""
-
-    def __enter__(self) -> _quiet:
-        return self
-
-    def __exit__(self, kind: Any, value: Any, trace: Any) -> bool:
-        return kind is not None and not issubclass(kind, KeyboardInterrupt)
 
 
 def now() -> float:

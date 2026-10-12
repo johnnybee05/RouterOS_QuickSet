@@ -176,6 +176,21 @@ def test_a_backup_is_taken_on_every_device_before_its_packages(tmp_path):
         assert router.log.index("/system/backup/save") < router.log.index("/system/reboot")
 
 
+def test_a_device_that_moved_since_it_was_read_stops_the_batch_untouched(tmp_path):
+    """The inventory says 7.15.3; the leaf runs 7.16.1 by now. Its plan is not run."""
+    lab, argv = chain(tmp_path)
+    session = lab.sessions["192.0.2.3"]
+    session.inventory = make_inventory(
+        "7.16.1", architecture="arm", model="RBSXTsq5nD", free_hdd_space=256 * MB,
+        factory_firmware="7.10.0", radios=make_radios(("wlan1", "wireless", "station-bridge")),
+        packages=[PackageInfo(name="routeros", version="7.16.1"),
+                  PackageInfo(name="wireless", version="7.16.1")])
+    code, out = run(argv, connect=lab.connect, changer_factory=lab.changer)
+    assert code == cli.FAILED
+    assert "je jinde, než říká inventář" in out
+    assert all(router.reboots == 0 for router in lab.routers.values())
+
+
 def test_a_dry_run_reboots_nothing(tmp_path):
     lab, argv = chain(tmp_path)
     code, out = run([*argv, "--dry-run"], connect=lab.connect,

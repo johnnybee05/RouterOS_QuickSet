@@ -132,6 +132,32 @@ def test_logging_in_is_what_makes_a_device_updatable(tmp_path, monkeypatch):
     assert saved["devices"][0]["serial_number"] == "SN1"
 
 
+def test_a_login_also_records_what_the_device_sees(tmp_path, monkeypatch):
+    """The AP's registration table names a station MNDP never heard: it joins the
+    inventory, hanging off the AP, which is what the batch order is drawn from."""
+    monkeypatch.setattr("mqs.discover.cli.MndpScanner",
+                        lambda interfaces: FakeScanner([announced(identity="ap-1")]))
+    monkeypatch.setattr("mqs.discover.cli.list_ipv4_interfaces", list)
+
+    class Transport:
+        def execute(self, path, **args):
+            if path == "/interface/wireless/registration-table/print":
+                return [{"mac-address": "AA:BB:CC:00:00:77", "interface": "wlan1",
+                         "identity": "cpe-1"}]
+            return []
+
+    class Session:
+        inventory = antenna_inventory("ap-1")
+        transport = Transport()
+
+    code, out = run(scan_args(tmp_path, "--login", "--user", "admin"),
+                    connect=lambda *a, **k: Session())
+    assert code == cli.OK, out
+    saved = json.loads((tmp_path / "inv.json").read_text(encoding="utf-8"))
+    station = next(d for d in saved["devices"] if d["identity"] == "cpe-1")
+    assert station["sightings"][0]["found_at"] == "ap-1"
+
+
 def test_a_refused_login_is_reported_and_the_scan_still_finishes(tmp_path, monkeypatch):
     monkeypatch.setattr("mqs.discover.cli.MndpScanner",
                         lambda interfaces: FakeScanner([announced()]))

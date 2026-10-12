@@ -10,15 +10,24 @@ from __future__ import annotations
 import time
 
 from factories import make_inventory, make_radios
-from mqs.discover.candidates import Confidence, Source
+from mqs.discover.candidates import Confidence, Sighting, Source
 from mqs.discover.portscan import ScanLimits
-from mqs.discover.scan import ScanPlan, confirm, run, snmp_sightings
+from mqs.discover.scan import (
+    ScanPlan,
+    confirm,
+    log_in,
+    run,
+    snmp_sightings,
+    with_neighbours,
+)
 from mqs.discover.snmp import SnmpReply
+from mqs.discover.topology import build
 from mqs.model.inventory import PackageInfo
 from mqs.transport.mndp import DiscoveredDevice
 
 MB = 1024 * 1024
 MAC_A = "AA:BB:CC:00:00:01"
+MAC_B = "AA:BB:CC:00:00:02"
 
 
 class FakeScanner:
@@ -249,6 +258,70 @@ def test_a_login_that_answers_with_nothing_counts_as_a_refusal():
     result = run(quick(), mndp_factory=lambda: FakeScanner([announced()]))
     done = confirm(result.devices, lambda device: None)
     assert done[0].login_error == "no answer"
+
+
+def test_logging_in_by_hand_reads_again_what_was_read_before():
+    """Picked by hand is read by hand: that is how a device's state gets refreshed."""
+    asked = {"n": 0}
+
+    def open_device(device):
+        asked["n"] += 1
+        return device_inventory()
+
+    result = run(quick(), mndp_factory=lambda: FakeScanner([announced()]))
+    once = log_in(result.devices, open_device, now=lambda: 50.0)
+    twice = log_in(once, open_device, now=lambda: 60.0)
+    assert asked["n"] == 2
+    assert twice[0].confidence is Confidence.CONFIRMED and twice[0].last_seen == 60.0
+
+
+def test_logging_in_by_hand_retries_a_refusal_and_clears_it():
+    def refuse(device):
+        raise PermissionError("invalid user name or password")
+
+    result = run(quick(), mndp_factory=lambda: FakeScanner([announced()]))
+    refused_once = log_in(result.devices, refuse)
+    assert refused_once[0].login_error
+    fixed = log_in(refused_once, lambda device: device_inventory())
+    assert fixed[0].login_error == "" and fixed[0].confidence is Confidence.CONFIRMED
+
+
+def test_a_device_that_refuses_now_loses_what_an_earlier_login_read():
+    """An update is planned only from what can be read today."""
+    result = run(quick(), mndp_factory=lambda: FakeScanner([announced()]))
+    read = log_in(result.devices, lambda device: device_inventory())
+
+    def refuse(device):
+        raise PermissionError("invalid user name or password")
+
+    now = log_in(read, refuse)
+    assert now[0].confidence is Confidence.PROBABLE
+    assert now[0].login_error == "invalid user name or password"
+
+
+def test_a_cancelled_login_leaves_the_rest_as_they_were():
+    result = run(quick(), mndp_factory=lambda: FakeScanner(
+        [announced(), announced(MAC_B, "lhg-02")]))
+    calls: list[str] = []
+
+    def open_device(device):
+        calls.append(device.identity)
+        return device_inventory(device.identity, serial=device.identity)
+
+    done = log_in(result.devices, open_device, cancelled=lambda: bool(calls))
+    assert len(calls) == 1 and len(done) == 2
+    assert done[1] == result.devices[1]
+
+
+def test_what_a_device_sees_joins_the_list_and_draws_the_tree():
+    ap = log_in(run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices,
+                lambda device: device_inventory("ap-1", serial="AP1"))
+    station = Sighting(source=Source.REGISTRATION, found_at="ap-1", macs=[MAC_B],
+                       identity="cpe-1", via_interface="wlan1")
+    devices = with_neighbours(ap, [station])
+    assert [d.identity for d in devices] == ["ap-1", "cpe-1"]
+    assert devices[1].confidence is Confidence.PROBABLE
+    assert build(devices).links[0].child == devices[1].key
 
 
 def test_two_rows_become_one_once_a_serial_is_known():

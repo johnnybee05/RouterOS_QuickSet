@@ -15,10 +15,10 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from mqs.discover.candidates import Candidate, Confidence
+from mqs.discover.candidates import Candidate, Confidence, Sighting
 from mqs.discover.classify import classify
 from mqs.discover.portscan import ScanLimits
-from mqs.discover.scan import ScanPlan, confirm, run
+from mqs.discover.scan import ScanPlan, confirm, run, with_neighbours
 from mqs.discover.store import (
     Diff,
     Inventory,
@@ -121,12 +121,14 @@ def build_plan(args: argparse.Namespace) -> ScanPlan:
 
 def cmd_scan(args: argparse.Namespace, out: Any, *,
              open_device: Callable[[Candidate], Any] | None = None,
-             mndp_factory: Callable[[], Any] | None = None, **_: Any) -> int:
+             mndp_factory: Callable[[], Any] | None = None,
+             neighbours: Sequence[Sighting] = (), **_: Any) -> int:
     """Find what is out there, optionally log in, and write it down.
 
     Logging in is `--login` and off by default: it needs credentials, it is the only part
     of this that touches a device rather than listening, and a survey is worth running
-    without it.
+    without it. ``neighbours`` is what the logged-in devices said they see, filled while
+    ``open_device`` runs, and folded in after the logins.
     """
     plan = build_plan(args)
     if not plan.anything:
@@ -155,7 +157,7 @@ def cmd_scan(args: argparse.Namespace, out: Any, *,
             on_device=lambda device, state: print(
                 f"  {device.identity or device.address or device.key}: {state}", file=out))
         untouched = [d for d in devices if d not in wanted]
-        devices = [*logged_in, *untouched]
+        devices = with_neighbours([*logged_in, *untouched], neighbours)
 
     path = inventory_path(args)
     try:

@@ -95,7 +95,20 @@ def links_from_sightings(devices: Sequence[Candidate]) -> list[Link]:
             link = Link(parent, device.key, sighting.via_interface, sighting.source)
             if link not in links:
                 links.append(link)
-    return links
+    return _directed(links)
+
+
+def _directed(links: list[Link]) -> list[Link]:
+    """Neighbour links that say nothing about direction, dropped.
+
+    A neighbour table lists what is next to a device, upstream and downstream alike. Two
+    routers on one switch list each other, and a station lists the AP that also has it in
+    its registration table — read as edges, both are a loop. A neighbour link is kept only
+    when nothing points the other way; a registration link always is.
+    """
+    pairs = {(link.parent, link.child) for link in links}
+    return [link for link in links
+            if link.source is not Source.NEIGHBOR or (link.child, link.parent) not in pairs]
 
 
 def _index(devices: Iterable[Candidate]) -> dict[str, str]:
