@@ -49,7 +49,9 @@ A device cannot be downgraded below the RouterOS version its board was shipped w
 **RouterOS 7.24 renamed both fields**: `factory-firmware` is now `minimum-firmware` and
 `/system resource factory-software` is now `minimum-version`, and the old names are gone —
 **OVĚŘENO** 2026-10-12 on the mmips hEX S on 7.24.4 (both 6.42.4). Until discovery learned
-the new names, every 7.24 board looked like a CHR (`version.no_factory_firmware`).
+the new names, every 7.24 board looked like a CHR (`version.no_factory_firmware`). The arm
+hEX S E60iUGS does the same (**OVĚŘENO** the same day, 7.23.5 → 7.24.4): `factory-*` 7.20 /
+7.20.7 before, `minimum-version = 7.20` and `minimum-firmware = 7.20.7` after.
 `transport/discovery.py` reads either name (`MINIMUM_FIRMWARE_KEYS`,
 `MINIMUM_VERSION_KEYS`) into the same `factory_firmware` / `factory_software` fields, so
 everything below is unchanged.
