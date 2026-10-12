@@ -1,4 +1,4 @@
-"""Firewall: basic filter and FastTrack (HW offload of the bridge is on the LAN page)."""
+"""Firewall: basic filter, IPv6 and FastTrack (HW offload of the bridge is on the LAN page)."""
 
 from __future__ import annotations
 
@@ -38,6 +38,12 @@ class FirewallPage(Page):
         wan_help = QLabel(S.FIREWALL_WAN_MANAGEMENT_HELP)
         wan_help.setWordWrap(True)
         layout.addWidget(wan_help)
+        self.ipv6 = QCheckBox(S.FIREWALL_IPV6)
+        self.ipv6.toggled.connect(lambda on: self.push_value("firewall.ipv6", on))
+        layout.addWidget(self.ipv6)
+        ipv6_help = QLabel(S.FIREWALL_IPV6_HELP)
+        ipv6_help.setWordWrap(True)
+        layout.addWidget(ipv6_help)
 
         box = QGroupBox(S.FASTTRACK_GROUP)
         inner = QVBoxLayout(box)
@@ -56,7 +62,8 @@ class FirewallPage(Page):
 
         self.fields = {"firewall.fasttrack.enabled": self.fasttrack,
                        "firewall.basic_filter": self.basic_filter,
-                       "firewall.wan_management": self.wan_management}
+                       "firewall.wan_management": self.wan_management,
+                       "firewall.ipv6": self.ipv6}
         self.reload()
 
     def _fasttrack_toggled(self, on: bool) -> None:
@@ -82,6 +89,7 @@ class FirewallPage(Page):
     def load(self, profile: DeviceProfile) -> None:
         self.basic_filter.setChecked(profile.firewall.basic_filter)
         self.wan_management.setChecked(profile.firewall.wan_management)
+        self.ipv6.setChecked(profile.firewall.ipv6)
         self.fasttrack.setChecked(profile.firewall.fasttrack.enabled)
         self.fasttrack_hw.setChecked(profile.firewall.fasttrack.hw_offload)
 

@@ -111,7 +111,11 @@ Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
    SNMP a discovery (MNDP) na portech, které nastaví hardening blok; je-li zadaná
    management podsíť, jen z ní. Při aplikaci na běžící konfiguraci se pravidla
    z dřívějšího běhu nahradí a filtr se zařadí nad pravidla, která už na zařízení jsou.
-   Při zapnutí FastTracku se aplikace zeptá na tvarování provozu.
+   Při zapnutí FastTracku se aplikace zeptá na tvarování provozu. Volba **Zapnout IPv6**
+   nastaví `disable-ipv6=no` (přebije `disable-ipv6=yes` z hardening bloku) a přidá IPv6
+   forward filtr: established/related/untracked → invalid → ICMPv6 → drop nových spojení
+   z WAN. Chain input IPv6 nefiltruje. Ve v6 je IPv6 balíček `ipv6`; pravidla se vygenerují
+   jen tehdy, je-li povolený.
 5. **Služby a hardening**: DNS, SSH port, SNMP, NTP a časové pásmo ve formuláři, pod nimi
    celý blok jako text.
    - *Povolit vzdálené DNS dotazy* (`/ip dns allow-remote-requests`, výchozí vypnuto) určuje,
@@ -419,7 +423,7 @@ Výchozí firemní šablona (syntaxe v7):
 |---|---|
 | `/snmp community` | vypne výchozí community, přidá `PVIP` |
 | `/ip neighbor discovery-settings` | neighbor discovery jen na nedynamických rozhraních |
-| `/ipv6 settings` | vypne IPv6 |
+| `/ipv6 settings` | vypne IPv6 (pokud ho nezapne volba *Zapnout IPv6* ve Firewallu) |
 | `/ip dns` | DNS servery 192.168.200.200 a 8.8.8.8 |
 | `/ip service` | vypne ftp, telnet, www a api (8728), SSH přesune na port 122 |
 | `/snmp` | zapne SNMP, trap community PVIP, verze 2 |

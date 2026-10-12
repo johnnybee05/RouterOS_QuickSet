@@ -11,6 +11,18 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [Nevydáno]
+
+### Přidáno
+
+- **Zapnutí IPv6 v nastavení firewallu.** Volba *Zapnout IPv6* nastaví
+  `/ipv6 settings set disable-ipv6=no` a přebije tím `disable-ipv6=yes` z hardening bloku
+  (ten ho už znovu nevypne). Přidá IPv6 forward filtr: accept established/related/untracked,
+  drop invalid, accept ICMPv6 a drop nových spojení z WAN, s komentáři `quickset: IPv6: …`,
+  takže se při dalším běhu nahradí a zařadí nad pravidla, která už na zařízení jsou. Chain
+  input se nefiltruje. Ve v6 se pravidla vygenerují jen s povoleným balíčkem `ipv6`.
+  Ověřeno na hEX S s RouterOS 7.24.4: IPv6 naběhne hned, bez restartu.
+
 ## [0.4.3] – 2026-10-12
 
 ### Změněno

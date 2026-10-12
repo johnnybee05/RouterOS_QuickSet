@@ -1,4 +1,4 @@
-"""Section 4: firewall filter, FastTrack, NAT and MSS clamping.
+"""Section 4: firewall filter, FastTrack, IPv6 filter, NAT and MSS clamping.
 
 Rules are evaluated top to bottom, so each chain is ordered like defconf: the most frequent
 traffic (established connections) is accepted first, invalid packets are dropped, specific
@@ -19,15 +19,19 @@ from mqs.generator.ir import (
     Command,
     Comment,
     Find,
+    Item,
     KeepOwnFirst,
     Script,
     SectionKey,
     cmd,
 )
 from mqs.issues import Issue, Severity
+from mqs.model.inventory import Ipv6PackageState
 from mqs.model.profile import DeviceProfile
 
 FILTER = "/ip firewall filter"
+IPV6_FILTER = "/ipv6 firewall filter"
+IPV6_SETTINGS = "/ipv6 settings"
 NAT = "/ip firewall nat"
 MANGLE = "/ip firewall mangle"
 COMMENT_PREFIX = "quickset: "
@@ -48,7 +52,7 @@ def remove_own(path: str) -> Command:
     return cmd(path, "remove", selector=Find.matching("comment", OWN_REGEX))
 
 
-def keep_own_first(ctx: TargetContext) -> KeepOwnFirst:
+def keep_own_first(ctx: TargetContext, menu: str = FILTER) -> KeepOwnFirst:
     """The line that puts our filter rules above the device's own ones, in both orders.
 
     v7: `move` without a destination moves an item to the end, so the other rules are
@@ -63,14 +67,14 @@ def keep_own_first(ctx: TargetContext) -> KeepOwnFirst:
     dummy: they move as one block before the first other rule (v6 hEX S, 2026-09-25).
     Whether 7.x refuses the same move NUTNO OVĚŘIT.
     """
-    others = f"[ {FILTER} find where dynamic=no and !({OWN}) ]"
+    others = f"[ {menu} find where dynamic=no and !({OWN}) ]"
     if ctx.major == 6:
         return KeepOwnFirst(
-            f":if ([ :len {others} ] > 0) do={{ {FILTER} move [ find where dynamic=no and "
+            f":if ([ :len {others} ] > 0) do={{ {menu} move [ find where dynamic=no and "
             f"{OWN} ] destination=[ :pick {others} 0 ] }}",
-            menu=FILTER, key="comment", regex=OWN_REGEX, block=True)
-    return KeepOwnFirst(f":foreach i in={others} do={{ {FILTER} move $i }}",
-                        menu=FILTER, key="comment", regex=OWN_REGEX)
+            menu=menu, key="comment", regex=OWN_REGEX, block=True)
+    return KeepOwnFirst(f":foreach i in={others} do={{ {menu} move $i }}",
+                        menu=menu, key="comment", regex=OWN_REGEX)
 
 
 def negate(match: dict[str, str]) -> dict[str, str]:
@@ -100,6 +104,38 @@ def wan_management(profile: DeviceProfile, script: Script, access: AccessReport,
              protocol=protocol, **{"dst-port": str(port)}, **wan_in, **source)
         for label, protocol, port in ports
     ]
+
+
+def ipv6(ctx: TargetContext, wan_in: dict[str, str]) -> tuple[list[Item], list[Issue]]:
+    """IPv6 switched on, with a forward filter in the order of the IPv4 one.
+
+    v7: `disable-ipv6=no` comes first, so the rules go into a running IPv6; the hardening
+    block loses its `disable-ipv6` (blocks.system), or section 5 would switch it off again.
+    v6 has no such setting: IPv6 is the `ipv6` package, and its menus exist only while the
+    package is enabled. Enabling it takes a reboot, so a script cannot add the rules in the
+    same run: without an enabled package nothing is emitted.
+    """
+    if ctx.major == 6 and ctx.ipv6_package != Ipv6PackageState.ENABLED:
+        return [], [Issue("firewall.ipv6_v6_package", Severity.WARNING, "firewall.ipv6")]
+    items: list[Item] = []
+    if ctx.has("ipv6_disable_setting"):
+        items += [Comment("IPv6: on, whatever the hardening block says"),
+                  cmd(IPV6_SETTINGS, "set", disable_ipv6=False)]
+    items += [
+        Comment("IPv6 firewall: replace the rules of an earlier QuickSet run"),
+        remove_own(IPV6_FILTER),
+        Comment("IPv6 firewall: forward (traffic through the router)"),
+        rule(IPV6_FILTER, "forward", "accept", "IPv6: accept est/rel",
+             **{"connection-state": ["established", "related", "untracked"]}),
+        rule(IPV6_FILTER, "forward", "drop", "IPv6: drop invalid",
+             **{"connection-state": "invalid"}),
+        rule(IPV6_FILTER, "forward", "accept", "IPv6: accept ICMPv6", protocol="icmpv6"),
+    ]
+    if wan_in:
+        items.append(rule(IPV6_FILTER, "forward", "drop", "IPv6: drop nove z WAN", **wan_in))
+    items += [Comment("IPv6 firewall: keep the rules above those already on the device"),
+              keep_own_first(ctx, IPV6_FILTER)]
+    return items, []
 
 
 def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
@@ -171,6 +207,11 @@ def build(profile: DeviceProfile, ctx: TargetContext, script: Script,
         ]
         section.add(Comment("Firewall: keep the rules above those already on the device"),
                     keep_own_first(ctx))
+
+    if firewall.ipv6:
+        ipv6_items, ipv6_issues = ipv6(ctx, wan_in)
+        section.add(*ipv6_items)
+        issues += ipv6_issues
 
     if has_wan and profile.wan.nat_masquerade:
         # Appended after the rules already there: a more specific src-nat stays first.

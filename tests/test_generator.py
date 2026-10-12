@@ -216,6 +216,74 @@ def test_v6_ipv6_package_states():
     assert "v6.ipv6_unknown_package" in codes(unknown.issues)
 
 
+def _ipv6_on(profile: DeviceProfile) -> DeviceProfile:
+    return _u(profile, firewall=_u(profile.firewall, ipv6=True))
+
+
+def test_ipv6_on_overrides_the_hardening_block():
+    result = generate(_ipv6_on(router_dhcp()), target("7.15.3"))
+    text = result.text
+    assert "disable-ipv6=yes" not in text
+    assert "/ipv6 settings\nset disable-ipv6=no\n" in text
+    assert "firewall.ipv6_overrides_hardening" in codes(result.issues)
+    # Switched on in section 4, before its rules; section 5 no longer switches it off.
+    assert text.index("disable-ipv6=no") < text.index("/ipv6 firewall filter")
+    assert text.index("disable-ipv6=no") < text.index("---- DNS / NTP")
+
+    rules = result.script.find("/ipv6 firewall filter", "add")
+    assert [(r.arg("action"), r.arg("comment")) for r in rules] == [
+        ("accept", "quickset: IPv6: accept est/rel"),
+        ("drop", "quickset: IPv6: drop invalid"),
+        ("accept", "quickset: IPv6: accept ICMPv6"),
+        ("drop", "quickset: IPv6: drop nove z WAN"),
+    ]
+    assert all(r.arg("chain") == "forward" for r in rules)
+    assert rules[0].arg("connection-state") == "established,related,untracked"
+    assert rules[2].arg("protocol") == "icmpv6"
+    assert rules[3].arg("in-interface-list") == "WAN"
+    assert text.index('/ipv6 firewall filter\nremove [ find where comment~"^quickset: " ]') < (
+        text.index("add chain=forward action=accept comment=\"quickset: IPv6"))
+    moving = [i for i in result.script.items() if isinstance(i, KeepOwnFirst)]
+    assert [m.menu for m in moving] == ["/ip firewall filter", "/ipv6 firewall filter"]
+
+    # Other arguments of the block's line stay.
+    profile = router_dhcp()
+    block = profile.services.hardening_text.replace(
+        "set disable-ipv6=yes", "set disable-ipv6=yes accept-router-advertisements=no")
+    kept = generate(_ipv6_on(_u(profile, services=_u(profile.services, hardening_text=block))),
+                    target("7.15.3"))
+    assert "set accept-router-advertisements=no\n" in kept.text
+    assert "disable-ipv6=yes" not in kept.text
+
+
+def test_ipv6_off_leaves_the_block_alone():
+    result = generate(router_dhcp(), target("7.15.3"))
+    assert "/ipv6 settings\nset disable-ipv6=yes\n" in result.text
+    assert "/ipv6 firewall" not in result.text
+    assert "firewall.ipv6_overrides_hardening" not in codes(result.issues)
+
+
+def test_ipv6_without_wan_has_no_wan_drop():
+    result = generate(_ipv6_on(bridge_ap()), target("7.15.3"))
+    comments = [r.arg("comment") for r in result.script.find("/ipv6 firewall filter", "add")]
+    assert "quickset: IPv6: drop nove z WAN" not in comments
+    assert len(comments) == 3
+
+
+def test_ipv6_on_v6_needs_the_enabled_package():
+    enabled = generate(_ipv6_on(router_dhcp()), target("6.49.10"))
+    assert "/system package\ndisable ipv6" not in enabled.text  # no longer switched off
+    assert "disable-ipv6" not in enabled.text  # v6 has no such setting
+    assert len(enabled.script.find("/ipv6 firewall filter", "add")) == 4
+    moving = [i for i in enabled.script.items() if isinstance(i, KeepOwnFirst)]
+    assert all(m.block for m in moving)
+
+    for ctx in (target("6.40.9"), TargetContext.offline("6.49")):
+        skipped = generate(_ipv6_on(router_dhcp()), ctx)
+        assert "/ipv6" not in skipped.text
+        assert "firewall.ipv6_v6_package" in codes(skipped.issues)
+
+
 def test_v6_snmp_addresses():
     text = generate(router_dhcp(), target("6.49.10")).text
     assert "add addresses=0.0.0.0/0 name=PVIP" in text

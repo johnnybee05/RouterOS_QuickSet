@@ -16,6 +16,8 @@ SERVICE_MENU = "/ip service"
 DNS_MENU = "/ip dns"
 REMOTE_REQUESTS = "allow-remote-requests"
 LOGGING_MENU = "/system logging"
+IPV6_SETTINGS = "/ipv6 settings"
+DISABLE_IPV6 = "disable-ipv6"
 # Default /system logging rule order on a fresh device; NUTNO OVĚŘIT (docs/DIALECT_NOTES.md).
 LOGGING_INDEX_TOPICS = {0: "info", 1: "error", 2: "warning", 3: "critical"}
 
@@ -43,6 +45,10 @@ def build(profile: DeviceProfile, script: Script, block: ParsedBlock) -> list[Is
         robust = profile.services.robust_logging
         if robust and isinstance(item, Command) and item.path == LOGGING_MENU:
             item = _robust_logging(item, issues)
+        if profile.firewall.ipv6 and isinstance(item, Command) and item.path == IPV6_SETTINGS:
+            item = _keep_ipv6_on(item, issues)
+            if item is None:
+                continue
         (service_items if line.menu == SERVICE_MENU else system_items).append(item)
 
     if system_items:
@@ -65,6 +71,21 @@ def _remote_requests_in_block(block: ParsedBlock, remote: bool) -> list[Issue]:
             issues.append(Issue("dns.remote_requests_in_hardening", Severity.WARNING,
                                 "services.hardening_text", {"value": value}))
     return issues
+
+
+def _keep_ipv6_on(command: Command, issues: list[Issue]) -> Command | None:
+    """IPv6 switched on in the firewall settings wins over `disable-ipv6` in the block.
+
+    The firewall section (4) turns IPv6 on before its IPv6 rules, and section 5 runs after
+    it, so the block's `disable-ipv6=yes` would switch it off again: the argument goes.
+    """
+    value = command.arg(DISABLE_IPV6)
+    if value is None:
+        return command
+    if value in ("yes", "true"):
+        issues.append(Issue("firewall.ipv6_overrides_hardening", Severity.INFO, "firewall.ipv6"))
+    rest = command.without_args(DISABLE_IPV6)
+    return rest if rest.args else None
 
 
 def _robust_logging(command: Command, issues: list[Issue]) -> Command | RawLine:

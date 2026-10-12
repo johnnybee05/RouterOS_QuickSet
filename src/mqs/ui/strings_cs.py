@@ -188,6 +188,13 @@ FIREWALL_WAN_MANAGEMENT_HELP = (
     "Vypnuté služby se neotevírají. Je-li zadaná management podsíť, pravidla přijímají "
     "jen z ní."
 )
+FIREWALL_IPV6 = "Zapnout IPv6 (přebije disable-ipv6=yes z hardening bloku)"
+FIREWALL_IPV6_HELP = (
+    "Nastaví /ipv6 settings disable-ipv6=no a hardening blok ho už nevypne. Přidá IPv6 "
+    "forward filtr: accept established/related/untracked, drop invalid, accept ICMPv6, drop "
+    "nových spojení z WAN. Chain input se nefiltruje. Ve v6 musí být balíček ipv6 povolený, "
+    "jinak se nevygeneruje nic."
+)
 FASTTRACK_GROUP = "FastTrack"
 FASTTRACK_ENABLED = "Zapnout FastTrack"
 FASTTRACK_HW = "hw-offload na FastTrack pravidle (jen pokud ho zařízení podporuje)"

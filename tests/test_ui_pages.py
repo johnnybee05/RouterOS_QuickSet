@@ -534,6 +534,15 @@ def test_firewall_fasttrack_asks_about_shaping(window):
     assert page.fasttrack_hw.isEnabled()
 
 
+def test_firewall_ipv6_checkbox(window):
+    page = window.firewall_page
+    assert not page.ipv6.isChecked()
+    page.ipv6.setChecked(True)
+    assert window.controller.profile.firewall.ipv6
+    page.ipv6.setChecked(False)
+    assert not window.controller.profile.firewall.ipv6
+
+
 def test_remote_dns_follows_basic_filter(window):
     services, firewall = window.services_page, window.firewall_page
     firewall.basic_filter.setChecked(True)

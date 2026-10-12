@@ -21,4 +21,6 @@ class FirewallConfig(BaseModel):
     basic_filter: bool = True
     # Accept api-ssl, SSH, Winbox, SNMP and MNDP discovery from WAN in the input chain.
     wan_management: bool = True
+    # Turn IPv6 on (wins over `disable-ipv6=yes` in the hardening block) with a forward filter.
+    ipv6: bool = False
     fasttrack: FastTrackConfig = Field(default_factory=FastTrackConfig)
