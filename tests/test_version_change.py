@@ -700,6 +700,18 @@ def test_the_v6_firmware_is_written_before_the_move_to_v7(tmp_path):
     assert planned.params["reboots"] == 2
 
 
+def test_the_firmware_written_is_the_newest_v6_in_the_directory(tmp_path):
+    """The Update directory as it is today: 6.49.23 is the newest v6, so a board on
+    6.49.22 goes 6.49.22 -> 6.49.23, RouterBOOT 6.49.23, then 7.23.8."""
+    folder = mmips_dir(tmp_path, (6, 49, 12), (6, 49, 22), (6, 49, 23), (7, 23, 8))
+    inventory = with_firmware(mmips("6.49.22"), "6.49.12")
+    plan = plan_version(inventory, scan_update_dir(folder), V("7.23.8"))
+    assert [str(h.version) for h in plan.hops] == ["6.49.23", "7.23.8"]
+    assert [h.routerboot_first for h in plan.hops] == [False, True] and plan.reboots == 3
+    note = next(i for i in plan.issues if i.code == "version.routerboot_before_v7")
+    assert note.params == {"version": "7.23.8", "via": "6.49.23", "current": "6.49.12"}
+
+
 @pytest.mark.parametrize("firmware", ["6.49.22", "7.23.7"])
 def test_a_v6_firmware_already_current_or_newer_is_left_alone(tmp_path, firmware):
     """7.23.7 is what a board keeps after going back from v7: newer than any v6, enough."""
