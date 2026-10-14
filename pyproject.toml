@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mikrotik-quickset-plus"
-version = "0.8.1"
+version = "0.8.2"
 description = "Windows GUI for generating and applying baseline MikroTik RouterOS v6/v7 configuration"
 readme = "README.md"
 requires-python = ">=3.12"

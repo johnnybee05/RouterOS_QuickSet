@@ -1,4 +1,4 @@
-# MikroTik QuickSet Plus 0.8.1
+# MikroTik QuickSet Plus 0.8.2
 # Target: RouterOS 7.15.3 (v7 dialect)
 # Identity: PV-RB4011
 # ---- IDENTITY ----

@@ -1,4 +1,4 @@
-# MikroTik QuickSet Plus 0.8.1
+# MikroTik QuickSet Plus 0.8.2
 # Target: RouterOS 6.49.10 (v6 dialect)
 # Identity: PV-AP1
 # ---- IDENTITY ----
