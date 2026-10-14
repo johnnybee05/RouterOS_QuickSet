@@ -11,6 +11,22 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.9.0] – 2026-10-14
+
+### Přidáno
+
+- **Přihlašovací údaje si pamatuje každé zařízení zvlášť.** Na stránce *Hromadný update*
+  se ke každému zařízení uloží uživatel a heslo, se kterými se naposledy úspěšně
+  přihlásilo. Příští přihlášení je zkusí jako první a údaje ze stránky Zařízení použije
+  jen tehdy, když je zařízení odmítne; zařízení, které neodpovídá, se podruhé nezkouší.
+  Dávka se pak ke každému zařízení přihlašuje jeho vlastními údaji, takže síť se
+  smíšenými hesly projde jednou dávkou. Zařízení se pozná podle sériového čísla nebo
+  kterékoli MAC adresy, tedy i po novém scanu. Typ spojení, porty a SSH klíč se dál
+  berou ze stránky Zařízení.
+- Údaje leží v `credentials.bin` vedle `inventory.json`, šifrované přes Windows DPAPI pod
+  přihlášeným účtem Windows — na jiném účtu nebo počítači nejdou přečíst. Tlačítko
+  **Zapomenout uložené údaje** je smaže všechna.
+
 ## [0.8.2] – 2026-10-14
 
 ### Změněno
