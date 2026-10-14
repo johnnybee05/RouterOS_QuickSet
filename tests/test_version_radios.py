@@ -201,6 +201,25 @@ def test_a_package_left_on_the_old_version_is_a_warning_not_a_stop(tmp_path):
     assert next(c for c in report.checks if c.code == "verify.radios").ok
 
 
+def test_a_driver_that_was_already_disabled_stays_so_without_a_warning(tmp_path):
+    """The hAP ac^3 going 7.24.5 -> 7.23.7 (2026-10-14): RouterOS keeps `wireless` switched
+    off next to `wifi-qcom-ac`, the route carries it all the same, and it comes back off."""
+    router, runner, _events = runner_for(tmp_path, "7.16.1")
+    runner.ctx.inventory.packages[1].disabled = True  # wireless
+    router.disabled_packages = {"wireless"}
+    report = runner.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert "apply.warning.version_package_versions" not in {i.code for i in report.issues}
+
+
+def test_a_driver_the_update_switched_off_is_still_caught(tmp_path):
+    router, runner, _events = runner_for(tmp_path, "7.16.1")
+    router.disabled_packages = {"wireless"}
+    report = runner.run()
+    parity = next(c for c in report.checks if c.code == "verify.package_versions")
+    assert not parity.ok and parity.params["waiting"] == "wireless (disabled)"
+
+
 # ------------------------------------------------------------------ the stations
 
 

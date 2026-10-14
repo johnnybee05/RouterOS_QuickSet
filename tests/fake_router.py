@@ -91,6 +91,8 @@ class FakeRouter:
         # follows it only when a file for it was installed, which is how a device that
         # came back without its driver is simulated.
         self.packages: dict[str, str] = {"routeros": "7.15.3"}
+        # Installed and switched off, as RouterOS leaves `wireless` next to `wifi-qcom-ac`.
+        self.disabled_packages: set[str] = set()
         # Radios per menu, as the menus report them. A menu absent from this mapping does
         # not exist on the device; one mapped to [] exists and is empty.
         self.radios: dict[str, list[dict[str, str]]] = {}
@@ -206,7 +208,9 @@ class FakeRouter:
         if word == "/system/routerboard/print":
             return [dict(self.firmware)]
         if word == "/system/package/print":
-            return [{"name": n, "version": v} for n, v in sorted(self.packages.items())]
+            return [{"name": n, "version": v,
+                     "disabled": "yes" if n in self.disabled_packages else "no"}
+                    for n, v in sorted(self.packages.items())]
         if word in RADIO_MENUS:
             menu = RADIO_MENUS[word]
             if menu not in self.radios:

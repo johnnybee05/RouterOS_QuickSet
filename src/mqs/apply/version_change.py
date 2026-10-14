@@ -757,12 +757,18 @@ class VersionChanger:
             self._event("apply.step.radios_wait", StepStatus.RUNNING, stopped=stopped,
                         timeout=f"{self.ctx.radio_timeout_s:.0f}")
 
+        # The packages that have to run afterwards: the ones that ran before, and the ones
+        # this route brings that the device did not have. A package it had disabled and
+        # gets again in the new version stays disabled, and that is not the update's
+        # doing: RouterOS switches `wireless` off by itself next to `wifi-qcom-ac` (hAP
+        # ac^3, 7.24.5 and 7.23.7, 2026-10-14), and the route carries it all the same.
+        installed = {p.name for p in self.ctx.inventory.packages if p.installed}
+        enabled = ({p.name for p in self.ctx.inventory.packages
+                    if p.installed and not p.disabled}
+                   | {p.name for p in hop.packages if p.name not in installed})
         try:
-            packages = check_package_versions(
-                self.transport, hop.version,
-                enabled_before={p.name for p in self.ctx.inventory.packages
-                                if p.installed and not p.disabled}
-                | {p.name for p in hop.packages})
+            packages = check_package_versions(self.transport, hop.version,
+                                              enabled_before=enabled)
             after = collect_radios(self.transport, hop.version)
             radios = None
             # A device with no radio gets no radio line in the checklist: comparing nothing
