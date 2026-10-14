@@ -11,6 +11,15 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.8.0] – 2026-10-14
+
+### Přidáno
+
+- **Barevný log.** Na stránkách *Aplikovat* a *Hromadný update* je úspěch zelený,
+  varování oranžové a chyba tučně červená, čas na začátku řádku šedý. Kroky se barví
+  podle svého stavu, hlášení podle závažnosti. Barvy se řídí světlým/tmavým režimem
+  Windows, i u řádků, které už v logu jsou.
+
 ## [0.7.0] – 2026-10-14
 
 ### Změněno
