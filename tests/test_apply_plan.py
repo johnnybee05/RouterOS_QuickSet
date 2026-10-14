@@ -56,6 +56,17 @@ def test_names_with_and_without_flash():
     assert flash.backup_file == "flash/pre-quickset-20260915-140509.backup"
 
 
+def test_backup_names_carry_the_identity():
+    names = make_names(NOW, has_flash_dir=True, identity="R1")
+    assert names.backup_file == "flash/pre-quickset-R1-20260915-140509.backup"
+    assert names.export_file == "flash/pre-quickset-R1-20260915-140509.rsc"
+    assert names.script_file == "quickset-20260915-140509.rsc"  # the script stays as it was
+    # Free text made safe for a file name: no diacritics, spaces or path separators.
+    assert make_names(NOW, False, "Kancelář 2.patro/AP").device == "Kancelar_2_patro_AP"
+    assert make_names(NOW, False, "  --  ").backup_name == "pre-quickset-20260915-140509"
+    assert len(make_names(NOW, False, "x" * 80).device) == 32
+
+
 def test_the_import_script_removes_itself_last():
     """A file still there after the import is how a stop half-way shows: over SSH,
     6.49.10 answers a failing /import with nothing (2026-09-25)."""
@@ -92,13 +103,15 @@ def test_old_backups_by_the_stamp_in_their_name():
         "flash/pre-quickset-20260915-205605.backup",
         "pre-quickset-20260920-143657.rsc",
         "quickset-20260915-205605.rsc",  # an uploaded script, not a backup
+        # With the identity in the name; the older ones above have none.
+        "flash/pre-quickset-R1-20260922-080000.backup", "pre-quickset-R-2-20260922-090000.rsc",
         "pre-quickset-x.backup", "skins", "my.backup",
     ]
-    assert old_backups(files, 2, "20260921-234537") == [
+    assert old_backups(files, 4, "20260921-234537") == [
         "flash/pre-quickset-20260915-205605.backup", "pre-quickset-20260920-143657.rsc"]
     # The current backup stays even when it is not among the newest (clock set back).
     assert "pre-quickset-20260921-234537.rsc" not in old_backups(files, 1, "20260921-234537")
-    assert old_backups(files, 1, "20200101-000000") == [
+    assert old_backups(files, 3, "20200101-000000") == [
         "flash/pre-quickset-20260915-205605.backup",
         "pre-quickset-20260920-143657.rsc",
         "pre-quickset-20260921-212313.backup", "pre-quickset-20260921-212313.rsc"]

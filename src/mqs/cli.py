@@ -714,7 +714,8 @@ def _apply_to(
         return BLOCKED
     result = prepare_import(result, options, existing)
 
-    names = make_names(now(), session.inventory.has_flash_dir)
+    names = make_names(now(), session.inventory.has_flash_dir,
+                       session.inventory.identity)
     if args.show_script:
         print("\nscript to upload (secrets masked):", file=out)
         print(build_upload_script(result.text, options, names, mask_secrets=True), file=out)

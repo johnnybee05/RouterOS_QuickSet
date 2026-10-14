@@ -161,7 +161,8 @@ class ApplyOrchestrator:
         if ctx.options.mode == ApplyMode.GENERATE_ONLY:
             raise ValueError("GENERATE_ONLY does not touch the device")
         self.ctx = ctx
-        self.names = make_names(ctx.now(), ctx.inventory.has_flash_dir)
+        self.names = make_names(ctx.now(), ctx.inventory.has_flash_dir,
+                                ctx.inventory.identity)
         self.report = ApplyReport(names=self.names, transport=ctx.transport)
         self._staged: list[str] = []  # packages uploaded for a reset not yet accepted
 

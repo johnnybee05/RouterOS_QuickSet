@@ -563,7 +563,8 @@ class VersionChanger:
         self._check_cancel()
         step = DeviceBackup(
             transport=self.transport,
-            names=make_names(self.ctx.now(), self.ctx.inventory.has_flash_dir),
+            names=make_names(self.ctx.now(), self.ctx.inventory.has_flash_dir,
+                             self.ctx.inventory.identity),
             event=self._event, warn=self._warn, fail=self._abort,
             download_dir=self.ctx.download_dir, keep=self.ctx.keep_backups,
             downloaded=self.report.downloaded,

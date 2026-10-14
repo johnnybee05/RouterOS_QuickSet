@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -28,9 +29,13 @@ UPDATE_RECONNECT_EXTRA_S = 300.0
 # Prefilled in the GUI for logging in and as admin's new password after a reset, so a
 # device reset by one apply is reached with the same password by the next connect.
 DEFAULT_PASSWORD = ""
-# pre-quickset-20260921-234537.backup / .rsc, optionally under flash/
+# pre-quickset-R1-20260921-234537.backup / .rsc, optionally under flash/; the identity is
+# missing in names written by older versions and in those of a device without one.
 BACKUP_FILE_RE = re.compile(
-    rf"^(?:flash/)?{BACKUP_PREFIX}-(?P<stamp>\d{{8}}-\d{{6}})\.(?:backup|rsc)$")
+    rf"^(?:flash/)?{BACKUP_PREFIX}-(?:[A-Za-z0-9_-]+-)?(?P<stamp>\d{{8}}-\d{{6}})"
+    r"\.(?:backup|rsc)$")
+# Identities are free text; a file name gets ASCII letters, digits, `_` and `-` only.
+DEVICE_NAME_MAX = 32
 
 
 class ApplyMode(StrEnum):
@@ -95,6 +100,7 @@ class ApplyOptions:
 class ApplyNames:
     stamp: str
     remote_dir: str  # "" or "flash/"
+    device: str = ""  # the identity as `file_safe_name` leaves it; "" = left out
 
     @property
     def script_file(self) -> str:
@@ -106,8 +112,13 @@ class ApplyNames:
 
     @property
     def backup_name(self) -> str:
-        """Used for both `/system backup save name=` and `/export file=`."""
-        return self.remote_dir + f"{BACKUP_PREFIX}-{self.stamp}"
+        """Used for both `/system backup save name=` and `/export file=`.
+
+        The identity tells the copies on this PC apart: the Síť page fetches the backups
+        of a whole batch into one directory.
+        """
+        device = f"{self.device}-" if self.device else ""
+        return self.remote_dir + f"{BACKUP_PREFIX}-{device}{self.stamp}"
 
     @property
     def backup_file(self) -> str:
@@ -154,10 +165,19 @@ def result_for_mode(result: GenerationResult, mode: ApplyMode) -> GenerationResu
     return replace(result, access=access, issues=issues + access.issues)
 
 
-def make_names(now: datetime, has_flash_dir: bool) -> ApplyNames:
+def file_safe_name(identity: str) -> str:
+    """``identity`` as a part of a file name: diacritics dropped, anything else that is not
+    a letter, a digit, `_` or `-` turned into `_`, at most ``DEVICE_NAME_MAX`` long."""
+    ascii_only = unicodedata.normalize("NFKD", identity).encode("ascii", "ignore").decode()
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", ascii_only).strip("_-")
+    return safe[:DEVICE_NAME_MAX].rstrip("_-")
+
+
+def make_names(now: datetime, has_flash_dir: bool, identity: str = "") -> ApplyNames:
     # Files in the RAM root do not survive a reboot on devices with a flash directory.
     return ApplyNames(stamp=now.strftime("%Y%m%d-%H%M%S"),
-                      remote_dir="flash/" if has_flash_dir else "")
+                      remote_dir="flash/" if has_flash_dir else "",
+                      device=file_safe_name(identity))
 
 
 def build_upload_script(

@@ -262,7 +262,7 @@ Jak to funguje:
    konfigurace se nemění).
 
 **Zálohu udělá i samotný přechod na jinou verzi.** Než na zařízení půjde první balíček,
-uloží na něj `pre-quickset-<datum-čas>.backup` a export `pre-quickset-<datum-čas>.rsc`
+uloží na něj `pre-quickset-<identita>-<datum-čas>.backup` a export `pre-quickset-<identita>-<datum-čas>.rsc`
 a podle zaškrtávátka *Stáhnout zálohu* je stáhne do zvoleného adresáře — úplně stejně jako
 aplikace konfigurace, protože tady je záloha potřeba nejvíc: downgrade konfiguraci zahodí
 a mezi v6 a v7 ji RouterOS převádí jen jedním směrem. Binární zálohu obnovíte jen na té
@@ -288,8 +288,8 @@ kontrola selže, zůstane připojená.
 
 Než aplikace cokoliv změní, vždy:
 
-- uloží na zařízení zálohu `pre-quickset-<datum-čas>.backup` a export
-  `pre-quickset-<datum-čas>.rsc` a nabídne jejich stažení,
+- uloží na zařízení zálohu `pre-quickset-<identita>-<datum-čas>.backup` a export
+  `pre-quickset-<identita>-<datum-čas>.rsc` a nabídne jejich stažení,
 - zobrazí přesně to, co se pošle (dry-run), a počká na potvrzení,
 - volitelně naplánuje **rollback pojistku**. Pokud do N minut nekliknete na *Potvrdit, že
   konfigurace funguje*, zařízení obnoví zálohu a restartuje se. Úloha nejdřív smaže sama
@@ -468,11 +468,13 @@ ssh, winbox a api-ssl na management subnet.
 
 Zálohy vytvořené před aplikací jsou na zařízení v *Files* (u zařízení s `flash/` ve složce
 `flash/`) a pokud jste zvolili stažení, také v `%LOCALAPPDATA%\MikrotikQuickSetPlus\backups\`.
+Identita v názvu je ta, kterou zařízení mělo před změnou, takže se zálohy více zařízení
+v jednom adresáři nepletou; diakritika z ní vypadne a mezery a jiné znaky nahradí `_`.
 
 **Binární záloha** (celý stav včetně uživatelů, zařízení se restartuje):
 
 ```
-/system backup load name=pre-quickset-RRRRMMDD-HHMMSS.backup
+/system backup load name=pre-quickset-IDENTITA-RRRRMMDD-HHMMSS.backup
 ```
 
 Ve Winboxu: *Files* → vyberte soubor `.backup` → *Restore*.
@@ -481,7 +483,7 @@ Ve Winboxu: *Files* → vyberte soubor `.backup` → *Restore*.
 bez výchozí konfigurace a potom soubor naimportujte:
 
 ```
-/system reset-configuration no-defaults=yes run-after-reset=pre-quickset-RRRRMMDD-HHMMSS.rsc
+/system reset-configuration no-defaults=yes run-after-reset=pre-quickset-IDENTITA-RRRRMMDD-HHMMSS.rsc
 ```
 
 Pokud soubor na zařízení už není, nahrajte ho ze složky `backups\` přes *Files* ve Winboxu.

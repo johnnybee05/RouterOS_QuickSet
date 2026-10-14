@@ -94,9 +94,9 @@ def test_import_over_api_ssl_happy_path(tmp_path):
     assert report.succeeded, [c.message for c in report.checks if not c.ok]
     assert router.state.identity == "PV-R1" and router.state.ssh_port == 122
     assert router.log.index("/system/backup/save") < router.log.index("/import")
-    assert "pre-quickset-20260915-100000.backup" in router.files
+    assert "pre-quickset-MikroTik-20260915-100000.backup" in router.files
     assert sorted(p.name for p in report.downloaded) == [
-        "pre-quickset-20260915-100000.backup", "pre-quickset-20260915-100000.rsc"]
+        "pre-quickset-MikroTik-20260915-100000.backup", "pre-quickset-MikroTik-20260915-100000.rsc"]
     assert "quickset-20260915-100000.rsc" not in router.files  # cleaned up
     assert reconnects == []  # api-ssl session survives the SSH port change
     steps = [(e.step, e.status) for e in events]
@@ -165,7 +165,7 @@ def test_old_backups_are_pruned_after_the_apply():
     assert sorted(router.files) == [
         "my-own.backup",
         "pre-quickset-20260914-100000.backup", "pre-quickset-20260914-100000.rsc",
-        "pre-quickset-20260915-100000.backup", "pre-quickset-20260915-100000.rsc"]
+        "pre-quickset-MikroTik-20260915-100000.backup", "pre-quickset-MikroTik-20260915-100000.rsc"]
     prune = next(e for e in events if e.step == "apply.step.prune")
     assert prune.params == {"count": 4, "keep": 2}
 
@@ -348,7 +348,7 @@ def test_rollback_restores_backup_exactly_once_without_loop():
     router, orchestrator, events, _ = build(rollback_minutes=5)
     report = orchestrator.run()
     assert report.rollback_pending and ROLLBACK_JOB in router.state.scheduler
-    backup = router.backups["pre-quickset-20260915-100000"]
+    backup = router.backups["pre-quickset-MikroTik-20260915-100000"]
     assert ROLLBACK_JOB not in backup.scheduler  # backup was taken before the job existed
     assert router.log.index("/system/backup/save") < router.log.index("/system/scheduler/add")
     assert events[-1].step == "apply.rollback_pending"
@@ -369,7 +369,7 @@ def test_rollback_job_is_gone_even_if_backup_load_fails():
     router.backups.clear()
     router.advance(10)
     assert router.state.scheduler == {} and router.reboots == 0
-    assert "backup load failed pre-quickset-20260915-100000" in router.log
+    assert "backup load failed pre-quickset-MikroTik-20260915-100000" in router.log
 
 
 def test_confirm_cancels_rollback():
@@ -553,7 +553,7 @@ def test_a_stopped_import_takes_its_script_back():
         orchestrator.run()
     assert "quickset-20260915-100000.rsc" not in router.files
     assert ("apply.step.cleanup", StepStatus.OK) in [(e.step, e.status) for e in events]
-    assert "pre-quickset-20260915-100000.backup" in router.files  # the backup stays
+    assert "pre-quickset-MikroTik-20260915-100000.backup" in router.files  # the backup stays
 
 
 def test_another_reset_error_is_not_retried():
