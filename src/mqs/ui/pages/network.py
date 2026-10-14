@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,7 @@ from mqs.fleet.batch import (
     Outcome,
     plan_batch,
 )
+from mqs.fleet.credentials import CREDENTIALS_NAME, CredentialStore, Remembered
 from mqs.fleet.device import update_device
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import STEP_PREFIX
@@ -75,6 +77,7 @@ from mqs.model.inventory import DeviceInventory, WirelessRole
 from mqs.model.version import RosVersion
 from mqs.paths import app_data_dir, backups_dir
 from mqs.paths import update_dir as default_update_dir
+from mqs.transport.base import AuthError
 from mqs.transport.discovery import collect_inventory
 from mqs.transport.mndp import MndpScanner
 from mqs.transport.netifs import list_ipv4_interfaces
@@ -132,6 +135,7 @@ class NetworkPage(Page):
         scan_dir_fn: Callable[[Path], UpdateDir] = scan_update_dir,
         changer_factory: Callable[..., Any] = VersionChanger,
         backup_dir: Path | None = None,
+        credentials: CredentialStore | None = None,
         now: Callable[[], float] = time.time,
     ) -> None:
         super().__init__(controller, parent)
@@ -147,6 +151,9 @@ class NetworkPage(Page):
         self.scan_dir_fn = scan_dir_fn
         self.changer_factory = changer_factory
         self.backup_dir = backup_dir if backup_dir is not None else backups_dir()
+        # Beside the inventory: the devices, and what each of them took to log in to.
+        self.credentials = credentials if credentials is not None else CredentialStore(
+            self.inventory_path.with_name(CREDENTIALS_NAME))
         self.now = now
         self.devices: list[Candidate] = []
         self.packages = UpdateDir(self.update_dir, False)
@@ -242,6 +249,10 @@ class NetworkPage(Page):
         self.login_note = QLabel("")
         self.login_note.setWordWrap(True)
         login.addWidget(self.login_note, 1)
+        self.forget_button = QPushButton(S.NET_FORGET)
+        self.forget_button.setToolTip(S.NET_FORGET_TIP)
+        self.forget_button.clicked.connect(self.forget_credentials)
+        login.addWidget(self.forget_button)
         layout.addLayout(login)
 
         run = QHBoxLayout()
@@ -410,17 +421,22 @@ class NetworkPage(Page):
             self.dialogs.error(self, S.NET_LOGIN_NONE)
             return
         chosen = [self.devices[row] for row in rows]
+        logins = [self.logins_for(settings, device) for device in chosen]
         self.status.setText(S.NET_LOGGING_IN.format(count=len(chosen)))
 
         def task(token: CancelToken, report: Callable[[object], None]) -> Any:
             seen: list[Sighting] = []
             own = self.local_addresses_fn()
+            used: dict[int, LoginSettings] = {}
+            # log_in reads the devices one by one, in the order they were chosen.
+            todo = iter(enumerate(logins))
 
             def read(device: Candidate) -> DeviceInventory:
+                index, tries = next(todo)
                 if not device.address:
                     raise ValueError(S.NET_NO_ADDRESS)
                 try:
-                    session = self.open_fn(settings, device.address, token.cancelled)
+                    session, used[index] = self._open(tries, device.address, token.cancelled)
                 except Exception as exc:
                     raise RuntimeError(describe_error(exc)) from exc
                 try:
@@ -439,7 +455,7 @@ class NetworkPage(Page):
 
             done = log_in(chosen, read, cancelled=token.cancelled, now=self.now,
                           on_device=lambda device, state: report((_name(device), state)))
-            return rows, done, seen
+            return rows, done, seen, used
 
         self._start("login", task, self._logged_in, self._login_failed,
                     on_progress=self._login_step)
@@ -451,7 +467,19 @@ class NetworkPage(Page):
 
     def _logged_in(self, result: Any) -> None:
         self._done()
-        rows, done, seen = result
+        rows, done, seen, used = result
+        window = self.login_settings()
+        for index, login in sorted(used.items()):
+            device = done[index]
+            if device.confidence is not Confidence.CONFIRMED:
+                continue
+            params = login.params
+            self._remember(device, params.username, params.password)
+            if window is None or (params.username, params.password) != (
+                    window.params.username, window.params.password):
+                self.log_view.append_line(
+                    S.NET_LOGIN_REMEMBERED.format(name=_name(device), user=params.username),
+                    LogLevel.OK)
         before = list(self.devices)
         devices = list(self.devices)
         for row, device in zip(rows, done, strict=True):
@@ -472,13 +500,66 @@ class NetworkPage(Page):
     def _show_login_note(self) -> None:
         settings = self.login_settings()
         if settings is None:
-            self.login_note.setText(S.NET_LOGIN_NONE)
+            text = S.NET_LOGIN_NONE
+        else:
+            params = settings.params
+            text = S.NET_LOGIN_WITH.format(
+                user=params.username,
+                auth=S.NET_LOGIN_KEY if params.key_filename else S.NET_LOGIN_PASSWORD,
+                api=settings.api_port or "-", ssh=settings.ssh_port or "-")
+        store = self.credentials
+        if store.load_error:
+            text += "  " + S.NET_REMEMBERED_UNREADABLE.format(error=store.load_error)
+        elif len(store):
+            text += "  " + S.NET_REMEMBERED.format(count=len(store))
+            if not store.persistent:
+                text += " " + S.NET_REMEMBERED_MEMORY
+        self.login_note.setText(text)
+        self._update_buttons()
+
+    # ------------------------------------------------------------ remembered credentials
+
+    def logins_for(self, settings: LoginSettings, device: Candidate) -> list[LoginSettings]:
+        """What to log in to ``device`` with, in order: what it took last time, then the
+        window's. Two attempts at most, never the same credentials twice."""
+        remembered = self.credentials.find(device)
+        if remembered is None or (remembered.username, remembered.password) == (
+                settings.params.username, settings.params.password):
+            return [settings]
+        return [_with(settings, remembered), settings]
+
+    def _open(self, tries: list[LoginSettings], host: str,
+              cancelled: Callable[[], bool]) -> tuple[DeviceSession, LoginSettings]:
+        """The first of ``tries`` the device lets in. Only a refused login moves on to the
+        next: a device that does not answer will not answer the second either."""
+        for number, settings in enumerate(tries, start=1):
+            try:
+                return self.open_fn(settings, host, cancelled), settings
+            except AuthError:
+                if number == len(tries) or cancelled():
+                    raise
+        raise AssertionError("no credentials to try")
+
+    def _remember(self, device: Candidate, username: str, password: str) -> None:
+        try:
+            self.credentials.remember(device, username, password)
+        except OSError as exc:
+            self.log_view.append_line(S.NET_REMEMBER_FAILED.format(error=exc),
+                                      LogLevel.WARNING)
+        self._show_login_note()
+
+    def forget_credentials(self) -> None:
+        store = self.credentials
+        if not len(store) and not store.load_error:
             return
-        params = settings.params
-        self.login_note.setText(S.NET_LOGIN_WITH.format(
-            user=params.username,
-            auth=S.NET_LOGIN_KEY if params.key_filename else S.NET_LOGIN_PASSWORD,
-            api=settings.api_port or "-", ssh=settings.ssh_port or "-"))
+        if not self.dialogs.question(self, S.NET_FORGET,
+                                     S.NET_FORGET_CONFIRM.format(count=len(store))):
+            return
+        try:
+            store.forget_all()
+        except OSError as exc:
+            self.dialogs.error(self, S.NET_REMEMBER_FAILED.format(error=exc))
+        self._show_login_note()
 
     # ------------------------------------------------------------ the batch
 
@@ -548,9 +629,10 @@ class NetworkPage(Page):
             def run_one(step: DeviceStep) -> None:
                 # Stopping the batch never interrupts a device half-way through: the
                 # token is the runner's, and the device's own work is not cancellable.
+                tries = self.logins_for(settings, step.device)
                 fresh[step.device.key] = update_device(
                     step,
-                    lambda host: self.open_fn(settings, host, lambda: False),
+                    lambda host: self._open(tries, host, lambda: False)[0],
                     on_event=lambda event: report(("event", step.name, event)),
                     close=self.close_fn,
                     replan=lambda inventory: plan_version(inventory, packages, target),
@@ -772,6 +854,8 @@ class NetworkPage(Page):
         self.batch_button.setEnabled(plan is not None and plan.ready
                                      and not self.runner.busy)
         self.batch_stop_button.setEnabled(working and self._job in ("login", "batch"))
+        self.forget_button.setEnabled(not working and (
+            bool(len(self.credentials)) or bool(self.credentials.load_error)))
         for widget in (self.target, self.here, self.parallel, self.routerboot):
             widget.setEnabled(not working)
         self.routerboot_down.setEnabled(not working and self.routerboot.isChecked())
@@ -783,6 +867,12 @@ class NetworkPage(Page):
 
     def shutdown(self) -> None:
         self.stop_scan()
+
+
+def _with(settings: LoginSettings, remembered: Remembered) -> LoginSettings:
+    """The window's way in — transport, ports, key — as the remembered user."""
+    return replace(settings, params=replace(settings.params, username=remembered.username,
+                                            password=remembered.password))
 
 
 def _name(device: Candidate) -> str:

@@ -188,7 +188,8 @@ def open_session(
 @dataclass(frozen=True)
 class LoginSettings:
     """How to log in to devices whose addresses come later: the window's credentials,
-    used by the *Hromadný update* page for its logins and its batch, one address at a time."""
+    used by the *Hromadný update* page for its logins and its batch, one address at a time
+    (with the user and password a device took last time put in first)."""
 
     params: ConnectionParams  # the host in it is ignored
     choice: TransportChoice = TransportChoice.AUTO

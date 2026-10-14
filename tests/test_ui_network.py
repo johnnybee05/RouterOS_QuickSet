@@ -437,6 +437,128 @@ def test_the_page_says_whose_credentials_it_logs_in_with(page):
     assert "122" in page.login_note.text()
 
 
+# ------------------------------------------------------------------ remembered credentials
+
+
+def logging_in(page, qtbot, answer) -> list[tuple[str, str]]:
+    """Log in to the one listed device; ``answer(username)`` opens or raises."""
+    tried: list[tuple[str, str]] = []
+
+    def open_fn(s, host, cancelled):
+        tried.append((s.params.username, s.params.password))
+        return answer(s.params.username)
+
+    page.open_fn = open_fn
+    page.close_fn = lambda session: None
+    page.neighbours_fn = lambda *a, **k: []
+    page._show()
+    select(page, 0)
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_login()
+    return tried
+
+
+def refuse_all_but(user: str, inventory):
+    from mqs.transport.base import AuthError
+
+    def answer(username):
+        if username != user:
+            raise AuthError("invalid user name or password")
+        return Opened(inventory)
+    return answer
+
+
+def test_a_login_remembers_what_the_device_took(page, qtbot):
+    found = antenna("ap-1", address="192.0.2.9").inventory
+    page.login_settings = lambda: settings("bee")
+    page.devices = [guess("ap-1")]
+    assert logging_in(page, qtbot, refuse_all_but("bee", found)) == [("bee", "")]
+    remembered = page.credentials.find(guess("ap-1"))
+    assert remembered is not None and remembered.username == "bee"
+    assert "1 zařízení" in page.login_note.text()
+
+
+def test_a_device_is_logged_in_with_what_it_took_last_time_first(page, qtbot):
+    found = antenna("ap-1", address="192.0.2.9").inventory
+    page.credentials.remember(guess("ap-1"), "other", "pw2")
+    page.login_settings = lambda: settings("bee")
+    page.devices = [guess("ap-1")]
+    assert logging_in(page, qtbot, refuse_all_but("other", found)) == [("other", "pw2")]
+    assert page.devices[0].inventory is not None
+    assert "ap-1: přihlášeno jako other" in page.log_view.toPlainText()
+
+
+def test_a_refused_remembered_login_falls_back_to_the_window(page, qtbot):
+    found = antenna("ap-1", address="192.0.2.9").inventory
+    page.credentials.remember(guess("ap-1"), "other", "old")
+    page.login_settings = lambda: settings("bee")
+    page.devices = [guess("ap-1")]
+    tried = logging_in(page, qtbot, refuse_all_but("bee", found))
+    assert tried == [("other", "old"), ("bee", "")]
+    assert page.credentials.find(guess("ap-1")).username == "bee"
+    assert len(page.credentials) == 1
+
+
+def test_a_device_that_does_not_answer_is_not_tried_twice(page, qtbot):
+    from mqs.transport.base import TransportError
+
+    def answer(username):
+        raise TransportError("timed out")
+
+    page.credentials.remember(guess("ap-1"), "other", "pw2")
+    page.login_settings = lambda: settings("bee")
+    page.devices = [guess("ap-1")]
+    assert logging_in(page, qtbot, answer) == [("other", "pw2")]
+    assert page.devices[0].login_error
+    assert page.credentials.find(guess("ap-1")).username == "other"
+
+
+def test_the_remembered_credentials_can_be_forgotten(page, monkeypatch):
+    page.credentials.remember(guess("ap-1"), "other", "pw2")
+    page._show_login_note()
+    assert page.forget_button.isEnabled()
+    monkeypatch.setattr(page.dialogs, "question", lambda *a: True)
+    page.forget_credentials()
+    assert len(page.credentials) == 0 and not page.forget_button.isEnabled()
+    assert "Uložené údaje" not in page.login_note.text()
+
+
+def test_a_batch_logs_in_to_each_device_with_its_own_credentials(
+        page, qtbot, tmp_path, monkeypatch):
+    from test_fleet_end_to_end import Lab
+
+    devices = chain_of_three()
+    lab = Lab(tmp_path, {d.address: d for d in devices}, "7.16.1")
+    page.update_dir = lab.folder
+    page.load_packages()
+    page.target.setCurrentText("7.16.1")
+    page.credentials.remember(devices[1], "relay-admin", "relay-pw")
+    page.login_settings = lambda: settings("bee")
+    used: dict[str, set[str]] = {}
+
+    def open_fn(s, host, cancelled):
+        used.setdefault(host, set()).add(s.params.username)
+        return lab.sessions[host]
+
+    page.open_fn = open_fn
+    page.close_fn = lambda session: None
+    page.changer_factory = lab.changer
+    page.backup_dir = tmp_path / "backups"
+    from mqs.model.version import RosVersion
+    page.read_fn = lambda session: session.inventory.model_copy(update={
+        "resource": session.inventory.resource.model_copy(
+            update={"version": RosVersion.parse("7.16.1")})})
+    monkeypatch.setattr(page.dialogs, "question", lambda *a: True)
+    page.devices = devices
+    page._show()
+
+    with qtbot.waitSignal(page.devicesChanged, timeout=10000):
+        page.start_batch()
+    assert "aktualizováno 3" in page.status.text()
+    assert used == {"192.0.2.1": {"bee"}, "192.0.2.2": {"relay-admin"},
+                    "192.0.2.3": {"bee"}}
+
+
 # ------------------------------------------------------------------ the batch
 
 

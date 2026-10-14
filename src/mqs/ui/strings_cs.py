@@ -416,6 +416,16 @@ NET_LOGIN_STATES = {"connecting": "připojuji", "confirmed": "načteno",
                     "failed": "nepřihlášeno"}
 NET_LOGIN_DONE = "Načteno {ok} zařízení, nepřihlášeno {failed}."
 NET_LOGIN_FAILED = "Přihlašování selhalo: {error}"
+NET_LOGIN_REMEMBERED = "{name}: přihlášeno jako {user} (údaje uložené u zařízení)"
+NET_REMEMBERED = ("Uložené údaje má {count} zařízení – zkouší se první, potom údaje "
+                  "ze stránky Zařízení.")
+NET_REMEMBERED_MEMORY = "Jen do zavření okna, na disk se neukládají."
+NET_REMEMBERED_UNREADABLE = "Uložené přihlašovací údaje nejdou přečíst ({error})."
+NET_REMEMBER_FAILED = "Přihlašovací údaje se nepodařilo uložit: {error}"
+NET_FORGET = "Zapomenout uložené údaje"
+NET_FORGET_TIP = ("Každé zařízení si pamatuje uživatele a heslo, se kterými se naposledy "
+                  "přihlásilo, šifrované pod tímto účtem Windows. Tlačítko je smaže všechna.")
+NET_FORGET_CONFIRM = "Smazat uložené přihlašovací údaje ({count} zařízení)?"
 NET_NO_ADDRESS = "zařízení nemá IP adresu"
 NET_TARGET = "Cílová verze:"
 NET_TARGET_TIP = ("Verze RouterOS, na kterou mají zařízení přejít. Nabízí se verze, které "

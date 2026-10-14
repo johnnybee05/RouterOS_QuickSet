@@ -64,7 +64,8 @@ class MainWindow(QMainWindow):
         self.device_page = DevicePage(self.controller, self.runner, self.dialogs, self.registry,
                                       **(device_kwargs or {}))
         # The Hromadný update page logs in with whatever the Zařízení page's form holds: one set of
-        # credentials in the window, not two that drift apart.
+        # credentials in the window, not two that drift apart. What a device took instead is
+        # remembered by the page itself, per device.
         self.network_page = NetworkPage(self.controller, self.runner, self.dialogs, **{
             "login_settings": self.device_page.login_settings, **(network_kwargs or {})})
         self.basic_page = BasicPage(self.controller)
