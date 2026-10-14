@@ -79,7 +79,7 @@ from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page
 from mqs.ui.theme import ERROR_RED, OK_GREEN
-from mqs.ui.widgets.common import IssueList, LogView
+from mqs.ui.widgets.common import STEP_LEVEL, IssueList, LogView
 from mqs.ui.workers import TaskRunner
 
 log = logging.getLogger(__name__)
@@ -424,7 +424,7 @@ class ApplyPage(Page):
     def _version_finished(self, report: VersionReport) -> None:
         self.show_checklist(report.checks)
         for issue in report.issues:
-            self.log_view.append_line(issue.message)
+            self.log_view.append_issue(issue)
         installed = report.installed[-1] if report.installed else None
         self.result_label.setText(S.APPLY_VERSION_DONE.format(version=installed)
                                   if installed else S.APPLY_DONE_WITH_WARNINGS)
@@ -436,7 +436,7 @@ class ApplyPage(Page):
         if isinstance(exc, VersionChangeAborted):
             self.show_checklist(exc.report.checks)
             for issue in exc.report.issues:
-                self.log_view.append_line(issue.message)
+                self.log_view.append_issue(issue)
             # The device may be on another version already, or on the same one: either way
             # the session has moved and the device is read again before anything else.
             self.version_changed.emit(exc.report)
@@ -555,7 +555,8 @@ class ApplyPage(Page):
                           on_progress=self._event)
 
     def _event(self, event: ApplyEvent) -> None:
-        self.log_view.append_line(f"[{STEP_PREFIX[event.status]}] {event.message}")
+        self.log_view.append_line(f"[{STEP_PREFIX[event.status]}] {event.message}",
+                                  STEP_LEVEL[event.status])
         # The parameters say where the reconnect went, which file failed and why; the log
         # had only the step code, so a reconnect could not be told from the log to have
         # come back by MAC or by address. Secrets are masked by the log handler.
@@ -565,7 +566,7 @@ class ApplyPage(Page):
         self.last_report = report
         self.show_checklist(report.checks)
         for issue in report.issues:
-            self.log_view.append_line(issue.message)
+            self.log_view.append_issue(issue)
         self.confirm_button.setVisible(report.rollback_pending)
         self.applied.emit(report)
 

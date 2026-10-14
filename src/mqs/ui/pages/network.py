@@ -83,7 +83,7 @@ from mqs.ui.controller import ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page
 from mqs.ui.pages.device import describe_error
-from mqs.ui.widgets.common import LogView
+from mqs.ui.widgets.common import STEP_LEVEL, LogLevel, LogView
 from mqs.ui.workers import CancelToken, TaskRunner
 
 INVENTORY_NAME = "inventory.json"
@@ -462,7 +462,8 @@ class NetworkPage(Page):
         self.status.setText(S.NET_LOGIN_DONE.format(ok=ok, failed=failed))
         for device in done:
             if device.login_error:
-                self.log_view.append_line(f"{_name(device)}: {device.login_error}")
+                self.log_view.append_line(f"{_name(device)}: {device.login_error}",
+                                          LogLevel.ERROR)
 
     def _login_failed(self, exc: BaseException) -> None:
         self._done()
@@ -574,14 +575,16 @@ class NetworkPage(Page):
         if kind == "event":
             event = rest[0]
             self.log_view.append_line(
-                f"{name}: [{STEP_PREFIX[event.status]}] {event.message}")
+                f"{name}: [{STEP_PREFIX[event.status]}] {event.message}",
+                STEP_LEVEL[event.status])
             return
         outcome, detail = rest
-        line = {Outcome.RUNNING: S.NET_BATCH_STEP_RUNNING,
-                Outcome.DONE: S.NET_BATCH_STEP_DONE,
-                Outcome.FAILED: S.NET_BATCH_STEP_FAILED}.get(outcome)
+        line = {Outcome.RUNNING: (S.NET_BATCH_STEP_RUNNING, LogLevel.NORMAL),
+                Outcome.DONE: (S.NET_BATCH_STEP_DONE, LogLevel.OK),
+                Outcome.FAILED: (S.NET_BATCH_STEP_FAILED, LogLevel.ERROR)}.get(outcome)
         if line is not None:
-            self.log_view.append_line(line.format(name=name, detail=detail))
+            text, level = line
+            self.log_view.append_line(text.format(name=name, detail=detail), level)
             if outcome is Outcome.RUNNING:
                 self.status.setText(f"{S.NET_BATCH_RUNNING} {name}")
 
@@ -596,7 +599,8 @@ class NetworkPage(Page):
                 continue
             inventory = fresh[device.key]
             if inventory is None:
-                self.log_view.append_line(S.NET_BATCH_NOT_REREAD.format(name=_name(device)))
+                self.log_view.append_line(S.NET_BATCH_NOT_REREAD.format(name=_name(device)),
+                                          LogLevel.WARNING)
                 continue
             devices[index] = confirmed(device, inventory, found_at=device.address
                                        ).model_copy(update={"last_seen": stamp})
@@ -606,23 +610,23 @@ class NetworkPage(Page):
             message = Issue("fleet.stopped", Severity.ERROR, "", {
                 "name": report.stopped_by.name, "error": report.stopped_by.detail,
                 "rest": len(report.of(Outcome.SKIPPED))}).message
-            self.log_view.append_line(message)
+            self.log_view.append_line(message, LogLevel.ERROR)
             self.status.setText(message)
             self.dialogs.error(self, message)
         elif report.of(Outcome.SKIPPED):
             text = S.NET_BATCH_CANCELLED.format(done=done,
                                                 rest=len(report.of(Outcome.SKIPPED)))
-            self.log_view.append_line(text)
+            self.log_view.append_line(text, LogLevel.WARNING)
             self.status.setText(text)
         else:
             text = S.NET_BATCH_DONE.format(count=done)
-            self.log_view.append_line(text)
+            self.log_view.append_line(text, LogLevel.OK)
             self.status.setText(text)
 
     def _batch_failed(self, exc: BaseException) -> None:
         self._done()
         text = S.NET_BATCH_FAILED.format(error=f"{type(exc).__name__}: {exc}")
-        self.log_view.append_line(text)
+        self.log_view.append_line(text, LogLevel.ERROR)
         self.status.setText(text)
         self.dialogs.error(self, text)
 
@@ -632,7 +636,7 @@ class NetworkPage(Page):
         self._token.cancel()
         if self._job == "batch":
             self.status.setText(S.NET_BATCH_STOPPING)
-            self.log_view.append_line(S.NET_BATCH_STOPPING)
+            self.log_view.append_line(S.NET_BATCH_STOPPING, LogLevel.WARNING)
 
     # ------------------------------------------------------------ running
 

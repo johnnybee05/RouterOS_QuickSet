@@ -7,10 +7,11 @@ import logging
 import pytest
 from pydantic import SecretStr
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextDocument
+from PySide6.QtGui import QColor, QPalette, QTextDocument
 from PySide6.QtWidgets import QLineEdit
 
 from factories import FIVE_PORTS, make_inventory, router_profile
+from mqs.apply.events import StepStatus
 from mqs.issues import Issue, Severity
 from mqs.model.ports import rename_port
 from mqs.model.profile import DeviceProfile
@@ -18,7 +19,9 @@ from mqs.model.wan import PppoeWan
 from mqs.ui.controller import ProfileController
 from mqs.ui.highlighter import RouterOsHighlighter
 from mqs.ui.widgets.common import (
+    STEP_LEVEL,
     IssueList,
+    LogLevel,
     LogView,
     PortSelector,
     QtLogHandler,
@@ -194,8 +197,35 @@ def test_log_view_and_handler(qtbot):
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
     logger.info("připojeno")
+    logger.error("odpojeno")
     logger.removeHandler(handler)
-    qtbot.waitUntil(lambda: "INFO připojeno" in view.toPlainText(), timeout=2000)
+    qtbot.waitUntil(lambda: "ERROR odpojeno" in view.toPlainText(), timeout=2000)
+    assert "INFO připojeno" in view.toPlainText()
+    assert [view.level_at(0), view.level_at(1)] == [LogLevel.NORMAL, LogLevel.ERROR]
+
+
+def test_log_view_colors_each_line_by_its_level(qtbot):
+    view = LogView()
+    qtbot.addWidget(view)
+    view.append_line("[OK] záloha", STEP_LEVEL[StepStatus.OK])
+    view.append_issue(Issue("x", Severity.WARNING))
+    view.append_line("první\ndruhý řádek", LogLevel.ERROR)
+    view.append_line("bez barvy")
+    assert [view.level_at(n) for n in range(5)] == [
+        LogLevel.OK, LogLevel.WARNING, LogLevel.ERROR, LogLevel.ERROR, LogLevel.NORMAL]
+    block = view.document().findBlockByNumber(0)
+    colors = {r.format.foreground().color().name() for r in block.layout().formats()}
+    assert len(colors) == 2, "a grey timestamp and a green message"
+
+    def message_color(line: int) -> str:
+        formats = view.document().findBlockByNumber(line).layout().formats()
+        return formats[-1].format.foreground().color().name()
+
+    light = message_color(0)
+    palette = view.palette()
+    palette.setColor(QPalette.ColorRole.Base, QColor(30, 30, 30))
+    view.setPalette(palette)
+    assert message_color(0) != light, "the lines already written follow a dark palette"
 
 
 def test_controller_takes_over_the_device_port_names():
