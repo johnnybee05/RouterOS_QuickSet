@@ -11,6 +11,17 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.8.2] – 2026-10-14
+
+### Změněno
+
+- **Název zálohy nese identitu zařízení:** `pre-quickset-<identita>-<datum-čas>.backup`
+  a `.rsc`, na zařízení i ve staženém adresáři. Hromadný update stahuje zálohy všech
+  zařízení do jednoho adresáře a tam je teď pozná od sebe. Identita je ta před změnou;
+  diakritika z ní vypadne, mezery a jiné znaky nahradí `_` a zkrátí se na 32 znaků.
+  Zařízení bez identity má název jako dřív. Mazání starých záloh počítá i se zálohami
+  se starým názvem.
+
 ## [0.8.1] – 2026-10-14
 
 ### Opraveno
