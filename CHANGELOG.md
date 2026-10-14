@@ -11,6 +11,17 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.9.2] – 2026-10-14
+
+### Opraveno
+
+- **Hromadný update se zastavil na „čeká: wireless (disabled)“.** Vedle `wifi-qcom-ac`
+  RouterOS balíček `wireless` sám vypíná (hAP ac^3: vypnutý na 7.24.5 před updatem
+  i na 7.23.7 po něm). Update ho nahrává ve nové verzi tak jako tak, a kontrola balíčků
+  pak každý nahraný balíček brala jako takový, který musí běžet. Teď musí běžet jen
+  balíčky, které běžely před updatem, a ty, které update přinesl nově; balíček, který byl
+  vypnutý už předtím, smí vypnutý zůstat. Balíček, který update vypnul, se hlásí dál.
+
 ## [0.9.1] – 2026-10-14
 
 ### Opraveno
