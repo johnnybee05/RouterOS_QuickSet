@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from mqs.apply.packages import UpdateDir
+from mqs.apply.routerboot import RouterbootState, state_from_inventory
 from mqs.apply.version_change import VersionPlan, plan_version
 from mqs.discover.candidates import Candidate
 from mqs.discover.topology import Topology, UpdateOrder, update_order
@@ -60,6 +61,9 @@ class DeviceStep:
     detail: str = ""
     # Devices that would lose their path if this one failed, for the message when it does.
     behind: tuple[str, ...] = ()
+    # Set when the device is already on the target and only its RouterBOOT is written:
+    # the firmware its RouterOS carries, read off the device at login.
+    firmware: RouterbootState | None = None
 
     @property
     def name(self) -> str:
@@ -72,6 +76,20 @@ class DeviceStep:
     @property
     def changes(self) -> bool:
         return self.plan is not None and self.plan.changes
+
+    @property
+    def firmware_only(self) -> bool:
+        return self.firmware is not None and not self.changes
+
+    @property
+    def reboots(self) -> int:
+        """Reboots the plan can count on: the hops, or the one a firmware-only step makes.
+
+        The firmware written after a hop is not counted — what the new RouterOS brings is
+        only known once it is installed."""
+        if self.firmware_only:
+            return 1
+        return self.plan.reboots if self.plan is not None else 0
 
 
 @dataclass
@@ -110,7 +128,8 @@ class BatchPlan:
 
     @property
     def runnable(self) -> tuple[DeviceStep, ...]:
-        return tuple(s for s in self.steps if s.changes and not s.blocked)
+        return tuple(s for s in self.steps
+                     if (s.changes or s.firmware_only) and not s.blocked)
 
     @property
     def ready(self) -> bool:
@@ -132,11 +151,18 @@ def plan_batch(
     here: str = "",
     wifi_package: WirelessDriver | None = None,
     allow_missing: Sequence[str] = (),
+    routerboot: bool = False,
+    routerboot_downgrade: bool = False,
 ) -> BatchPlan:
     """Work out every device's route before touching any of them.
 
     ``found_for`` gives each device the packages available for *its* architecture, which
     on a mixed fleet is not one directory's worth of answer.
+
+    With ``routerboot`` a device already on the target still goes into the batch when its
+    RouterOS carries a newer RouterBOOT than the one running — or, with
+    ``routerboot_downgrade``, an older one, as after a RouterOS downgrade. That step writes
+    the firmware and reboots once; nothing is installed and the configuration stays.
     """
     order = update_order(devices, topology, here=here)
     issues: list[Issue] = []
@@ -163,6 +189,10 @@ def plan_batch(
             step.outcome = Outcome.BLOCKED
             step.detail = _first_error(step.plan)
         elif not step.changes:
+            state = state_from_inventory(step.device.inventory)  # type: ignore[arg-type]
+            if routerboot and state.writable(allow_older=routerboot_downgrade):
+                step.firmware = state
+                continue
             # Already where it should be. Not "skipped", which means the batch stopped
             # before reaching it, and not a failure either.
             step.outcome = Outcome.UNCHANGED
@@ -299,6 +329,9 @@ def dry_run_lines(plan: BatchPlan) -> list[str]:
         role = _role(step.device)
         where = f" via {len(step.behind)} behind" if step.behind else ""
         lines.append(f"{number}. {step.name} ({role}){where}")
+        if step.firmware_only and step.firmware is not None:
+            lines.append(f"     RouterBOOT {step.firmware.current} -> {step.firmware.available}")
+            continue
         if step.plan is None or not step.plan.changes:
             lines.append(f"     {_first_error(step.plan) or 'nothing to install'}")
             continue

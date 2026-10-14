@@ -357,12 +357,20 @@ kterému se aplikace přihlásila a přečetla ho přímo.
 .\.venv\Scripts\python.exe -m mqs.cli fleet --to 7.16.1 --dry-run
 ```
 
-V okně je totéž na stránce **Síť**: *Prohledat síť* poslechne MNDP, *Přihlásit vybrané*
-se přihlásí k vybraným řádkům údaji ze stránky *Zařízení* a načte jejich stav, sousedy
-a registrační tabulky. Pod tabulkou je dávka: cílová verze (z adresáře `Update`), pro
-každé zařízení trasa a soubory, které dostane, a *Spustit dávku* po potvrzení. Vybrané
-řádky omezí dávku jen na ně. Průběh každého zařízení se vypisuje do logu na stránce
-a *Zastavit dávku* ji ukončí po zařízení, které se právě aktualizuje.
+V okně je totéž na stránce **Hromadný update**: *Prohledat síť* poslechne MNDP,
+*Přihlásit vybrané* se přihlásí k vybraným řádkům údaji ze stránky *Zařízení* a načte
+jejich stav, sousedy a registrační tabulky. Seznam po spuštění aplikace začíná prázdný
+a každé nové hledání ho nahradí: co neslyšelo, zmizí (stavový řádek je jmenuje),
+u zařízení slyšeného znovu zůstane, co načetlo přihlášení. Pod tabulkou je dávka: cílová
+verze (z adresáře `Update`), pro každé zařízení trasa a soubory, které dostane,
+a *Spustit dávku* po potvrzení. Vybrané řádky omezí dávku jen na ně. Průběh každého
+zařízení se vypisuje do logu na stránce a *Zastavit dávku* ji ukončí po zařízení, které
+se právě aktualizuje.
+
+Volba *RouterBOOT* zapíše po přechodu firmware, který nový RouterOS nese; zařízení, které
+už cílovou verzi má a čeká na něm novější RouterBOOT, jde do dávky jen kvůli němu (jeden
+restart, nic se neinstaluje). *Snížit RouterBOOT* k tomu dovolí i starší firmware – stav
+po downgradu RouterOS, kdy běží RouterBOOT novější než RouterOS na zařízení.
 
 Pořadí dávky jde od nejvzdálenějších zařízení k páteři, sestavené z registračních
 a neighbor tabulek. Když je strom neúplný, aplikace to řekne a chce `--confirm-order`

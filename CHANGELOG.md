@@ -11,6 +11,24 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [Nevydáno]
+
+### Změněno
+
+- Stránka *Síť* se jmenuje **Hromadný update**.
+- Nové hledání seznam zařízení nahradí: co neslyšelo, z něj zmizí a stavový řádek to
+  jmenuje. Zařízení slyšené znovu si nechá, co o něm načetlo přihlášení.
+- Po spuštění aplikace je seznam prázdný. `inventory.json` se dál zapisuje pro
+  `mqs fleet`, okno ho jen nenačítá.
+
+### Přidáno
+
+- **Snížení RouterBOOT v dávce.** Volba *Snížit RouterBOOT* vedle *RouterBOOT* zapíše
+  i firmware starší než ten, který běží – stav po downgradu RouterOS. Zařízení, které už
+  cílovou verzi má a čeká na něm RouterBOOT (novější, nebo se zapnutou volbou starší),
+  jde do dávky jen kvůli němu: jeden restart, žádná instalace ani záloha. Plán to u něj
+  píše a potvrzovací dotaz ho jmenuje.
+
 ## [0.6.0] – 2026-10-12
 
 ### Přidáno

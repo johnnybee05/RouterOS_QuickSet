@@ -355,7 +355,7 @@ class DevicePage(Page):
         )
 
     def login_settings(self) -> LoginSettings | None:
-        """The credentials in the form, for logging in elsewhere (the *Síť* page).
+        """The credentials in the form, for logging in elsewhere (the *Hromadný update* page).
 
         None without a user name: there is nothing to log in with. The secrets are
         registered for redaction exactly as a connect from this page registers them.

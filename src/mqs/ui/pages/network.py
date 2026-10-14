@@ -1,4 +1,4 @@
-"""The *Síť* page: what is out there, logging in to it, and updating it in batches.
+"""The *Hromadný update* page: what is out there, logging in to it, and updating it in batches.
 
 The window's job here is not to add capability — `mqs scan` and `mqs fleet` do the same —
 but to make three things impossible to miss on a network of three hundred antennas:
@@ -44,6 +44,7 @@ from mqs.apply.session import DeviceSession, LoginSettings, end_session
 from mqs.apply.version_change import VersionChanger, plan_version
 from mqs.discover.candidates import Candidate, Confidence, Sighting, confirmed
 from mqs.discover.classify import classify
+from mqs.discover.merge import find_match, merge_candidates
 from mqs.discover.portscan import ScanLimits
 from mqs.discover.scan import ScanPlan, ScanResult, log_in, with_neighbours
 from mqs.discover.scan import run as run_scan
@@ -52,9 +53,7 @@ from mqs.discover.store import (
     Change,
     Diff,
     Inventory,
-    InventoryError,
     compare,
-    load,
     save,
     to_csv,
     to_rows,
@@ -162,7 +161,10 @@ class NetworkPage(Page):
         layout.addWidget(self._batch_group(), 3)
         self.runner.busyChanged.connect(lambda _: self._update_buttons())
         self.load_packages()
-        self._load_saved()
+        # Every start begins with an empty list: what was out there yesterday is not what
+        # is out there now, and a batch must only ever see what this session found. The
+        # file is still written, for `mqs fleet` to read.
+        self._show()
         self._update_buttons()
 
     # ------------------------------------------------------------ layout
@@ -264,8 +266,13 @@ class NetworkPage(Page):
         run.addWidget(self.parallel)
         self.routerboot = QCheckBox(S.NET_ROUTERBOOT)
         self.routerboot.setChecked(True)
-        self.routerboot.setToolTip(S.APPLY_ROUTERBOOT_TIP)
+        self.routerboot.setToolTip(S.NET_ROUTERBOOT_TIP)
+        self.routerboot.toggled.connect(lambda _: self._show_plan())
         run.addWidget(self.routerboot)
+        self.routerboot_down = QCheckBox(S.NET_ROUTERBOOT_DOWN)
+        self.routerboot_down.setToolTip(S.APPLY_ROUTERBOOT_DOWN_TIP)
+        self.routerboot_down.toggled.connect(lambda _: self._show_plan())
+        run.addWidget(self.routerboot_down)
         run.addStretch(1)
         self.batch_button = QPushButton(S.NET_BATCH_START)
         self.batch_button.clicked.connect(self.start_batch)
@@ -287,14 +294,6 @@ class NetworkPage(Page):
         return box
 
     # ------------------------------------------------------------ the inventory
-
-    def _load_saved(self) -> None:
-        try:
-            self.devices = list(load(self.inventory_path).devices)
-        except InventoryError as exc:
-            self.status.setText(S.NET_INVENTORY_BAD.format(error=exc))
-            self.devices = []
-        self._show()
 
     def _save(self) -> None:
         try:
@@ -364,16 +363,30 @@ class NetworkPage(Page):
             self.status.setText(S.NET_SCAN_CANCELLED)
 
     def _scanned(self, result: ScanResult) -> None:
+        """A new scan replaces the list: whatever it did not hear is dropped.
+
+        A device it heard again keeps what logging in to it read — its state, neighbours
+        and registration tables — so the batch does not need a second login after every
+        scan. A device heard only through a neighbour table, and not by this scan, goes
+        with the rest; logging in to its AP again brings it back.
+        """
         self._done()
-        diff = compare(self.devices, list(result.devices))
-        self.devices = list(diff.merged)
+        before = list(self.devices)
+        found = list(result.devices)
+        kept = [d for d in before if find_match(found, d) is not None]
+        gone = [d for d in before if find_match(found, d) is None]
+        self.devices = merge_candidates([*kept, *found])
         self._save()
-        self._show(diff)
+        # Against an empty list every row would be "new", which says nothing.
+        self._show(compare(before, found) if before else None)
         failures = "; ".join(f"{r.source.value}: {r.error}" for r in result.failures)
-        found = len(result.devices)
-        self.status.setText(S.NET_SCAN_DONE.format(found=found, total=len(self.devices))
-                            + (f"  {S.NET_SOURCE_FAILED.format(detail=failures)}"
-                               if failures else ""))
+        text = S.NET_SCAN_DONE.format(found=len(self.devices))
+        if gone:
+            text += "  " + S.NET_SCAN_GONE.format(count=len(gone),
+                                                  names=", ".join(_name(d) for d in gone))
+        if failures:
+            text += f"  {S.NET_SOURCE_FAILED.format(detail=failures)}"
+        self.status.setText(text)
         self.devicesChanged.emit(list(self.devices))
 
     def _scan_failed(self, exc: BaseException) -> None:
@@ -486,9 +499,12 @@ class NetworkPage(Page):
             return None
         # The tree is the whole network's, not the selection's: an AP picked on its own
         # still has its stations behind it, and the batch has to know they are there.
+        routerboot = self.routerboot.isChecked()
         return plan_batch(devices, target, lambda device: self.packages,
                           topology=build(self.devices),
-                          here=str(self.here.currentData() or ""))
+                          here=str(self.here.currentData() or ""),
+                          routerboot=routerboot,
+                          routerboot_downgrade=routerboot and self.routerboot_down.isChecked())
 
     def start_batch(self) -> None:
         plan = self.batch_plan()
@@ -502,7 +518,10 @@ class NetworkPage(Page):
         text = S.NET_BATCH_CONFIRM.format(
             count=len(steps), target=plan.target,
             names=", ".join(s.name for s in steps),
-            reboots=sum(s.plan.reboots for s in steps if s.plan is not None))
+            reboots=sum(s.reboots for s in steps))
+        firmware = [s.name for s in steps if s.firmware_only]
+        if firmware:
+            text += "\n\n" + S.NET_BATCH_CONFIRM_FIRMWARE.format(names=", ".join(firmware))
         if plan.needs_confirmation:
             typed = self.dialogs.ask_text(
                 self, S.NET_BATCH_TITLE,
@@ -516,6 +535,7 @@ class NetworkPage(Page):
         target = plan.target
         packages = self.packages
         routerboot = self.routerboot.isChecked()
+        routerboot_down = routerboot and self.routerboot_down.isChecked()
         parallel = self.parallel.value()
         backup_dir = self.backup_dir
         self.log_view.append_line(S.NET_BATCH_RUNNING)
@@ -536,6 +556,7 @@ class NetworkPage(Page):
                     read_again=self.read_fn,
                     changer_factory=self.changer_factory,
                     upgrade_routerboot=routerboot,
+                    routerboot_downgrade=routerboot_down,
                     download_dir=backup_dir,
                     keep_backups=DEFAULT_KEEP_BACKUPS)
 
@@ -749,6 +770,7 @@ class NetworkPage(Page):
         self.batch_stop_button.setEnabled(working and self._job in ("login", "batch"))
         for widget in (self.target, self.here, self.parallel, self.routerboot):
             widget.setEnabled(not working)
+        self.routerboot_down.setEnabled(not working and self.routerboot.isChecked())
 
     @property
     def updatable(self) -> list[Candidate]:
@@ -799,6 +821,12 @@ def _plan_lines(plan: BatchPlan) -> list[str]:
         if step.outcome is Outcome.BLOCKED:
             lines.append(S.NET_PLAN_BLOCKED.format(detail=step.detail or "?"))
             continue
+        if step.firmware_only and step.firmware is not None:
+            line = (S.NET_PLAN_ROUTERBOOT_DOWN if step.firmware.older
+                    else S.NET_PLAN_ROUTERBOOT)
+            lines.append(line.format(target=plan.target, current=step.firmware.current,
+                                     version=step.firmware.available))
+            continue
         if step.outcome is Outcome.UNCHANGED or step.plan is None:
             lines.append(S.NET_PLAN_UNCHANGED.format(target=plan.target))
             continue
@@ -834,7 +862,7 @@ def _readiness(plan: BatchPlan) -> str:
         return S.NET_BATCH_NOTHING.format(target=plan.target) if plan.steps else ""
     return S.NET_BATCH_READY.format(
         count=len(plan.runnable),
-        reboots=sum(s.plan.reboots for s in plan.runnable if s.plan is not None))
+        reboots=sum(s.reboots for s in plan.runnable))
 
 
 def _why(plan: BatchPlan) -> str:

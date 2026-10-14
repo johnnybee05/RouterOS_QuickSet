@@ -6,7 +6,7 @@ APP_TITLE = "MikroTik QuickSet Plus"
 
 NAV = {
     "device": "Zařízení",
-    "network": "Síť",
+    "network": "Hromadný update",
     "basic": "Základ",
     "lan": "LAN / Bridge",
     "firewall": "Firewall",
@@ -370,8 +370,8 @@ WARNING_TITLE = "Upozornění"
 YES = "Ano"
 NO = "Ne"
 
-# --- stránka Síť (hledání zařízení a dávkový update) ---------------------------------
-NET_PAGE_TITLE = "Síť"
+# --- stránka Hromadný update (hledání zařízení a dávkový update) ---------------------------------
+NET_PAGE_TITLE = "Hromadný update"
 NET_SCAN_GROUP = "Hledání zařízení v síti"
 NET_SCAN_START = "Prohledat síť"
 NET_SCAN_STOP = "Zastavit"
@@ -428,6 +428,13 @@ NET_PARALLEL = "Najednou:"
 NET_PARALLEL_TIP = ("Kolik zařízení se aktualizuje současně. Zařízení, za kterým něco "
                     "visí, jde vždy samo. Na páteři nechte 1.")
 NET_ROUTERBOOT = "RouterBOOT"
+NET_ROUTERBOOT_TIP = (
+    "Po přechodu na cílovou verzi se RouterBOOT aktualizuje na firmware, který nese "
+    "RouterOS na zařízení, pokud je novější než ten, který běží. Zařízení, které už cílovou "
+    "verzi má a čeká na něm novější RouterBOOT, jde do dávky také – jen kvůli RouterBOOTu, "
+    "jedním restartem a bez zásahu do konfigurace."
+)
+NET_ROUTERBOOT_DOWN = "Snížit RouterBOOT"
 NET_BATCH_START = "Spustit dávku"
 NET_BATCH_STOP = "Zastavit dávku"
 NET_BATCH_STOP_TIP = ("Dávka se zastaví po zařízení, které se právě aktualizuje – "
@@ -438,6 +445,9 @@ NET_PLAN_HOP = "     → {version}: {files}"
 NET_PLAN_DRIVERS = "     ovladač rádia: {drivers}"
 NET_PLAN_CONFIRM = "     POZOR: downgrade nebo přechod mezi RouterOS 6 a 7"
 NET_PLAN_UNCHANGED = "     už má {target}, nic se neinstaluje"
+NET_PLAN_ROUTERBOOT = "     už má {target}, jen RouterBOOT {current} → {version}"
+NET_PLAN_ROUTERBOOT_DOWN = ("     už má {target}, jen snížení RouterBOOT {current} → "
+                            "{version}")
 NET_PLAN_BLOCKED = "     NELZE: {detail}"
 NET_PLAN_LIST = "{number}. {name}  ({summary})"
 NET_ROLES = {"ap": "AP", "station": "stanice", "none": "bez rádia", "unknown": "?"}
@@ -453,6 +463,8 @@ NET_BATCH_CONFIRM = ("Aktualizovat {count} zařízení na RouterOS {target}?\n\n
                      "Pořadí: {names}\nRestartů celkem: {reboots}\n\n"
                      "Před každým přechodem se stáhne záloha konfigurace. Dávka se zastaví "
                      "na prvním zařízení, které se nevrátí nebo neprojde kontrolou.")
+NET_BATCH_CONFIRM_FIRMWARE = ("Jen RouterBOOT (RouterOS už cílovou verzi má, jeden "
+                              "restart): {names}")
 NET_BATCH_WHY = "Dávku je potřeba potvrdit ručně: {reasons}"
 NET_BATCH_WHY_ORDER = "pořadí není jisté (neúplná topologie)"
 NET_BATCH_WHY_VERSION = "downgrade nebo přechod mezi RouterOS 6 a 7 ({names})"
@@ -474,10 +486,10 @@ NET_EMPTY = ("Zatím nic. Tlačítkem „Prohledat síť“ se poslechne MNDP; z
 NET_SERIOUS = "POZOR: {detail}."
 NET_SCANNING = "Hledám…"
 NET_SCAN_CANCELLED = "Hledání se ukončuje…"
-NET_SCAN_DONE = "Nalezeno {found}, v inventáři je {total} zařízení."
+NET_SCAN_DONE = "Nalezeno {found} zařízení."
+NET_SCAN_GONE = "Z předchozího hledání už není {count}: {names}."
 NET_SCAN_FAILED = "Hledání selhalo: {error}"
 NET_SOURCE_FAILED = "Některý zdroj selhal – {detail}"
-NET_INVENTORY_BAD = "Inventář se nedá přečíst: {error}"
 NET_INVENTORY_SAVE_FAILED = "Inventář se nepodařilo uložit: {error}"
 NET_EXPORT_TITLE = "Export inventáře"
 NET_EXPORT_FILTER = "CSV (*.csv);;JSON (*.json)"

@@ -1,6 +1,6 @@
 """One device of a batch: connect, check the plan still holds, change the version.
 
-Shared by `mqs fleet` and the window's *Síť* page, so the part that reboots hardware is
+Shared by `mqs fleet` and the window's *Hromadný update* page, so the part that reboots hardware is
 written once. Raising is how a device reports failure to the batch, and nothing here
 swallows an error: a device that did not come back must stop everything behind it.
 

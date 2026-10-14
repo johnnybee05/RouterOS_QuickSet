@@ -1,4 +1,4 @@
-"""The *Síť* page.
+"""The *Hromadný update* page.
 
 The page owns no logic, so these tests check the two things it is actually for: that the
 table makes it obvious which devices may be updated, and that the order it shows is the
@@ -204,6 +204,38 @@ def test_a_second_scan_marks_what_changed_in_bold(page, qtbot):
     assert "7.15.3 -> 7.16.1" in page.table.item(0, 6).toolTip()
 
 
+def test_a_new_scan_drops_what_it_did_not_hear(page, qtbot, tmp_path):
+    old = from_sighting(Sighting(source=Source.MNDP, identity="old", address="192.0.2.8",
+                                 macs=["AA:BB:CC:00:00:08"]))
+    page.scan_fn = lambda *a, **k: ScanResult((old, guess("stays", "192.0.2.9")), ())
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_scan()
+    assert sorted(d.identity for d in page.devices) == ["old", "stays"]
+
+    page.scan_fn = lambda *a, **k: ScanResult((guess("stays", "192.0.2.9"),), ())
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_scan()
+    assert [d.identity for d in page.devices] == ["stays"]
+    assert texts(page, 1) == ["stays"]
+    assert "Nalezeno 1" in page.status.text() and "old" in page.status.text()
+    saved = json.loads((tmp_path / "inv.json").read_text(encoding="utf-8"))
+    assert [d["identity"] for d in saved["devices"]] == ["stays"]
+
+
+def test_a_device_heard_again_keeps_what_the_login_read(page, qtbot):
+    logged_in = antenna("sxt-01", address="192.0.2.5").model_copy(
+        update={"macs": ["AA:BB:CC:00:00:05"]})
+    page.devices = [logged_in]
+    page._show()
+    heard = from_sighting(Sighting(source=Source.MNDP, identity="sxt-01",
+                                   address="192.0.2.5", macs=["AA:BB:CC:00:00:05"]))
+    page.scan_fn = lambda *a, **k: ScanResult((heard,), ())
+    with qtbot.waitSignal(page.devicesChanged, timeout=3000):
+        page.start_scan()
+    assert len(page.devices) == 1
+    assert page.devices[0].inventory is not None and texts(page, 0) == ["++"]
+
+
 def test_a_radio_that_disappeared_is_shouted_about(page, qtbot):
     from mqs.model.inventory import WirelessSnapshot
 
@@ -245,7 +277,8 @@ def test_the_buttons_follow_what_is_happening(page):
 # ------------------------------------------------------------------ the inventory file
 
 
-def test_a_saved_inventory_is_loaded_on_open(qtbot, tmp_path):
+def test_every_start_begins_with_an_empty_list(qtbot, tmp_path):
+    """What the last session saved is for `mqs fleet`; the window starts from nothing."""
     from mqs.ui.controller import ProfileController
     from mqs.ui.dialogs import Dialogs
     from mqs.ui.pages.network import NetworkPage
@@ -259,11 +292,11 @@ def test_a_saved_inventory_is_loaded_on_open(qtbot, tmp_path):
                          scan_fn=lambda *a, **k: ScanResult(),
                          update_dir=tmp_path / "Update")
     qtbot.addWidget(widget)
-    assert [d.identity for d in widget.devices] == ["sxt-01"]
-    assert widget.table.rowCount() == 1
+    assert widget.devices == [] and widget.table.rowCount() == 0
+    assert "Prohledat síť" in widget.order_hint.text()
 
 
-def test_an_unreadable_inventory_is_reported_and_the_page_still_opens(qtbot, tmp_path):
+def test_an_unreadable_inventory_file_does_not_stop_the_page_opening(qtbot, tmp_path):
     from mqs.ui.controller import ProfileController
     from mqs.ui.dialogs import Dialogs
     from mqs.ui.pages.network import NetworkPage
@@ -276,7 +309,7 @@ def test_an_unreadable_inventory_is_reported_and_the_page_still_opens(qtbot, tmp
                          scan_fn=lambda *a, **k: ScanResult(),
                          update_dir=tmp_path / "Update")
     qtbot.addWidget(widget)
-    assert widget.devices == [] and "nedá přečíst" in widget.status.text()
+    assert widget.devices == [] and widget.status.text() == ""
 
 
 def test_the_table_exports_to_csv(page, tmp_path, monkeypatch):
@@ -503,6 +536,78 @@ def test_a_batch_updates_every_device_leaves_first(page, qtbot, tmp_path, monkey
     assert "aktualizováno 3" in page.status.text()
     assert texts(page, 6) == ["7.16.1", "7.16.1", "7.16.1"]
     assert "už má 7.16.1" in page.order_text.toPlainText()
+
+
+def with_firmware(device: Candidate, current: str, waiting: str) -> Candidate:
+    board = device.inventory.routerboard.model_copy(
+        update={"current_firmware": current, "upgrade_firmware": waiting})
+    return device.model_copy(update={
+        "inventory": device.inventory.model_copy(update={"routerboard": board})})
+
+
+def test_a_device_on_the_target_still_gets_its_waiting_routerboot(page, tmp_path):
+    update_folder(tmp_path, "7.15.3")
+    page.load_packages()
+    page.devices = [with_firmware(antenna("sxt-01", address="192.0.2.5"), "7.10.0", "7.15.3"),
+                    antenna("done", address="192.0.2.6")]
+    page._show()
+    text = page.order_text.toPlainText()
+    assert "už má 7.15.3, jen RouterBOOT 7.10.0 → 7.15.3" in text
+    assert "už má 7.15.3, nic se neinstaluje" in text
+    assert "Do dávky jde 1 zařízení, restartů celkem 1" in page.order_hint.text()
+    assert page.batch_button.isEnabled()
+
+    page.routerboot.setChecked(False)
+    assert "jen RouterBOOT" not in page.order_text.toPlainText()
+    assert not page.batch_button.isEnabled()
+    assert not page.routerboot_down.isEnabled()
+
+
+def test_an_older_routerboot_is_written_only_when_asked(page, tmp_path):
+    update_folder(tmp_path, "7.15.3")
+    page.load_packages()
+    page.devices = [with_firmware(antenna("sxt-01", address="192.0.2.5"), "7.23.7", "7.15.3")]
+    page._show()
+    assert "nic se neinstaluje" in page.order_text.toPlainText()
+    assert not page.batch_button.isEnabled()
+
+    page.routerboot_down.setChecked(True)
+    assert "jen snížení RouterBOOT 7.23.7 → 7.15.3" in page.order_text.toPlainText()
+    assert page.batch_button.isEnabled()
+
+
+def test_a_batch_lowers_the_routerboot_of_a_device_already_on_the_target(
+        page, qtbot, tmp_path, monkeypatch):
+    from test_fleet_end_to_end import Lab
+
+    device = with_firmware(antenna("sxt-01", address="192.0.2.5"), "7.23.7", "7.15.3")
+    lab = Lab(tmp_path, {device.address: device}, "7.15.3")
+    router = lab.routers[device.address]
+    router.firmware.update({"current-firmware": "7.23.7", "upgrade-firmware": "7.15.3"})
+    page.update_dir = lab.folder
+    page.load_packages()
+    page.target.setCurrentText("7.15.3")
+    page.login_settings = settings
+    page.open_fn = lambda s, host, cancelled: lab.sessions[host]
+    page.close_fn = lambda session: None
+    page.changer_factory = lab.changer
+    page.backup_dir = tmp_path / "backups"
+    page.read_fn = lambda session: with_firmware(device, "7.15.3", "7.15.3").inventory
+    asked: list[str] = []
+    monkeypatch.setattr(page.dialogs, "question",
+                        lambda parent, title, text: asked.append(text) or True)
+    page.devices = [device]
+    page.routerboot_down.setChecked(True)
+    page._show()
+    assert page.batch_button.isEnabled()
+
+    with qtbot.waitSignal(page.devicesChanged, timeout=10000):
+        page.start_batch()
+    assert asked and "Jen RouterBOOT" in asked[0] and "sxt-01" in asked[0]
+    assert router.reboots == 1 and router.firmware["current-firmware"] == "7.15.3"
+    assert router.packages["routeros"] == "7.15.3"  # nothing installed
+    assert "aktualizováno 1" in page.status.text()
+    assert "nic se neinstaluje" in page.order_text.toPlainText()
 
 
 def test_an_uncertain_order_must_be_confirmed_by_typing_the_version(page, tmp_path,
