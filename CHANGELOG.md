@@ -11,7 +11,7 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
-## [Nevydáno]
+## [0.7.0] – 2026-10-14
 
 ### Změněno
 
