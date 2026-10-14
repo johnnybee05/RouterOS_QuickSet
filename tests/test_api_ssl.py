@@ -87,6 +87,25 @@ def test_falls_back_to_verified_when_handshake_fails():
     assert len(fake.attempts) == 2
 
 
+BAD_MAC = "[SSL: SSLV3_ALERT_BAD_RECORD_MAC] sslv3 alert bad record mac (_ssl.c:1032)"
+
+
+def test_a_bad_record_mac_handshake_is_tried_again():
+    fake = FakeConnect([ssl.SSLError(BAD_MAC), ssl.SSLError(BAD_MAC), FakeApi()])
+    transport = ApiSslTransport(PARAMS, connect_func=fake)
+    transport.connect()
+    assert transport.peer_security == PeerSecurity.ANONYMOUS_DH
+    assert [a["login_method"] for a in fake.attempts] == [ros_login.plain] * 3
+
+
+def test_bad_record_mac_every_time_moves_on_to_verified():
+    fake = FakeConnect([ssl.SSLError(BAD_MAC)] * 4 + [FakeApi()])
+    transport = ApiSslTransport(PARAMS, connect_func=fake)
+    transport.connect()
+    assert transport.peer_security == PeerSecurity.VERIFIED
+    assert len(fake.attempts) == 5
+
+
 def test_ca_file_means_verified_only(tmp_path):
     params = ConnectionParams(host="h", username="u", ca_file=None, allow_anonymous_dh=False)
     fake = FakeConnect([ssl.SSLError("verify failed")])

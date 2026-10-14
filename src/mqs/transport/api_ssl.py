@@ -40,6 +40,13 @@ _AUTH_MARKERS = ("cannot log in", "invalid user name or password", "not logged i
 # without a radio, 2026-10-12). It escaped as a crash where "menu missing" was expected.
 _TRAPS = (ros_exc.TrapError, ros_exc.MultiTrapError)
 
+# RouterOS now and then refuses our Finished message of an anonymous-DH handshake with a
+# "bad record mac" alert: 4 of 300 handshakes to an E60iUGS on 7.24.5 and 1 of 300 to a
+# hEX S on 7.23.8 (2026-10-14), each one fine when repeated. One of them stopped a batch
+# update. Such a handshake is simply tried again; anything else that breaks one is not.
+_BAD_RECORD_MAC = "BAD_RECORD_MAC"
+_HANDSHAKE_TRIES = 4
+
 
 def _to_text(value: Any) -> str:
     if isinstance(value, bool):
@@ -86,7 +93,7 @@ class ApiSslTransport:
         for security, ctx in self._attempts():
             for login_method in (ros_login.plain, ros_login.token):
                 try:
-                    self._open(security, ctx, login_method)
+                    self._open_retrying(security, ctx, login_method)
                     return
                 except AuthError:
                     raise
@@ -101,6 +108,14 @@ class ApiSslTransport:
         raise ServiceUnavailable(
             f"api-ssl {self.params.host}:{self.port} unavailable: " + "; ".join(errors)
         )
+
+    def _open_retrying(self, security: PeerSecurity, ctx: ssl.SSLContext,
+                       login_method: Any) -> None:
+        for _ in range(_HANDSHAKE_TRIES - 1):
+            with contextlib.suppress(_HandshakeGlitch):
+                self._open(security, ctx, login_method)
+                return
+        self._open(security, ctx, login_method)
 
     def _open(self, security: PeerSecurity, ctx: ssl.SSLContext, login_method: Any) -> None:
         captured: list[ssl.SSLSocket] = []
@@ -132,7 +147,8 @@ class ApiSslTransport:
                 f"api-ssl connect to {self.params.host}:{self.port} timed out"
             ) from exc
         except ssl.SSLError as exc:
-            raise ServiceUnavailable(f"{security.value} TLS handshake failed: {exc}") from exc
+            error = _HandshakeGlitch if _BAD_RECORD_MAC in str(exc) else ServiceUnavailable
+            raise error(f"{security.value} TLS handshake failed: {exc}") from exc
         except (ros_exc.LibRouterosError, OSError) as exc:
             raise ServiceUnavailable(f"{security.value}: {exc}") from exc
 
@@ -247,3 +263,7 @@ class ApiSslTransport:
 
 class _LoginMethodRejected(ServiceUnavailable):
     """Server rejected the login flavour (plain vs. legacy token); try the other one."""
+
+
+class _HandshakeGlitch(ServiceUnavailable):
+    """The device fumbled one handshake that the next one will very likely get through."""
