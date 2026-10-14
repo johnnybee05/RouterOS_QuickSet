@@ -400,6 +400,8 @@ MESSAGES: dict[str, str] = {
     "verify.registrations": "Registrační tabulka se znovu naplnila na {radios} "
     "(prázdná: {empty}, čekáno {waited} s)",
     "apply.step.radio_check": "Kontrola bezdrátových rozhraní po restartu",
+    "apply.step.radios_wait": "Čekání, až se rozběhnou rádia ({stopped}) – nejvýš {timeout} s "
+    "(kanál DFS nejdřív poslouchá radar)",
     "apply.step.registrations_wait": "Čekání na návrat stanic: {returned} z {expected} "
     "rozhraní",
     "apply.failed.version_radio_lost": "Po instalaci RouterOS {version} chybí bezdrátové "

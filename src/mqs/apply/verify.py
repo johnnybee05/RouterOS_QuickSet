@@ -15,7 +15,12 @@ from mqs.generator.blocks.firewall import COMMENT_PREFIX, IPV6_FILTER, IPV6_SETT
 from mqs.issues import Issue, Severity
 from mqs.messages_cs import format_message
 from mqs.model.bridge import LanAddressing
-from mqs.model.inventory import BridgePortState, WirelessSnapshot
+from mqs.model.inventory import (
+    BridgePortState,
+    WirelessMenu,
+    WirelessRole,
+    WirelessSnapshot,
+)
 from mqs.model.profile import DeviceProfile
 from mqs.model.version import RosVersion
 from mqs.model.wan import DhcpWan, StaticWan
@@ -36,6 +41,8 @@ IMPORT_SCRIPT_ERROR = "script error"
 # How often to look at the registration table while waiting for the stations to come back.
 # They re-associate on their own schedule, well after the device is up again.
 REGISTRATION_POLL_S = 15.0
+# How often to look again at a radio that is there but not up yet after the reboot.
+RADIO_POLL_S = 10.0
 
 
 @dataclass(frozen=True)
@@ -257,8 +264,7 @@ def compare_radios(before: WirelessSnapshot, after: WirelessSnapshot) -> CheckRe
     appeared = sorted(set(after.names) - set(before.names))
     # Only radios that were up before: one that was down stays this flow's business
     # exactly as much as it was, which is not at all.
-    stopped = sorted(set(before.running_names) & set(after.names)
-                     - set(after.running_names))
+    stopped = sorted(set(_up(before)) & set(after.names) - set(after.running_names))
     return CheckResult(
         "verify.radios",
         not lost_menus and not lost and not stopped,
@@ -268,6 +274,52 @@ def compare_radios(before: WirelessSnapshot, after: WirelessSnapshot) -> CheckRe
          "stopped": ", ".join(stopped) or "-",
          "new": ", ".join(appeared) or "-"},
     )
+
+
+def _up(snapshot: WirelessSnapshot) -> list[str]:
+    """The radios whose `running` flag says the radio itself is up.
+
+    Not an AP under `/interface wifi`: there the flag only says somebody is registered.
+    The hAP ac^3 on 7.23.6 and 7.24.5 (2026-10-14) showed `wifi1` without R while
+    `/interface wifi monitor` said `state: running`, with nobody on it — and `wifi2` with
+    R and three stations. Read that way, an AP rebooted on a DFS channel is "not running"
+    until its channel check is over and the first station is back, which stopped a batch
+    on a radio that was fine. Its stations are what `wait_for_registrations` waits for.
+    """
+    return sorted(i.name for i in snapshot.interfaces if i.running and not (
+        i.menu == WirelessMenu.WIFI and i.role == WirelessRole.AP))
+
+
+def radios_lost(check: CheckResult) -> bool:
+    """A menu or an interface is gone: waiting will not bring it back."""
+    return check.params.get("menus_lost", "-") != "-" or check.params.get("lost", "-") != "-"
+
+
+def wait_for_radios(
+    transport: Transport,
+    before: WirelessSnapshot,
+    version: RosVersion,
+    *,
+    sleep: Callable[[float], None],
+    timeout_s: float,
+    interval_s: float = RADIO_POLL_S,
+    now: Callable[[], float] = time.monotonic,
+    on_wait: Callable[[str], None] = lambda stopped: None,
+) -> CheckResult:
+    """`compare_radios`, asked again while the only thing wrong is a radio not up yet.
+
+    The device answering is not the radio being up: a radio on a DFS channel listens for
+    radar first (a minute, ten on the weather channels), and a station has to find its AP.
+    A missing menu or interface is reported at once — that is the driver, and no amount of
+    waiting brings it back.
+    """
+    deadline = now() + timeout_s
+    while True:
+        check = compare_radios(before, collect_radios(transport, version))
+        if check.ok or radios_lost(check) or now() >= deadline:
+            return check
+        on_wait(check.params["stopped"])
+        sleep(interval_s)
 
 
 def registrations_returned(before: WirelessSnapshot,

@@ -8,6 +8,7 @@ from mqs.apply.verify import (
     check_package_versions,
     compare_radios,
     registrations_returned,
+    wait_for_radios,
     wait_for_registrations,
 )
 from mqs.model.inventory import WirelessSnapshot
@@ -127,6 +128,28 @@ def test_a_radio_that_is_no_longer_running_means_the_link_is_down():
     assert not check.ok and check.params["stopped"] == "wlan1"
 
 
+def _down(snapshot: WirelessSnapshot, *names: str) -> WirelessSnapshot:
+    return snapshot.model_copy(update={"interfaces": [
+        i.model_copy(update={"running": False}) if i.name in names else i
+        for i in snapshot.interfaces]})
+
+
+def test_an_ap_on_the_wifi_driver_without_stations_is_not_a_radio_down():
+    """The hAP ac^3 going 7.23.6 -> 7.24.5 (2026-10-14): `wifi2-5Ghz` on a DFS channel had
+    nobody back yet when the check ran, and under `/interface wifi` an AP's R flag only
+    says somebody is registered. The stations are the registration wait's business."""
+    before = make_radios(("wifi1", "wifi", "ap"), ("wifi2", "wifi", "ap"),
+                         registrations={"wifi2": 3})
+    check = compare_radios(before, _down(before, "wifi1", "wifi2"))
+    assert check.ok and check.params["stopped"] == "-"
+
+
+def test_a_station_on_the_wifi_driver_that_is_not_running_has_no_link():
+    before = make_radios(("wifi1", "wifi", "station"))
+    check = compare_radios(before, _down(before, "wifi1"))
+    assert not check.ok and check.params["stopped"] == "wifi1"
+
+
 def test_a_radio_that_was_already_down_is_not_this_flows_business():
     before = make_radios(("wlan1", "wireless", "station-bridge"))
     down = before.model_copy(update={
@@ -147,6 +170,67 @@ def test_a_new_radio_is_named_but_is_not_a_failure():
 def test_a_device_with_no_radio_compares_clean():
     empty = WirelessSnapshot(collected=True)
     assert compare_radios(empty, empty).ok
+
+
+def _rebooting(states: list[str]) -> FakeTransport:
+    """A station whose `running` changes between reads, as a radio coming up does."""
+    fake = FakeTransport({"/interface/wireless/print": [],
+                          "/interface/wireless/registration-table/print": []})
+    original = fake.execute
+    rounds = {"n": 0}
+
+    def execute(path: str, /, **args: object):
+        if path == "/interface/wireless/print":
+            state = states[min(rounds["n"], len(states) - 1)]
+            rounds["n"] += 1
+            if state == "gone":
+                return []
+            return [{"name": "wlan1", "mode": "station-bridge", "running": state}]
+        return original(path, **args)
+
+    fake.execute = execute  # type: ignore[method-assign]
+    return fake
+
+
+def _clock():
+    clock = {"t": 0.0}
+
+    def sleep(seconds: float) -> None:
+        clock["t"] += seconds
+
+    return clock, sleep
+
+
+def test_a_radio_that_is_not_up_yet_is_asked_again():
+    """The device answers before the radio is up: a DFS channel listens for radar first,
+    and a station has to find its AP."""
+    before = make_radios(("wlan1", "wireless", "station-bridge"))
+    clock, sleep = _clock()
+    seen: list[str] = []
+    check = wait_for_radios(_rebooting(["no", "no", "yes"]), before, V("7.16.1"),
+                            sleep=sleep, timeout_s=660.0, interval_s=10.0,
+                            now=lambda: clock["t"], on_wait=seen.append)
+    assert check.ok
+    assert clock["t"] == 20.0 and seen == ["wlan1", "wlan1"]
+
+
+def test_a_radio_that_stays_down_fails_at_the_timeout():
+    before = make_radios(("wlan1", "wireless", "station-bridge"))
+    clock, sleep = _clock()
+    check = wait_for_radios(_rebooting(["no"]), before, V("7.16.1"), sleep=sleep,
+                            timeout_s=60.0, interval_s=10.0, now=lambda: clock["t"])
+    assert not check.ok and check.params["stopped"] == "wlan1"
+    assert clock["t"] == 60.0
+
+
+def test_a_lost_radio_is_not_waited_for():
+    """A missing interface is the driver, and no amount of waiting brings it back."""
+    before = make_radios(("wlan1", "wireless", "station-bridge"))
+    clock, sleep = _clock()
+    check = wait_for_radios(_rebooting(["gone", "yes"]), before, V("7.16.1"), sleep=sleep,
+                            timeout_s=660.0, now=lambda: clock["t"])
+    assert not check.ok and check.params["lost"] == "wlan1"
+    assert clock["t"] == 0.0
 
 
 # ------------------------------------------------------------------ the stations

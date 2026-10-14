@@ -61,7 +61,8 @@ def antenna(current: str, *, stations: int = 0, extras: tuple[str, ...] = ()):
 def runner_for(
     tmp_path: Path, target: str, current: str = "7.15.3", *,
     loses: tuple[str, ...] = (), stations: int = 0, reassociate: bool = True,
-    registration_timeout: float = 60.0, versions: tuple[str, ...] = (),
+    registration_timeout: float = 60.0, radio_timeout: float = 0.0,
+    versions: tuple[str, ...] = (),
     extras: tuple[str, ...] = (),
 ):
     folder = arm_dir(tmp_path, *(versions or (current, target)))
@@ -96,7 +97,7 @@ def runner_for(
         uploader_factory=lambda transport: RouterUploader(router),
         reconnect=lambda request: router.session(port=request.api_port),
         on_event=events.append, sleep=lambda seconds: None,
-        registration_timeout_s=registration_timeout,
+        registration_timeout_s=registration_timeout, radio_timeout_s=radio_timeout,
     )
     return router, VersionChanger(ctx), events
 
@@ -161,6 +162,29 @@ def test_a_radio_that_came_back_down_is_reported(tmp_path):
         runner.run()
     radios = next(c for c in caught.value.report.checks if c.code == "verify.radios")
     assert radios.params["stopped"] == "wlan1" and radios.params["lost"] == "-"
+
+
+def test_a_radio_that_comes_up_late_is_waited_for(tmp_path):
+    """The device answers before the radio is up — a DFS channel listens for radar first.
+    The hAP ac^3 stopped a batch on exactly that (2026-10-14)."""
+    router, runner, events = runner_for(tmp_path, "7.16.1", radio_timeout=660.0)
+    original = router._install_drivers
+
+    def slow(installing, *, downgrade):
+        original(installing, downgrade=downgrade)
+        router.radios["wireless"] = [{"name": "wlan1", "mode": "station-bridge",
+                                      "running": "no"}]
+
+    def sleep(seconds: float) -> None:
+        if any(e.step == "apply.step.radios_wait" for e in events):
+            router.radios["wireless"] = [{"name": "wlan1", "mode": "station-bridge",
+                                          "running": "yes"}]
+
+    router._install_drivers = slow
+    runner.ctx.sleep = sleep
+    report = runner.run()
+    assert report.succeeded, [c.message for c in report.checks if not c.ok]
+    assert next(c for c in report.checks if c.code == "verify.radios").ok
 
 
 # ------------------------------------------------------------------ package parity

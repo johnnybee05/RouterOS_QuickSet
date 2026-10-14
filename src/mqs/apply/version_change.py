@@ -76,7 +76,7 @@ from mqs.apply.verify import (
     CheckResult,
     check_package_versions,
     check_routeros_version,
-    compare_radios,
+    wait_for_radios,
     wait_for_registrations,
 )
 from mqs.generator.ir import Find, cmd
@@ -108,6 +108,11 @@ REBOOT_WAIT_S = 20.0
 # How long to give an AP's stations to come back after the last hop. They re-associate on
 # their own schedule, which is slower than the boot.
 REGISTRATION_WAIT_S = 300.0
+# How long a radio that is there but not up yet gets before the run stops on it. A radio on
+# a DFS channel listens for radar before it transmits: a minute, and ten on the weather
+# channels (5600-5650 MHz) — this covers the longer one with the boot on top. Only a radio
+# that stays down waits it out; one that comes up ends the wait at once.
+RADIO_WAIT_S = 660.0
 
 
 class Install(StrEnum):
@@ -461,6 +466,7 @@ class VersionContext:
     # for an AP and pointless for a station, so it is asked of the snapshot, not the user.
     wait_for_stations: bool = True
     registration_timeout_s: float = REGISTRATION_WAIT_S
+    radio_timeout_s: float = RADIO_WAIT_S
 
 
 @dataclass
@@ -745,6 +751,12 @@ class VersionChanger:
         if not before.collected:
             return  # nothing to compare against; the plan refuses this case earlier
         self._event("apply.step.radio_check", StepStatus.RUNNING)
+
+        def progress(stopped: str) -> None:
+            self._check_cancel()
+            self._event("apply.step.radios_wait", StepStatus.RUNNING, stopped=stopped,
+                        timeout=f"{self.ctx.radio_timeout_s:.0f}")
+
         try:
             packages = check_package_versions(
                 self.transport, hop.version,
@@ -752,14 +764,19 @@ class VersionChanger:
                                 if p.installed and not p.disabled}
                 | {p.name for p in hop.packages})
             after = collect_radios(self.transport, hop.version)
+            radios = None
+            # A device with no radio gets no radio line in the checklist: comparing nothing
+            # with nothing always passes, and a checklist full of that is harder to read.
+            if before.has_radios or after.has_radios:
+                radios = wait_for_radios(self.transport, before, hop.version,
+                                         sleep=self.ctx.sleep,
+                                         timeout_s=self.ctx.radio_timeout_s,
+                                         on_wait=progress)
         except TransportError as exc:
             raise self._abort("apply.failed.version_install", repr(exc),
                               error=str(exc)) from exc
         self.report.checks.append(packages)
-        # A device with no radio gets no radio line in the checklist: comparing nothing
-        # with nothing always passes, and a checklist full of that is harder to read.
-        if before.has_radios or after.has_radios:
-            radios = compare_radios(before, after)
+        if radios is not None:
             self.report.checks.append(radios)
             if not radios.ok:
                 raise self._abort("apply.failed.version_radio_lost", radios.message,
