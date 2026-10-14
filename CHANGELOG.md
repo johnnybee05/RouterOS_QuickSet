@@ -11,6 +11,21 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.9.1] – 2026-10-14
+
+### Opraveno
+
+- **Hromadný update se zastavil na AP, jehož rádio bylo v pořádku.** Kontrola po
+  restartu hlásila u hAP ac^3 (7.23.6 → 7.24.5, `wifi-qcom-ac`) „neběží: wifi2-5Ghz“.
+  U nového ovladače (`/interface wifi`) ale příznak R u AP jen říká, že je na něm
+  připojená stanice — a 5GHz rádio na kanálu DFS ji 62 s po startu ještě nemělo, protože
+  nejdřív poslouchalo radar. AP na `/interface wifi` se teď do „neběží“ nepočítají; na
+  jejich stanice čeká kontrola po posledním kroku, jako dosud.
+- Ostatní rádia, která po restartu existují, ale ještě neběží (starý ovladač na kanálu
+  DFS, stanice hledající svůj AP), se čtou znovu po 10 s, nejdéle 11 minut — tolik trvá
+  kontrola radaru na meteorologických kanálech. Chybějící ovladač nebo rozhraní dávku
+  zastaví hned jako dřív.
+
 ## [0.9.0] – 2026-10-14
 
 ### Přidáno
