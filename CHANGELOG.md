@@ -11,6 +11,16 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.8.1] – 2026-10-14
+
+### Opraveno
+
+- Spojení přes api-ssl občas selhalo hned při navázání TLS s hláškou
+  `SSLV3_ALERT_BAD_RECORD_MAC` a hromadný update se na takovém zařízení zastavil. Je to
+  chyba na straně RouterOS: zhruba jedno ze sta navázání odmítne, další projde (změřeno
+  na E60iUGS se 7.24.5 a hEX S se 7.23.8). Takové navázání se teď zkusí až čtyřikrát;
+  300 připojení k E60iUGS za sebou prošlo všech 300.
+
 ## [0.8.0] – 2026-10-14
 
 ### Přidáno
