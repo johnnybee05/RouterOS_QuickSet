@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mqs import __version__
 from mqs.apply.session import DeviceSession, end_session
 from mqs.logging_setup import SecretRegistry
 from mqs.messages_cs import format_message
@@ -53,7 +54,7 @@ class MainWindow(QMainWindow):
         network_kwargs: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
-        self.setWindowTitle(S.APP_TITLE)
+        self.setWindowTitle(f"{S.APP_TITLE} {__version__}")
         self.resize(1280, 860)
         self.dialogs = dialogs or Dialogs()
         self.store = store or ProfileStore(profiles_dir())

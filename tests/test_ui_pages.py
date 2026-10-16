@@ -229,6 +229,12 @@ def test_window_structure_and_navigation(window):
     assert window.controller.profile.mode.value == "router"
 
 
+def test_window_title_shows_version(window):
+    from mqs import __version__
+
+    assert window.windowTitle() == f"{S.APP_TITLE} {__version__}"
+
+
 def test_connect_updates_status_badge_and_ports(window, qtbot):
     connect(window, qtbot)
     session = window.device_page.session
