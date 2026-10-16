@@ -40,7 +40,8 @@ def antenna(identity: str = "sxt-01", *, version: str = "7.15.3", serial: str = 
         packages=[PackageInfo(name="routeros", version=version),
                   PackageInfo(name="wireless", version=version)])
     board = RouterboardInfo(routerboard=True, model="RBSXTsq5nD", serial_number=serial,
-                            current_firmware="7.10.0", upgrade_firmware=version)
+                            factory_firmware="7.10.0", current_firmware="7.10.0",
+                            upgrade_firmware=version)
     inventory = inventory.model_copy(update={"identity": identity, "routerboard": board})
     base = Candidate(addresses=[address], macs=[mac],
                      sightings=[Sighting(source=Source.MNDP, macs=[mac],
@@ -199,6 +200,7 @@ def test_every_column_of_the_table_is_filled_from_the_device():
     assert row["identity"] == "sxt-01" and row["address"] == "192.0.2.5"
     assert row["model"] == "RBSXTsq5nD" and row["category"] == "SXT Square"
     assert row["role"] == "station" and row["version"] == "7.15.3"
+    assert row["min_version"] == "7.10"
     assert row["architecture"] == "arm" and row["wireless_stack"] == "wireless"
     assert "wireless 7.15.3" in row["packages"]
     assert row["firmware"] == "7.10.0 -> 7.15.3"
@@ -211,6 +213,7 @@ def test_a_device_nobody_logged_into_fills_what_it_can():
     row = to_rows([guess()])[0]
     assert row["identity"] == "maybe" and row["confidence"] == "probable"
     assert row["role"] == "" and row["packages"] == ""
+    assert row["min_version"] == ""
 
 
 def test_the_csv_is_semicolon_separated_for_czech_excel():

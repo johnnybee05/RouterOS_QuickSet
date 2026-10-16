@@ -451,6 +451,8 @@ NET_BATCH_STOP_TIP = ("Dávka se zastaví po zařízení, které se právě aktu
                       "rozběhnutý přechod se nepřerušuje.")
 NET_PLAN_DEVICE = "{number}. {name}  ({role}, teď {current})"
 NET_PLAN_BEHIND = ", přes něj vede {count}"
+NET_PLAN_FLOOR = "     nejnižší možná verze: {floor}"
+NET_PLAN_FLOOR_UNKNOWN = "     nejnižší možnou verzi zařízení neuvádí"
 NET_PLAN_HOP = "     → {version}: {files}"
 NET_PLAN_DRIVERS = "     ovladač rádia: {drivers}"
 NET_PLAN_CONFIRM = "     POZOR: downgrade nebo přechod mezi RouterOS 6 a 7"

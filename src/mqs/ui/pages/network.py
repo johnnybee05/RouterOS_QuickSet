@@ -91,7 +91,7 @@ from mqs.ui.workers import CancelToken, TaskRunner
 
 INVENTORY_NAME = "inventory.json"
 COLUMNS = ("Stav", "Identity", "IP adresa", "Model", "Kategorie", "Role", "Verze",
-           "Architektura", "Wireless", "Zdroje", "Naposledy")
+           "Min. verze", "Architektura", "Wireless", "Zdroje", "Naposledy")
 
 OpenFn = Callable[[LoginSettings, str, Callable[[], bool]], DeviceSession]
 
@@ -746,7 +746,8 @@ class NetworkPage(Page):
             change = changed.get(device.key)
             values = (
                 _state(device), row["identity"], row["address"], row["model"],
-                row["category"], row["role"], row["version"], row["architecture"],
+                row["category"], row["role"], row["version"], row["min_version"],
+                row["architecture"],
                 row["wireless_stack"], row["sources"],
                 _seen(device.last_seen),
             )
@@ -912,6 +913,9 @@ def _plan_lines(plan: BatchPlan) -> list[str]:
         if step.behind:
             head = head[:-1] + S.NET_PLAN_BEHIND.format(count=len(step.behind)) + ")"
         lines.append(head)
+        floor = step.plan.floor if step.plan is not None else None
+        lines.append(S.NET_PLAN_FLOOR.format(floor=floor) if floor
+                     else S.NET_PLAN_FLOOR_UNKNOWN)
         if step.outcome is Outcome.BLOCKED:
             lines.append(S.NET_PLAN_BLOCKED.format(detail=step.detail or "?"))
             continue

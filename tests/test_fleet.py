@@ -154,6 +154,7 @@ def test_a_dry_run_shows_every_device_and_what_it_would_upload(tmp_path):
     lines = dry_run_lines(plan_for(tmp_path, [*chain(), guess("maybe")]))
     text = "\n".join(lines)
     assert "1. leaf (station)" in text
+    assert "lowest possible: 7.10" in text
     assert "3. core (AP) via 2 behind" in text
     assert "wireless-7.16.1-arm.npk" in text
     assert "maybe: not confirmed, left out" in text

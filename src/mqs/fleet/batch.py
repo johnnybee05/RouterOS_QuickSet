@@ -329,6 +329,8 @@ def dry_run_lines(plan: BatchPlan) -> list[str]:
         role = _role(step.device)
         where = f" via {len(step.behind)} behind" if step.behind else ""
         lines.append(f"{number}. {step.name} ({role}){where}")
+        floor = step.plan.floor if step.plan is not None else None
+        lines.append(f"     lowest possible: {floor or 'unknown, the board does not say'}")
         if step.firmware_only and step.firmware is not None:
             lines.append(f"     RouterBOOT {step.firmware.current} -> {step.firmware.available}")
             continue

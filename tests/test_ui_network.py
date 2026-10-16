@@ -84,9 +84,9 @@ def test_a_device_fills_every_column_it_can(page):
     row = [page.table.item(0, c).text() for c in range(page.table.columnCount())]
     assert row[1] == "sxt-01" and row[2] == "192.0.2.5"
     assert row[3] == "RBSXTsq5nD" and row[4] == "SXT Square"
-    assert row[5] == "station" and row[6] == "7.15.3"
-    assert row[7] == "arm" and row[8] == "wireless"
-    assert "mndp" in row[9] and "login" in row[9]
+    assert row[5] == "station" and row[6] == "7.15.3" and row[7] == "7.10"
+    assert row[8] == "arm" and row[9] == "wireless"
+    assert "mndp" in row[10] and "login" in row[10]
 
 
 def test_a_device_nobody_logged_into_leaves_the_device_columns_empty(page):
@@ -95,6 +95,7 @@ def test_a_device_nobody_logged_into_leaves_the_device_columns_empty(page):
     row = [page.table.item(0, c).text() for c in range(page.table.columnCount())]
     assert row[0] == "+" and row[1] == "maybe"
     assert row[5] == "" and row[6] == ""  # no role, and no version read off a device
+    assert row[7] == ""  # nor the oldest version the board takes
 
 
 def test_a_refused_login_is_in_the_tooltip_rather_than_lost(page):
@@ -580,6 +581,19 @@ def chain_of_three() -> list[Candidate]:
             antenna("leaf", address="192.0.2.3", parent="relay")]
 
 
+def test_the_plan_says_when_a_board_names_no_lowest_version(page, tmp_path):
+    """A CHR or a board without the field has no floor; the plan says so rather than
+    leaving the line out, so a missing floor is not mistaken for a missing check."""
+    update_folder(tmp_path, "7.15.3", "7.16.1")
+    page.load_packages()
+    device = antenna("chr", address="192.0.2.5")
+    inventory = device.inventory.model_copy(update={"routerboard": None})
+    page.devices = [device.model_copy(update={"inventory": inventory})]
+    page._show()
+    assert "nejnižší možnou verzi zařízení neuvádí" in page.order_text.toPlainText()
+    assert page.table.item(0, 7).text() == ""
+
+
 def test_the_target_offers_what_the_update_directory_holds(page, tmp_path):
     update_folder(tmp_path, "7.15.3", "7.16.1")
     page.load_packages()
@@ -595,6 +609,7 @@ def test_the_plan_names_every_file_each_device_gets(page, tmp_path):
     page._show()
     text = page.order_text.toPlainText()
     assert "1. leaf  (stanice, teď 7.15.3)" in text
+    assert "nejnižší možná verze: 7.10" in text
     assert "→ 7.16.1: routeros-7.16.1-arm.npk, wireless-7.16.1-arm.npk" in text
     assert "3. core  (AP, teď 7.15.3, přes něj vede 2)" in text
     assert "restartů celkem 3" in page.order_hint.text()

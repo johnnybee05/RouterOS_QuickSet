@@ -190,8 +190,8 @@ def _compare_one(before: Candidate, after: Candidate) -> list[Change]:
 
 
 CSV_COLUMNS = ("identity", "address", "mac", "model", "category", "role", "version",
-               "architecture", "wireless_stack", "packages", "firmware", "confidence",
-               "sources", "found_at", "last_seen")
+               "min_version", "architecture", "wireless_stack", "packages", "firmware",
+               "confidence", "sources", "found_at", "last_seen")
 
 
 @dataclass
@@ -216,6 +216,9 @@ def to_rows(devices: Iterable[Candidate],
         # The version, not the string it arrived in: an MNDP announcement carries its
         # build time, and a CSV column is not the place for it.
         version = device.ros_version
+        # The oldest RouterOS the board takes, as the planner reads it; empty when
+        # nobody logged in or the board does not say (CHR).
+        floor = inventory.version_floor if inventory else None
         rows.append(Row({
             "identity": device.identity,
             "address": device.address,
@@ -225,6 +228,7 @@ def to_rows(devices: Iterable[Candidate],
                          else classify(device).category),
             "role": classify(device).role.value if device.wireless else "",
             "version": str(version) if version else "",
+            "min_version": str(floor) if floor else "",
             "architecture": device.architecture,
             "wireless_stack": inventory.wireless.value if inventory else "",
             "packages": packages,
