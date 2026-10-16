@@ -19,6 +19,7 @@ def store(path) -> SettingsStore:
 
 def test_nothing_saved_yet_is_the_defaults(tmp_path):
     assert store(tmp_path).load_settings() == WindowSettings()
+    assert WindowSettings().remember_login  # remembered unless switched off
     assert store(tmp_path).load_login() is None
 
 
@@ -31,8 +32,8 @@ def test_a_damaged_or_odd_settings_file_falls_back_to_the_defaults(tmp_path):
     (tmp_path / SETTINGS_NAME).write_text("{not json", encoding="utf-8")
     assert store(tmp_path).load_settings() == WindowSettings()
     (tmp_path / SETTINGS_NAME).write_text(
-        '{"show_passwords": "yes", "remember_login": true, "later": 1}', encoding="utf-8")
-    assert store(tmp_path).load_settings() == WindowSettings(remember_login=True)
+        '{"show_passwords": "yes", "remember_login": false, "later": 1}', encoding="utf-8")
+    assert store(tmp_path).load_settings() == WindowSettings(remember_login=False)
 
 
 def test_the_login_is_kept_encrypted(tmp_path):

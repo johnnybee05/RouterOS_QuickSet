@@ -29,7 +29,7 @@ Cipher = Callable[[bytes], bytes]
 @dataclass
 class WindowSettings:
     show_passwords: bool = False
-    remember_login: bool = False
+    remember_login: bool = True
 
 
 @dataclass
