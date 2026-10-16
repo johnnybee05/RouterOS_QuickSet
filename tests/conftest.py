@@ -42,3 +42,15 @@ def golden(update_golden: bool):
         assert actual == expected, f"output differs from golden file {name}"
 
     return check
+
+
+@pytest.fixture(autouse=True)
+def czech_texts(monkeypatch: pytest.MonkeyPatch):
+    """Tests compare Czech texts; the language must not follow the machine they run on, nor
+    leak from a test that switches it (`mqs.cli` sets it on every run)."""
+    from mqs import i18n
+
+    monkeypatch.setenv(i18n.ENV, "cs")
+    i18n.set_language("cs")
+    yield
+    i18n.set_language("cs")

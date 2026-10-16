@@ -23,11 +23,11 @@ from PySide6.QtWidgets import (
 )
 
 from mqs.capabilities.offload import OffloadPlan
-from mqs.messages_cs import format_message
+from mqs.messages import format_message
 from mqs.model.bridge import FrameTypes, HwOffloadMode, LanAddressing, ProtocolMode
 from mqs.model.network import Ipv4Range
 from mqs.model.profile import DeviceProfile
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.pages.base import (
     InputError,

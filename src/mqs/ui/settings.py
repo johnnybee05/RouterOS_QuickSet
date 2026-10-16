@@ -30,6 +30,9 @@ Cipher = Callable[[bytes], bytes]
 class WindowSettings:
     show_passwords: bool = False
     remember_login: bool = True
+    language: str = ""  # mqs.i18n: "" automatic, else a code from LANGUAGES
+    check_updates: bool = True
+    skipped_version: str = ""  # a release the user said to skip: not offered on start
 
 
 @dataclass

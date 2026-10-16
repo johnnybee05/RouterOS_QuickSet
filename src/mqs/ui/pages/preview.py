@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from mqs.generator.base import generate
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.highlighter import RouterOsHighlighter
 from mqs.ui.pages.base import Page

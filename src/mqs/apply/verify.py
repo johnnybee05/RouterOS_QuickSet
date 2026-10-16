@@ -13,7 +13,7 @@ from mqs.generator.base import GenerationResult
 from mqs.generator.blocks.common import bridge_enabled, wan_link, wan_port, wan_vlan_interface
 from mqs.generator.blocks.firewall import COMMENT_PREFIX, IPV6_FILTER, IPV6_SETTINGS
 from mqs.issues import Issue, Severity
-from mqs.messages_cs import format_message
+from mqs.messages import format_message
 from mqs.model.bridge import LanAddressing
 from mqs.model.inventory import (
     BridgePortState,

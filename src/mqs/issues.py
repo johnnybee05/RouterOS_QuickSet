@@ -8,7 +8,7 @@ from dataclasses import field as dataclass_field
 from enum import StrEnum
 from typing import Any
 
-from mqs.messages_cs import format_message
+from mqs.messages import format_message
 
 
 class Severity(StrEnum):

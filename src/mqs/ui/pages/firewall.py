@@ -7,7 +7,7 @@ from collections.abc import Callable
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QMessageBox, QVBoxLayout, QWidget
 
 from mqs.model.profile import DeviceProfile
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.pages.base import Page, update_in
 

@@ -26,7 +26,7 @@ from mqs.model.ports import rename_port
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import CETIN_VLAN_ID, DhcpWan, PppoeWan, StaticWan, WanType
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.pages.base import Page, mark_secret, parse_cidr, parse_ip, parse_ip_list
 

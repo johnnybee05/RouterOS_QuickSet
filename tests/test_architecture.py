@@ -8,7 +8,7 @@ import pytest
 SRC = Path(__file__).parent.parent / "src" / "mqs"
 
 PURE_PACKAGES = ["model", "capabilities", "generator", "profiles"]
-PURE_MODULES = ["issues.py", "messages_cs.py"]
+PURE_MODULES = ["issues.py", "i18n.py", "messages.py", "messages_cs.py", "messages_en.py"]
 
 FORBIDDEN = {
     "PySide6", "paramiko", "librouteros", "scp", "ifaddr",
@@ -43,7 +43,7 @@ def test_pure_core_has_no_forbidden_imports(path):
 
 
 HEADLESS_PACKAGES = ["apply", "transport", "discover", "fleet"]
-HEADLESS_MODULES = ["cli.py", "paths.py", "logging_setup.py"]
+HEADLESS_MODULES = ["cli.py", "paths.py", "logging_setup.py", "selfupdate.py"]
 GUI_ONLY = {"PySide6", "mqs.ui"}
 
 # Detection has to combine several sources without one slow source blocking the rest, so

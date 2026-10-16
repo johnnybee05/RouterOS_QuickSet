@@ -40,6 +40,7 @@ from mqs.apply.session import (
 from mqs.capabilities.chips import device_notes
 from mqs.generator.features import is_supported_version
 from mqs.logging_setup import SecretRegistry
+from mqs.messages import device_note
 from mqs.model.inventory import DeviceInventory, Ipv6PackageState
 from mqs.transport.base import (
     API_SSL_PORT,
@@ -65,7 +66,7 @@ from mqs.transport.netifs import (
     list_ipv4_interfaces,
     propose_free_address,
 )
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page, mark_secret, split_list
@@ -633,7 +634,7 @@ class DevicePage(Page):
         notes = device_notes(rb.model if rb else "", resource.board_name)
         if notes:
             self.device_notes.setText(
-                S.DEVICE_NOTES + "\n" + "\n".join(f"• {note}" for note in notes)
+                S.DEVICE_NOTES + "\n" + "\n".join(f"• {note}" for note in map(device_note, notes))
             )
         self.device_notes.setVisible(bool(notes))
         selectable = set(inventory.port_names)

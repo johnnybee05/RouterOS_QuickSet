@@ -1383,3 +1383,22 @@ def test_the_menu_switch_moves_every_eye(qtbot, tmp_path):
     for field in (win.device_page.password, win.device_page.key_passphrase):
         assert field.echoMode() == QLineEdit.EchoMode.Password
         assert not eye(field).isChecked()
+
+
+def test_choosing_a_language_is_remembered_and_offers_a_restart(window, tmp_path):
+    window.test_dialogs.answers["question"] = False
+    window.choose_language("en")
+    assert window.settings_store.load_settings().language == "en"
+    assert window.restart_command == []  # declined: takes effect on the next start
+    window.test_dialogs.answers["question"] = True
+    window.choose_language("cs")  # the language in use: nothing to restart for
+    assert window.restart_command == []
+    window.choose_language("en")
+    assert window.restart_command  # accepted: the window closes to start again
+    assert not window.isVisible()
+
+
+def test_the_update_check_on_start_can_be_switched_off(window):
+    assert window.check_updates_action.isChecked()
+    window.check_updates_action.setChecked(False)
+    assert window.settings_store.load_settings().check_updates is False

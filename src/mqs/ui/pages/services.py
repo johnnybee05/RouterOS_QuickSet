@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from mqs.generator.hardening import binding
 from mqs.model.profile import DeviceProfile
 from mqs.model.services import DEFAULT_HARDENING_V7
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.highlighter import RouterOsHighlighter
 from mqs.ui.pages.base import InputError, Page, parse_network, split_list

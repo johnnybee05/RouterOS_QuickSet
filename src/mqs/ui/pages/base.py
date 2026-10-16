@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QLineEdit, QWidget
 from mqs.issues import Issue, Severity
 from mqs.model.inventory import DeviceInventory
 from mqs.model.profile import DeviceProfile
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.widgets.common import apply_field_issues
 

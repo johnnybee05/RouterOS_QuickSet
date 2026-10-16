@@ -58,6 +58,40 @@ $env:MQS_KEY_PASSPHRASE = Read-Host "Heslo klíče"
 .\.venv\Scripts\python.exe -m mqs.cli connect --host 192.168.55.129 --user beran --key $HOME\.ssh\id_ed25519 --transport ssh
 ```
 
+### Jazyk
+
+Okno i CLI mluví **česky nebo anglicky**. Výchozí je *Automaticky*: čeština pro českou
+nebo slovenskou Windows, jinak angličtina. V okně se jazyk přepne v **Zobrazení → Jazyk**
+a změní se po restartu, který aplikace hned nabídne (přihlašovací formulář zůstane).
+Na příkazové řádce ho určí `--lang cs|en`, pro okno i pro `mqs.cli`, nebo proměnná
+`MQS_LANG`. Vygenerovaný skript pro RouterOS se jazykem nemění.
+
+### Aktualizace aplikace
+
+Aplikace se umí aktualizovat sama z [vydání na GitHubu](https://github.com/johnnybee05/RouterOS_QuickSet/releases).
+Pár sekund po startu se podívá, jestli nevyšla novější verze, a když ano, ukáže co je
+nového a nabídne **Stáhnout a nainstalovat**, **Otevřít stránku vydání**, **Tuto verzi
+přeskočit** nebo **Později**. Ručně: **Nápověda → Zkontrolovat aktualizace…**; kontrolu
+při startu vypne **Nápověda → Kontrolovat aktualizace při spuštění**.
+
+Instalace nic nenahradí, dokud se nová verze neprokáže:
+
+1. Stažený soubor musí mít přesně velikost a **SHA-256**, které GitHub k vydání
+   zveřejňuje, a musí to být program pro Windows. Vydání bez kontrolního součtu se
+   neinstaluje, nabídne se jen jeho stránka.
+2. Nové exe se jednou zkušebně spustí (`--self-check`) — co na tomhle počítači
+   nenaběhne, starou verzi nenahradí.
+3. Teprve pak se běžící exe přejmenuje na `MikrotikQuickSetPlus.exe.old` a nové dostane
+   jeho jméno. Když to nejde (antivirus soubor drží, ...), vrátí se staré zpátky.
+4. Okno se zavře (zařízení se odpojí a vrátí půjčenou adresu) a spustí se nová verze se
+   stejnými argumenty, jen bez `--connect`. Ta po chvíli smaže `.old`.
+
+Dokud běží připojování, aplikace konfigurace nebo dávka, aktualizace se neinstaluje.
+Exe musí být ve složce, kam jde zapisovat (ne v `Program Files`); jinak aplikace
+nabídne stránku vydání. Spuštěná ze zdrojů (`python -m mqs`) jen oznámí novou verzi.
+Automatická aktualizace je v aplikaci od verze 0.13.0 — na ni je potřeba jednou přejít
+ručně.
+
 Aplikace si ukládá data do `%LOCALAPPDATA%\MikrotikQuickSetPlus\`:
 
 | Složka | Obsah |

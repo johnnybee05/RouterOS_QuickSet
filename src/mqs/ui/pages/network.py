@@ -72,7 +72,7 @@ from mqs.fleet.batch import (
 from mqs.fleet.credentials import CREDENTIALS_NAME, CredentialStore, Remembered
 from mqs.fleet.device import update_device
 from mqs.issues import Issue, Severity
-from mqs.messages_cs import STEP_PREFIX
+from mqs.messages import step_prefix
 from mqs.model.inventory import DeviceInventory, WirelessRole
 from mqs.model.version import RosVersion
 from mqs.paths import app_data_dir, backups_dir
@@ -81,7 +81,7 @@ from mqs.transport.base import AuthError
 from mqs.transport.discovery import collect_inventory
 from mqs.transport.mndp import MndpScanner
 from mqs.transport.netifs import list_ipv4_interfaces
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page
@@ -663,7 +663,7 @@ class NetworkPage(Page):
         if kind == "event":
             event = rest[0]
             self.log_view.append_line(
-                f"{name}: [{STEP_PREFIX[event.status]}] {event.message}",
+                f"{name}: [{step_prefix(event.status)}] {event.message}",
                 STEP_LEVEL[event.status])
             return
         outcome, detail = rest

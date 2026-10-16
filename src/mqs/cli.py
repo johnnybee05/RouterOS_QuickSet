@@ -24,6 +24,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from mqs import i18n
 from mqs.apply.download import PackageCache, PackageSource, cache_dir
 from mqs.apply.orchestrator import ApplyAborted, ApplyEvent, ApplyOrchestrator, ApplyReport
 from mqs.apply.package_set import default_rules, installed_drivers, wanted_packages
@@ -70,7 +71,7 @@ from mqs.fleet.cli import add_fleet_args, cmd_fleet, updater
 from mqs.generator.base import generate
 from mqs.generator.context import TargetContext
 from mqs.issues import Issue, Severity
-from mqs.messages_cs import STEP_PREFIX
+from mqs.messages import step_prefix
 from mqs.model.inventory import WirelessDriver
 from mqs.model.ports import adopt_device_names
 from mqs.model.profile import DeviceProfile
@@ -342,7 +343,7 @@ def _generate_offline(args: argparse.Namespace, out: Any) -> int:
 
 def _step_printer(args: argparse.Namespace, out: Any) -> Callable[[ApplyEvent], None]:
     def on_event(event: ApplyEvent) -> None:
-        line = f"[{STEP_PREFIX[event.status]}] {event.message}"
+        line = f"[{step_prefix(event.status)}] {event.message}"
         if args.verbose and event.detail:
             line += f"   ({event.detail})"
         print(line, file=out, flush=True)
@@ -791,6 +792,8 @@ def build_parser() -> argparse.ArgumentParser:
     # "--admin-password-env", which is exactly how a password ends up in shell history.
     parser = argparse.ArgumentParser(prog="mqs-device", allow_abbrev=False,
                                      description=__doc__.splitlines()[0])
+    parser.add_argument("--lang", choices=sorted(i18n.LANGUAGES),
+                        help="language of the messages (default: MQS_LANG, else the system's)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     discover = sub.add_parser("discover", allow_abbrev=False,
@@ -1012,6 +1015,7 @@ def main(argv: Sequence[str] | None = None, *, out: Any = None, **deps: Any) -> 
     out = tolerate_unencodable(out if out is not None else sys.stdout)
     tolerate_unencodable(sys.stderr)
     args = build_parser().parse_args(argv)
+    i18n.set_language(i18n.resolve(args.lang or i18n.AUTO))
     mac = getattr(args, "mac", None)
     if args.command in ("connect", "version") and not args.host and not mac:
         print("--host or --mac is required", file=sys.stderr)

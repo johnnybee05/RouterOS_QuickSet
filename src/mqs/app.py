@@ -9,16 +9,18 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from mqs import __version__
+from mqs import __version__, i18n, selfupdate
 from mqs.logging_setup import SecretRegistry, setup_logging
+from mqs.paths import app_data_dir
 from mqs.transport.factory import TransportChoice
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.main_window import MainWindow
 from mqs.ui.pages.device import DevicePage
+from mqs.ui.settings import SettingsStore
 from mqs.ui.theme import apply_theme, watch_theme
 
 
@@ -51,6 +53,11 @@ def parse_args(argv: Sequence[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--ssh-port", type=int)
     parser.add_argument("--connect", action="store_true",
                         help="connect as soon as the window is up (needs --host)")
+    parser.add_argument("--lang", choices=sorted(i18n.LANGUAGES),
+                        help="language of the window (default: as chosen in it, else the "
+                             "system's)")
+    parser.add_argument(selfupdate.SELF_CHECK_ARG, dest="self_check", action="store_true",
+                        help="start up and exit at once: how an update tests a new exe")
     return parser.parse_known_args(list(argv))
 
 
@@ -84,10 +91,31 @@ def prefill(page: DevicePage, args: argparse.Namespace,
     return bool(args.connect and args.host)
 
 
+def install_qt_translation(app: QApplication, language: str) -> QTranslator | None:
+    """Qt's own texts (Yes/No/Cancel in message boxes) in the window's language, where Qt
+    ships them; English is what Qt has built in."""
+    if language == "en":
+        return None
+    translator = QTranslator(app)
+    folder = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    if translator.load(f"qtbase_{language}", folder):
+        app.installTranslator(translator)
+        return translator
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     given = list(argv) if argv is not None else sys.argv
     args, rest = parse_args(given[1:])
     app = QApplication([given[0] if given else "", *rest])
+    if args.self_check:
+        # Everything is imported and Qt is up: the exe works on this machine.
+        return 0
+    settings_store = SettingsStore(app_data_dir())
+    language = i18n.set_language(i18n.resolve(
+        args.lang or settings_store.load_settings().language,
+        system=QLocale.system().name()))
+    install_qt_translation(app, language)
     app.setApplicationName(S.APP_TITLE)
     app.setApplicationVersion(__version__)
     icon = resource_path("assets/icon.ico")
@@ -96,17 +124,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     registry = SecretRegistry()
     log_file = setup_logging(registry)
-    logging.getLogger("mqs").info("MikroTik QuickSet Plus %s started, log %s", __version__,
-                                  log_file)
+    logging.getLogger("mqs").info("MikroTik QuickSet Plus %s started (%s), log %s",
+                                  __version__, language, log_file)
 
-    window = MainWindow(registry=registry, dark=apply_theme(app))
+    window = MainWindow(registry=registry, dark=apply_theme(app),
+                        settings_store=settings_store)
     watch_theme(app, window.set_dark)
     connect_now = prefill(window.device_page, args)
     window.show()
     if connect_now:
         # After the window is on screen, so its progress is visible from the first step.
         QTimer.singleShot(0, window.device_page.connect_device)
-    return app.exec()
+    window.start_update_check()
+    code = app.exec()
+    if window.restart_command:
+        # Only now: the old window has closed, ended its session and given back a lent
+        # address, so the new one starts from a clean device.
+        logging.getLogger("mqs").info("restarting: %s", window.restart_command)
+        selfupdate.start_detached(window.restart_command)
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover

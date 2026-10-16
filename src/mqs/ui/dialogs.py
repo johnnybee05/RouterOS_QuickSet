@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -15,13 +16,17 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressDialog,
+    QPushButton,
     QSplitter,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
 from mqs.issues import Issue
-from mqs.ui import strings_cs as S
+from mqs.selfupdate import Release
+from mqs.ui import strings as S
 from mqs.ui.highlighter import RouterOsHighlighter
 from mqs.ui.widgets.common import IssueList, monospace_font
 
@@ -83,6 +88,50 @@ class ResetIdentityDialog(IdentityDialog):
                          S.RESET_TEXT.format(identity=identity, users=users))
 
 
+class UpdateDialog(QDialog):
+    """A newer release: what it brings, and what to do about it. ``choice`` is one of the
+    mqs.ui.updater answers; closing the dialog is "later"."""
+
+    def __init__(self, parent: QWidget | None, release: Release, current: str,
+                 blocker: str) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(S.UPDATE_TITLE)
+        self.resize(640, 520)
+        self.choice = "later"
+        layout = QVBoxLayout(self)
+        heading = QLabel(S.UPDATE_AVAILABLE.format(version=release.version, current=current))
+        heading.setStyleSheet("font-weight: bold;")
+        layout.addWidget(heading)
+        layout.addWidget(QLabel(S.UPDATE_NOTES))
+        notes = QTextBrowser()
+        notes.setOpenExternalLinks(True)
+        notes.setMarkdown(release.notes)
+        layout.addWidget(notes, 1)
+        if blocker:
+            reason = QLabel(blocker)
+            reason.setWordWrap(True)
+            reason.setProperty("role", "danger")
+            layout.addWidget(reason)
+        buttons = QDialogButtonBox()
+        self.buttons: dict[str, QPushButton] = {}
+        for choice, label, role in (
+            ("install", S.UPDATE_INSTALL, QDialogButtonBox.ButtonRole.AcceptRole),
+            ("page", S.UPDATE_OPEN_PAGE, QDialogButtonBox.ButtonRole.ActionRole),
+            ("skip", S.UPDATE_SKIP, QDialogButtonBox.ButtonRole.DestructiveRole),
+            ("later", S.UPDATE_LATER, QDialogButtonBox.ButtonRole.RejectRole),
+        ):
+            button = buttons.addButton(label, role)
+            button.clicked.connect(lambda _=False, c=choice: self._choose(c))
+            self.buttons[choice] = button
+        self.buttons["install"].setEnabled(not blocker)
+        (self.buttons["page"] if blocker else self.buttons["install"]).setDefault(True)
+        layout.addWidget(buttons)
+
+    def _choose(self, choice: str) -> None:
+        self.choice = choice
+        self.accept()
+
+
 class Dialogs:
     def error(self, parent: QWidget | None, text: str) -> None:
         QMessageBox.critical(parent, S.ERROR_TITLE, text)
@@ -138,3 +187,23 @@ class Dialogs:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialog.input.text()
+
+    def ask_update(self, parent: QWidget | None, release: Release, current: str,
+                   blocker: str) -> str:
+        dialog = UpdateDialog(parent, release, current, blocker)
+        dialog.exec()
+        return dialog.choice
+
+    def download_progress(self, parent: QWidget | None, title: str,
+                          text: str) -> QProgressDialog:
+        dialog = QProgressDialog(text, S.DEVICE_CANCEL, 0, 0, parent)
+        dialog.setWindowTitle(title)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.show()
+        return dialog
+
+    def open_url(self, url: str) -> None:
+        QDesktopServices.openUrl(QUrl(url))

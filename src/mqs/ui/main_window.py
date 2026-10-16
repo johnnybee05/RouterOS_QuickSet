@@ -6,7 +6,8 @@ import contextlib
 import logging
 from typing import Any
 
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QLocale, QTimer
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -18,15 +19,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mqs import __version__
+from mqs import __version__, i18n, selfupdate
 from mqs.apply.session import DeviceSession, end_session
 from mqs.logging_setup import SecretRegistry
-from mqs.messages_cs import format_message
+from mqs.messages import format_message
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
 from mqs.paths import app_data_dir, profiles_dir
 from mqs.profiles.store import ProfileError, ProfileStore, export_profile, import_profile
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.apply import ApplyPage
@@ -39,6 +40,7 @@ from mqs.ui.pages.network import NetworkPage
 from mqs.ui.pages.preview import PreviewPage
 from mqs.ui.pages.services import ServicesPage
 from mqs.ui.settings import SettingsStore
+from mqs.ui.updater import AppUpdater
 from mqs.ui.workers import TaskRunner
 
 log = logging.getLogger(__name__)
@@ -56,6 +58,7 @@ class MainWindow(QMainWindow):
         device_kwargs: dict[str, Any] | None = None,
         apply_kwargs: dict[str, Any] | None = None,
         network_kwargs: dict[str, Any] | None = None,
+        updater_kwargs: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle(f"{S.APP_TITLE} {__version__}")
@@ -67,6 +70,13 @@ class MainWindow(QMainWindow):
         self.settings = self.settings_store.load_settings()
         self.runner = TaskRunner(self)
         self.controller = ProfileController(self)
+        # Set when the window closes to start again (a new language, an installed update):
+        # mqs.app.main starts it once the window is gone.
+        self.restart_command: list[str] = []
+        self.updater = AppUpdater(self, self.dialogs, busy=lambda: self.runner.busy,
+                                  restart=self.request_restart,
+                                  skipped=lambda: self.settings.skipped_version,
+                                  skip=self.skip_version, **(updater_kwargs or {}))
 
         self.device_page = DevicePage(self.controller, self.runner, self.dialogs, self.registry,
                                       **(device_kwargs or {}))
@@ -168,6 +178,24 @@ class MainWindow(QMainWindow):
         self.show_passwords_action = view.addAction(S.VIEW_SHOW_PASSWORDS)
         self.show_passwords_action.setCheckable(True)
         self.show_passwords_action.toggled.connect(self.set_show_passwords)
+        language_menu = view.addMenu(S.VIEW_LANGUAGE)
+        self.language_actions: dict[str, QAction] = {}
+        group = QActionGroup(self)
+        for code, label in ((i18n.AUTO, S.LANGUAGE_AUTO), *i18n.LANGUAGES.items()):
+            action = language_menu.addAction(label)
+            action.setCheckable(True)
+            group.addAction(action)
+            action.triggered.connect(lambda _=False, c=code: self.choose_language(c))
+            self.language_actions[code] = action
+
+        help_menu = self.menuBar().addMenu(S.MENU_HELP)
+        help_menu.addAction(S.UPDATE_CHECK).triggered.connect(
+            lambda: self.updater.check(manual=True))
+        self.check_updates_action = help_menu.addAction(S.UPDATE_AUTO)
+        self.check_updates_action.setCheckable(True)
+        self.check_updates_action.toggled.connect(self.set_check_updates)
+        help_menu.addSeparator()
+        help_menu.addAction(S.UPDATE_ABOUT).triggered.connect(self.show_about)
 
     # ------------------------------------------------------------ remembered settings
 
@@ -185,6 +213,9 @@ class MainWindow(QMainWindow):
         page.sessionChanged.connect(lambda session: self._save_login() if session else None)
         self.show_passwords_action.setChecked(self.settings.show_passwords)
         self.set_show_passwords(self.settings.show_passwords)
+        chosen = self.settings.language if self.settings.language in i18n.LANGUAGES else i18n.AUTO
+        self.language_actions[chosen].setChecked(True)
+        self.check_updates_action.setChecked(self.settings.check_updates)
 
     def set_show_passwords(self, show: bool) -> None:
         for field in self.findChildren(QLineEdit):
@@ -201,6 +232,49 @@ class MainWindow(QMainWindow):
             self._save_login()
         else:
             self.settings_store.forget_login()  # unticked: nothing of it stays on disk
+
+    def choose_language(self, code: str) -> None:
+        """Remember the language; it takes a restart, offered when it changes anything."""
+        if code == self.settings.language:
+            return
+        self.settings.language = code
+        self._save_settings()
+        if i18n.resolve(code, system=QLocale.system().name()) == i18n.language():
+            return
+        if self.runner.busy:
+            self.dialogs.info(self, S.LANGUAGE_RESTART_BUSY)
+        elif self.dialogs.question(self, S.LANGUAGE_RESTART_TITLE, S.LANGUAGE_RESTART):
+            self.request_restart(selfupdate.restart_command())
+
+    def set_check_updates(self, check: bool) -> None:
+        if check != self.settings.check_updates:
+            self.settings.check_updates = check
+            self._save_settings()
+
+    def skip_version(self, version: str) -> None:
+        self.settings.skipped_version = version
+        self._save_settings()
+
+    def start_update_check(self) -> None:
+        """What a start does about updates: tidy up after the last one, look for the next."""
+        exe = selfupdate.running_exe()
+        if exe is not None:
+            # A broken download now, before this run can start one of its own; the old exe
+            # later, as it is still closing while the new one comes up.
+            selfupdate.cleanup(exe, old=False)
+            QTimer.singleShot(15000, lambda: selfupdate.cleanup(exe, download=False))
+        if self.settings.check_updates:
+            QTimer.singleShot(3000, lambda: self.updater.check(manual=False))
+
+    def show_about(self) -> None:
+        self.dialogs.info(self, S.UPDATE_ABOUT_TEXT.format(
+            app=S.APP_TITLE, version=__version__, url=selfupdate.RELEASES_PAGE))
+
+    def request_restart(self, command: list[str]) -> None:
+        self._save_login()
+        self._save_settings()
+        self.restart_command = list(command)
+        self.close()
 
     def _save_login(self) -> None:
         if self.settings.remember_login:

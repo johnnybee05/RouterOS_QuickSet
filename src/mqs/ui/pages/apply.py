@@ -67,13 +67,13 @@ from mqs.apply.version_change import (
     plan_from_dir as plan_version_from_dir,
 )
 from mqs.issues import Issue, Severity
-from mqs.messages_cs import STEP_PREFIX
+from mqs.messages import step_prefix
 from mqs.model.inventory import DeviceInventory
 from mqs.model.version import RosVersion
 from mqs.paths import backups_dir
 from mqs.paths import update_dir as default_update_dir
 from mqs.transport.base import Transport
-from mqs.ui import strings_cs as S
+from mqs.ui import strings as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.base import Page, mark_secret
@@ -554,7 +554,7 @@ class ApplyPage(Page):
                           on_progress=self._event)
 
     def _event(self, event: ApplyEvent) -> None:
-        self.log_view.append_line(f"[{STEP_PREFIX[event.status]}] {event.message}",
+        self.log_view.append_line(f"[{step_prefix(event.status)}] {event.message}",
                                   STEP_LEVEL[event.status])
         # The parameters say where the reconnect went, which file failed and why; the log
         # had only the step code, so a reconnect could not be told from the log to have

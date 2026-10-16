@@ -348,6 +348,43 @@ MENU_VIEW = "Zobrazení"
 VIEW_SHOW_PASSWORDS = "Zobrazovat hesla"
 PASSWORD_SHOW = "Zobrazit heslo"
 PASSWORD_HIDE = "Skrýt heslo"
+VIEW_LANGUAGE = "Jazyk"
+LANGUAGE_AUTO = "Automaticky (podle Windows)"
+LANGUAGE_RESTART_TITLE = "Jazyk"
+LANGUAGE_RESTART = ("Jazyk se změní po restartu aplikace. Restartovat teď?\n\n"
+                    "Okno se zavře a znovu otevře; přihlašovací formulář zůstane.")
+LANGUAGE_RESTART_BUSY = ("Jazyk se změní po restartu aplikace. Ještě něco běží – "
+                         "restartujte ji sami, až to doběhne.")
+
+# help / application update
+MENU_HELP = "Nápověda"
+UPDATE_CHECK = "Zkontrolovat aktualizace…"
+UPDATE_AUTO = "Kontrolovat aktualizace při spuštění"
+UPDATE_ABOUT = "O aplikaci"
+UPDATE_ABOUT_TEXT = ("{app} {version}\n\nGeneruje a aplikuje základní konfiguraci "
+                     "MikroTik RouterOS v6/v7.\n\n{url}")
+UPDATE_TITLE = "Aktualizace aplikace"
+UPDATE_AVAILABLE = "Je k dispozici verze {version} (máte {current})."
+UPDATE_NOTES = "Co je nového:"
+UPDATE_INSTALL = "Stáhnout a nainstalovat"
+UPDATE_OPEN_PAGE = "Otevřít stránku vydání"
+UPDATE_SKIP = "Tuto verzi přeskočit"
+UPDATE_LATER = "Později"
+UPDATE_NOT_FROZEN = ("Aplikace běží ze zdrojů: aktualizace se tu neinstaluje. Novou verzi "
+                     "stáhněte gitem, nebo si exe stáhněte ze stránky vydání.")
+UPDATE_NOT_WRITABLE = ("Do složky s exe nejde zapisovat ({dir}), aktualizace ho proto "
+                       "nemůže nahradit. Stáhněte ji ze stránky vydání.")
+UPDATE_NO_DIGEST = ("Vydání neuvádí kontrolní součet SHA-256 souboru, takže by stažený "
+                    "soubor nešel ověřit. Stáhněte ho ze stránky vydání.")
+UPDATE_UP_TO_DATE = "Máte nejnovější verzi ({version})."
+UPDATE_CHECK_FAILED = "Aktualizace se nepodařilo zkontrolovat: {error}"
+UPDATE_DOWNLOADING = "Stahuji verzi {version}…"
+UPDATE_DOWNLOAD_FAILED = "Aktualizaci se nepodařilo stáhnout: {error}"
+UPDATE_BUSY = ("Ještě něco běží (připojování, aplikace, dávka). Aktualizaci nainstalujte, "
+               "až to doběhne.")
+UPDATE_READY = ("Verze {version} je stažená a ověřená. Aplikace se teď zavře (zařízení se "
+                "odpojí) a spustí se znovu v nové verzi.")
+UPDATE_INSTALL_FAILED = "Aktualizaci se nepodařilo nainstalovat, zůstává stávající verze: {error}"
 
 # input syntax (checked in the UI before values reach the model)
 INVALID_CIDR = "Zadejte adresu ve tvaru a.b.c.d/nn"
