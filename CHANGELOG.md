@@ -11,6 +11,21 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.13.0] – 2026-10-16
+
+### Přidáno
+
+- **Angličtina.** Okno i `mqs.cli` umí česky i anglicky, včetně všech hlášek, kontrol
+  a poznámek k modelům. Výchozí je *Automaticky* podle jazyka Windows; přepíná se
+  v **Zobrazení → Jazyk** (po restartu, který okno samo nabídne) nebo `--lang cs|en`.
+- **Aplikace se aktualizuje sama z GitHubu.** Po startu se podívá po novější verzi
+  a nabídne ji i s popisem změn; ručně přes **Nápověda → Zkontrolovat aktualizace…**.
+  Stažené exe se ověří podle SHA-256 zveřejněného u vydání a jednou zkušebně spustí,
+  teprve potom nahradí běžící verzi (ta zůstane vedle jako `.old`, dokud nová
+  nenaběhne) a aplikace se restartuje. Během aplikace konfigurace nebo dávky se
+  neinstaluje nic. Tuhle verzi je potřeba stáhnout ještě ručně, další už ne.
+- **Nápověda → O aplikaci** s verzí a odkazem na vydání.
+
 ## [0.12.1] – 2026-10-16
 
 ### Změněno
