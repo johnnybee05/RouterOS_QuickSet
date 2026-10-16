@@ -30,7 +30,7 @@ from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.apply import ApplyPage
-from mqs.ui.pages.base import SECRET_PROPERTY
+from mqs.ui.pages.base import SECRET_PROPERTY, show_secret
 from mqs.ui.pages.basic import BasicPage
 from mqs.ui.pages.device import DevicePage, connection_summary
 from mqs.ui.pages.firewall import FirewallPage
@@ -187,10 +187,9 @@ class MainWindow(QMainWindow):
         self.set_show_passwords(self.settings.show_passwords)
 
     def set_show_passwords(self, show: bool) -> None:
-        mode = QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password
         for field in self.findChildren(QLineEdit):
             if field.property(SECRET_PROPERTY):
-                field.setEchoMode(mode)
+                show_secret(field, show)
         if show != self.settings.show_passwords:
             self.settings.show_passwords = show
             self._save_settings()

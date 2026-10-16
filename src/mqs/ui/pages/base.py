@@ -6,6 +6,8 @@ from collections.abc import Callable
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 from typing import Any
 
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QLineEdit, QWidget
 
 from mqs.issues import Issue, Severity
@@ -16,17 +18,62 @@ from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.widgets.common import apply_field_issues
 
 SECRET_PROPERTY = "secret"
+SHOW_ACTION_NAME = "show-password"
+_EYE_COLOR = "#8a8a8a"  # readable on both the light and the dark theme
 
 
 class InputError(ValueError):
     pass
 
 
+def eye_icon(crossed: bool) -> QIcon:
+    """An eye, crossed out for "hide"; drawn, so it needs no icon file in the exe."""
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor(_EYE_COLOR)
+    painter.setPen(QPen(color, 2.4))
+    outline = QPainterPath()
+    outline.moveTo(3, 16)
+    outline.quadTo(16, 3, 29, 16)
+    outline.quadTo(16, 29, 3, 16)
+    painter.drawPath(outline)
+    painter.setBrush(color)
+    painter.drawEllipse(QPointF(16, 16), 4.5, 4.5)
+    if crossed:
+        painter.drawLine(6, 27, 26, 5)
+    painter.end()
+    return QIcon(pixmap)
+
+
 def mark_secret(field: QLineEdit) -> QLineEdit:
-    """A password field: hidden, and shown in clear only by the window's *Zobrazit hesla*."""
+    """A password field: hidden, with an eye at its end that shows it in clear.
+
+    The window's *Zobrazení → Zobrazovat hesla* switches every such field at once,
+    through :func:`show_secret` as well.
+    """
     field.setProperty(SECRET_PROPERTY, True)
-    field.setEchoMode(QLineEdit.EchoMode.Password)
+    action = QAction(field)
+    action.setObjectName(SHOW_ACTION_NAME)
+    action.setCheckable(True)
+    action.toggled.connect(lambda shown: _show(field, action, shown))
+    field.addAction(action, QLineEdit.ActionPosition.TrailingPosition)
+    _show(field, action, False)
     return field
+
+
+def show_secret(field: QLineEdit, shown: bool) -> None:
+    action = field.findChild(QAction, SHOW_ACTION_NAME)
+    if action is not None:
+        action.setChecked(shown)  # its toggled does the rest
+        _show(field, action, shown)
+
+
+def _show(field: QLineEdit, action: QAction, shown: bool) -> None:
+    field.setEchoMode(QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password)
+    action.setIcon(eye_icon(crossed=shown))
+    action.setToolTip(S.PASSWORD_HIDE if shown else S.PASSWORD_SHOW)
 
 
 def parse_cidr(text: str) -> IPv4Interface:

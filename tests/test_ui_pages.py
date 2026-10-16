@@ -1350,3 +1350,31 @@ def test_show_passwords_switches_every_password_field(qtbot, tmp_path):
     assert again.device_page.password.echoMode() == QLineEdit.EchoMode.Normal
     again.show_passwords_action.setChecked(False)
     assert again.device_page.password.echoMode() == QLineEdit.EchoMode.Password
+
+
+def eye(field):
+    return next(a for a in field.actions() if a.objectName() == "show-password")
+
+
+def test_the_eye_shows_one_password_field(qtbot, tmp_path):
+    win = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    password, passphrase = win.device_page.password, win.device_page.key_passphrase
+    assert eye(password).toolTip() == S.PASSWORD_SHOW
+    eye(password).trigger()
+    assert password.echoMode() == QLineEdit.EchoMode.Normal
+    assert eye(password).toolTip() == S.PASSWORD_HIDE
+    assert passphrase.echoMode() == QLineEdit.EchoMode.Password  # only the one clicked
+    assert not win.show_passwords_action.isChecked()
+    eye(password).trigger()
+    assert password.echoMode() == QLineEdit.EchoMode.Password
+
+
+def test_the_menu_switch_moves_every_eye(qtbot, tmp_path):
+    win = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    eye(win.device_page.password).trigger()  # one already shown by hand
+    win.show_passwords_action.setChecked(True)
+    assert eye(win.device_page.key_passphrase).isChecked()
+    win.show_passwords_action.setChecked(False)
+    for field in (win.device_page.password, win.device_page.key_passphrase):
+        assert field.echoMode() == QLineEdit.EchoMode.Password
+        assert not eye(field).isChecked()

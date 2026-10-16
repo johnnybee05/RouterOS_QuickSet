@@ -346,6 +346,8 @@ PROFILE_FILTER = "Profil QuickSet Plus (*.json)"
 # view
 MENU_VIEW = "Zobrazení"
 VIEW_SHOW_PASSWORDS = "Zobrazovat hesla"
+PASSWORD_SHOW = "Zobrazit heslo"
+PASSWORD_HIDE = "Skrýt heslo"
 
 # input syntax (checked in the UI before values reach the model)
 INVALID_CIDR = "Zadejte adresu ve tvaru a.b.c.d/nn"
