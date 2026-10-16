@@ -11,6 +11,16 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.12.1] – 2026-10-16
+
+### Změněno
+
+- **Žádné heslo už není předvyplněné**, ani nové heslo uživatele admin po resetu na
+  stránce Aplikovat. Reset počká, až ho zadáte; s volbou ponechat uživatele heslo
+  potřeba není, stejně jako dosud.
+- **Zapamatovat přihlašovací údaje je ve výchozím stavu zapnuté.** Kdo ho vypne, tomu
+  zůstane vypnuté i po restartu.
+
 ## [0.12.0] – 2026-10-16
 
 ### Přidáno
