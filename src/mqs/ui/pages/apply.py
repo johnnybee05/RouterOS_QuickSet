@@ -40,7 +40,6 @@ from mqs.apply.orchestrator import (
 )
 from mqs.apply.plan import (
     DEFAULT_KEEP_BACKUPS,
-    DEFAULT_PASSWORD,
     ApplyMode,
     ApplyOptions,
     build_upload_script,
@@ -218,7 +217,7 @@ class ApplyPage(Page):
         self.keep_users.setToolTip(S.APPLY_KEEP_USERS_TIP)
         self.keep_users.toggled.connect(lambda _: self.refresh())
         form.addRow(self.keep_users)
-        self.admin_password = mark_secret(QLineEdit(DEFAULT_PASSWORD))
+        self.admin_password = mark_secret(QLineEdit())
         self.admin_password.textChanged.connect(lambda _: self.refresh())
         form.addRow(S.APPLY_ADMIN_PASSWORD, self.admin_password)
         self.update_check = QCheckBox(S.APPLY_UPDATE)

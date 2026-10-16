@@ -26,9 +26,6 @@ DEFAULT_RESET_DELAY_S = 15
 MIN_ROLLBACK_MINUTES = 2
 DEFAULT_KEEP_BACKUPS = 3
 UPDATE_RECONNECT_EXTRA_S = 300.0
-# Prefilled in the GUI for logging in and as admin's new password after a reset, so a
-# device reset by one apply is reached with the same password by the next connect.
-DEFAULT_PASSWORD = ""
 # pre-quickset-R1-20260921-234537.backup / .rsc, optionally under flash/; the identity is
 # missing in names written by older versions and in those of a device without one.
 BACKUP_FILE_RE = re.compile(

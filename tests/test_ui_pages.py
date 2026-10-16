@@ -16,7 +16,7 @@ from factories import make_inventory, make_npk
 from fake_transport import FakeTransport
 from mqs.app import parse_args, prefill
 from mqs.apply.orchestrator import ApplyReport
-from mqs.apply.plan import DEFAULT_PASSWORD, ApplyMode, make_names
+from mqs.apply.plan import ApplyMode, make_names
 from mqs.apply.preflight import ExistingObjects
 from mqs.apply.update import plan_from_dir
 from mqs.apply.verify import CheckResult
@@ -215,10 +215,12 @@ def window(qtbot, tmp_path):
     return win
 
 
-def connect(win, qtbot, password="pw"):
+def connect(win, qtbot, password="pw", admin_password="N3w"):
     page = win.device_page
     page.host.setText("192.168.88.1")
     page.password.setText(password)
+    # Reset is the default mode, and a reset needs admin's new password typed in.
+    win.apply_page.admin_password.setText(admin_password)
     page.connect_device()
     qtbot.waitUntil(lambda: not win.runner.busy, timeout=5000)
     win.controller.recompute()
@@ -683,6 +685,7 @@ def test_failed_checks_keep_the_device_connected(window, qtbot):
 
 def test_a_successful_apply_by_mac_gives_the_lent_address_back(window, qtbot):
     page = connect_by_mac(window, qtbot)
+    window.apply_page.admin_password.setText("N3w")
     window.controller.recompute()
     window.apply_page.start_apply()
     qtbot.waitUntil(lambda: window.apply_page.last_report is not None
@@ -714,14 +717,16 @@ def test_reset_identity_must_match(window, qtbot):
     assert RecordingOrchestrator.instances == []
 
 
-def test_only_the_new_admin_password_is_prefilled(window, qtbot):
+def test_no_password_is_prefilled(window, qtbot):
     assert window.device_page.password.text() == ""  # a login is never guessed
     page = window.apply_page
-    assert page.admin_password.text() == DEFAULT_PASSWORD
-    connect(window, qtbot)
+    assert page.admin_password.text() == ""
+    connect(window, qtbot, admin_password="")
     page.mode_buttons[ApplyMode.RESET_AND_IMPORT].setChecked(True)
-    assert page.options().admin_password == DEFAULT_PASSWORD
-    assert page.apply_button.isEnabled()  # the default is a password, so reset can go ahead
+    assert not page.apply_button.isEnabled()  # a reset waits for admin's new password
+    page.admin_password.setText("N3w")
+    assert page.options().admin_password == "N3w"
+    assert page.apply_button.isEnabled()
 
 
 def test_reset_keeping_users_needs_no_admin_password(window, qtbot):
@@ -1293,9 +1298,8 @@ def fill_login(page) -> None:
 def test_a_remembered_login_comes_back_after_a_restart(qtbot, tmp_path):
     store = settings_store(tmp_path)
     first = bare_window(qtbot, tmp_path, store)
-    assert not first.device_page.remember_login.isChecked()  # off until asked for
+    assert first.device_page.remember_login.isChecked()  # on from the first start
     fill_login(first.device_page)
-    first.device_page.remember_login.setChecked(True)
     first.close()
     assert b"s3cret" not in (tmp_path / "settings" / "login.bin").read_bytes()
 
@@ -1319,7 +1323,8 @@ def test_the_form_is_saved_as_it_is_left(qtbot, tmp_path):
 def test_unticking_forgets_the_login(qtbot, tmp_path):
     first = bare_window(qtbot, tmp_path, settings_store(tmp_path))
     fill_login(first.device_page)
-    first.device_page.remember_login.setChecked(True)
+    first.device_page.remember_login.setChecked(False)
+    first.device_page.remember_login.setChecked(True)  # ticking saves at once
     assert (tmp_path / "settings" / "login.bin").exists()
     first.device_page.remember_login.setChecked(False)
     assert not (tmp_path / "settings" / "login.bin").exists()
