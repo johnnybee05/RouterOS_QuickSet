@@ -462,8 +462,9 @@ class VersionContext:
     # ... and let it go down to the firmware an older RouterOS carries, on its own switch.
     routerboot_downgrade: bool = False
     routerboot_wait_s: float = ROUTERBOOT_REBOOT_WAIT_S
-    # After the last hop, wait for the stations of an AP to re-associate. Worth having on
-    # for an AP and pointless for a station, so it is asked of the snapshot, not the user.
+    # After the last hop, wait for the stations of an AP to re-associate. Which radios to
+    # wait on is asked of the snapshot; whether to wait at all is the user's — a batch over
+    # APs whose far ends are known to be down would otherwise sit out the timeout on each.
     wait_for_stations: bool = True
     registration_timeout_s: float = REGISTRATION_WAIT_S
     radio_timeout_s: float = RADIO_WAIT_S

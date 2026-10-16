@@ -445,6 +445,12 @@ NET_ROUTERBOOT_TIP = (
     "jedním restartem a bez zásahu do konfigurace."
 )
 NET_ROUTERBOOT_DOWN = "Snížit RouterBOOT"
+NET_WAIT_STATIONS = "Čekat na návrat stanic"
+NET_WAIT_STATIONS_TIP = (
+    "Po poslední verzi se u AP čeká (nejvýš 5 minut), až se vrátí stanice, které na něm "
+    "visely před restartem. Stanice, které se nevrátí, dávku zastaví. Vypnuto: AP je "
+    "hotové, jakmile mu naběhnou rádia, a dávka jde dál bez ohledu na stanice."
+)
 NET_BATCH_START = "Spustit dávku"
 NET_BATCH_STOP = "Zastavit dávku"
 NET_BATCH_STOP_TIP = ("Dávka se zastaví po zařízení, které se právě aktualizuje – "

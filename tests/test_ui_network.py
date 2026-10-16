@@ -675,6 +675,37 @@ def test_a_batch_updates_every_device_leaves_first(page, qtbot, tmp_path, monkey
     assert "už má 7.16.1" in page.order_text.toPlainText()
 
 
+@pytest.mark.parametrize("wait", [True, False])
+def test_a_batch_waits_for_stations_only_when_asked(page, qtbot, tmp_path, monkeypatch, wait):
+    from test_fleet_end_to_end import Lab
+
+    devices = chain_of_three()
+    lab = Lab(tmp_path, {d.address: d for d in devices}, "7.16.1")
+    seen: list[bool] = []
+
+    def changer(ctx):
+        seen.append(ctx.wait_for_stations)
+        return lab.changer(ctx)
+
+    page.update_dir = lab.folder
+    page.load_packages()
+    page.target.setCurrentText("7.16.1")
+    page.login_settings = settings
+    page.open_fn = lambda s, host, cancelled: lab.sessions[host]
+    page.close_fn = lambda session: None
+    page.changer_factory = changer
+    page.backup_dir = tmp_path / "backups"
+    monkeypatch.setattr(page.dialogs, "question", lambda parent, title, text: True)
+    page.devices = devices
+    page._show()
+    assert page.wait_stations.isChecked()  # on unless switched off
+    page.wait_stations.setChecked(wait)
+
+    with qtbot.waitSignal(page.devicesChanged, timeout=10000):
+        page.start_batch()
+    assert seen == [wait] * 3
+
+
 def with_firmware(device: Candidate, current: str, waiting: str) -> Candidate:
     board = device.inventory.routerboard.model_copy(
         update={"current_firmware": current, "upgrade_firmware": waiting})

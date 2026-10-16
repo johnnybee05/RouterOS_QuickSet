@@ -12,6 +12,8 @@ import io
 import time
 from pathlib import Path
 
+import pytest
+
 from factories import make_inventory, make_radios
 from factories import make_npk as npk
 from fake_router import FakeRouter, RouterUploader
@@ -136,6 +138,20 @@ def test_a_batch_really_updates_every_device_leaves_first(tmp_path):
     # Both files went up on each device, and nothing was left behind.
     for router in lab.routers.values():
         assert not [name for name in router.files if name.endswith(".npk")]
+
+
+@pytest.mark.parametrize("flag, wait", [([], True), (["--no-wait-stations"], False)])
+def test_waiting_for_stations_reaches_every_device(tmp_path, flag, wait):
+    lab, argv = chain(tmp_path)
+    seen: list[bool] = []
+
+    def changer(ctx):
+        seen.append(ctx.wait_for_stations)
+        return lab.changer(ctx)
+
+    code, out = run([*argv, *flag], connect=lab.connect, changer_factory=changer)
+    assert code == cli.OK, out
+    assert seen == [wait] * 3
 
 
 def test_the_order_holds_all_the_way_through_a_real_run(tmp_path):

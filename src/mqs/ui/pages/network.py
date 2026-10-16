@@ -284,6 +284,10 @@ class NetworkPage(Page):
         self.routerboot_down.setToolTip(S.APPLY_ROUTERBOOT_DOWN_TIP)
         self.routerboot_down.toggled.connect(lambda _: self._show_plan())
         run.addWidget(self.routerboot_down)
+        self.wait_stations = QCheckBox(S.NET_WAIT_STATIONS)
+        self.wait_stations.setChecked(True)
+        self.wait_stations.setToolTip(S.NET_WAIT_STATIONS_TIP)
+        run.addWidget(self.wait_stations)
         run.addStretch(1)
         self.batch_button = QPushButton(S.NET_BATCH_START)
         self.batch_button.clicked.connect(self.start_batch)
@@ -618,6 +622,7 @@ class NetworkPage(Page):
         packages = self.packages
         routerboot = self.routerboot.isChecked()
         routerboot_down = routerboot and self.routerboot_down.isChecked()
+        wait_stations = self.wait_stations.isChecked()
         parallel = self.parallel.value()
         backup_dir = self.backup_dir
         self.log_view.append_line(S.NET_BATCH_RUNNING)
@@ -640,6 +645,7 @@ class NetworkPage(Page):
                     changer_factory=self.changer_factory,
                     upgrade_routerboot=routerboot,
                     routerboot_downgrade=routerboot_down,
+                    wait_for_stations=wait_stations,
                     download_dir=backup_dir,
                     keep_backups=DEFAULT_KEEP_BACKUPS)
 
@@ -857,7 +863,8 @@ class NetworkPage(Page):
         self.batch_stop_button.setEnabled(working and self._job in ("login", "batch"))
         self.forget_button.setEnabled(not working and (
             bool(len(self.credentials)) or bool(self.credentials.load_error)))
-        for widget in (self.target, self.here, self.parallel, self.routerboot):
+        for widget in (self.target, self.here, self.parallel, self.routerboot,
+                       self.wait_stations):
             widget.setEnabled(not working)
         self.routerboot_down.setEnabled(not working and self.routerboot.isChecked())
 

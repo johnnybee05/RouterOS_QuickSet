@@ -58,6 +58,10 @@ def add_fleet_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--confirm-order", action="store_true",
                         help="accept an order the application is not sure of (an "
                         "incomplete topology). Without it such a batch refuses to run")
+    parser.add_argument("--no-wait-stations", action="store_true",
+                        help="do not wait for an AP's stations to come back after its last "
+                        "reboot. An AP is then done once its radios are up, and stations "
+                        "that stay away do not stop the batch")
     parser.add_argument("-y", "--yes", action="store_true",
                         help="do not ask before starting")
 
@@ -249,6 +253,7 @@ def updater(args: argparse.Namespace, out: Any, *,
             close=lambda session: hang_up(session, out),
             replan=replan if target is not None else None,
             changer_factory=build,
+            wait_for_stations=not getattr(args, "no_wait_stations", False),
             download_dir=Path(args.download_dir) if getattr(args, "download_dir", None)
             else None)
 

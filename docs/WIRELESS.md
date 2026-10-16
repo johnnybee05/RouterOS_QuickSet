@@ -176,6 +176,10 @@ stanice měla i předtím — prázdná tabulka AP bez klientů by se čekala do
 Nevrácené stanice shodí verifikaci, takže dávka zastaví: zařízení je v pořádku, protistrana
 ne, a někdo se na to má podívat.
 
+Čekání jde vypnout — na stránce *Hromadný update* přepínačem **Čekat na návrat stanic**,
+v `mqs fleet` volbou `--no-wait-stations`. AP je pak hotové, jakmile mu naběhnou rádia
+(kontrola rádií z 5.1 platí dál), a stanice, které se nevrátí, dávku nezastaví.
+
 ---
 
 ## 6. Hledání zařízení v síti
