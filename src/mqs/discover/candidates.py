@@ -89,6 +89,19 @@ def normalise_mac(text: str) -> str:
     return ":".join(digits[i:i + 2] for i in range(0, 12, 2))
 
 
+NO_MAC = "00:00:00:00:00:00"
+
+
+def device_macs(macs: Iterable[str]) -> list[str]:
+    """``macs`` normalised, without the ones that name no device.
+
+    v7's `lo` reports 00:00:00:00:00:00, so every v7 box read by a login has it — and a
+    MAC every device shares would make any two of them one device to a match by MAC.
+    """
+    return sorted({mac for mac in (normalise_mac(m) for m in macs if m.strip())
+                   if mac != NO_MAC})
+
+
 class Sighting(BaseModel):
     """One source's word on one device, kept as the source gave it.
 
@@ -117,8 +130,18 @@ class Sighting(BaseModel):
     upstream: bool = False
 
     def normalised(self) -> Sighting:
-        return self.model_copy(update={"macs": sorted({normalise_mac(m) for m in self.macs
-                                                       if m.strip()})})
+        return self.model_copy(update={"macs": device_macs(self.macs)})
+
+    @property
+    def anonymous(self) -> bool:
+        """A MAC and nothing else: no name, no address, nothing a device announces.
+
+        What an AP's registration table says about a phone, or a neighbour table about a
+        PC. It can still be one more sighting of a device already known by that MAC, but
+        on its own it is not a device the list could log in to or update.
+        """
+        return not (self.identity or self.address or self.version or self.board
+                    or self.platform)
 
     @property
     def mikrotik(self) -> bool:
@@ -257,9 +280,8 @@ def confirmed(candidate: Candidate, inventory: DeviceInventory, *,
     an AP's registration table by its radio — be recognised as one device.
     """
     board = inventory.routerboard
-    macs = sorted({*candidate.macs,
-                   *(normalise_mac(i.mac_address) for i in inventory.interfaces
-                     if i.mac_address)})
+    macs = device_macs([*candidate.macs,
+                        *(i.mac_address for i in inventory.interfaces if i.mac_address)])
     return candidate.model_copy(update={
         "macs": macs,
         "identity": inventory.identity or candidate.identity,

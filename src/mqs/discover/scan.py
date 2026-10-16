@@ -307,15 +307,23 @@ def with_neighbours(devices: Sequence[Candidate],
     alone is not enough here: a neighbour table names the MAC of whichever port the
     neighbour was heard on, and MNDP that of the port it announced from — one hAP ac³
     came back as …:18, …:1B and …:1C from three places on one switch (2026-10-12).
+
+    A sighting that is only a MAC joins nothing new: an AP's registration table lists the
+    phones on it and a neighbour table the PCs, and none of them is a device to update —
+    four phones and a PC came back as five rows from a network of four MikroTiks
+    (2026-10-16). It still counts where its MAC is a device the list has, which is how a
+    known CPE gets its edge to the AP. Those go last, so a device named by any reader is
+    on the list before the anonymous sightings of it are matched.
     """
     merged = list(devices)
-    for sighting in sightings:
-        seen = sighting.normalised()
+    normalised = [s.normalised() for s in sightings]
+    for seen in [*(s for s in normalised if not s.anonymous),
+                 *(s for s in normalised if s.anonymous)]:
         index = _same_box(merged, seen)
-        if index is None:
-            merged.append(from_sighting(seen))
-        else:
+        if index is not None:
             merged[index] = merge_into(merged[index], seen)
+        elif not seen.anonymous:
+            merged.append(from_sighting(seen))
     return merged
 
 

@@ -342,6 +342,50 @@ def test_a_neighbour_heard_by_another_port_mac_is_still_the_same_box():
     assert len(devices[0].macs) == 3
 
 
+def test_phones_and_pcs_seen_only_by_mac_are_not_devices():
+    """2026-10-16: four MikroTiks, and after logging in nine rows — four phones from the
+    hAP ac³'s registration table and a PC from the RB4011's neighbour table."""
+    ap = log_in(run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices,
+                lambda device: device_inventory("ap-1", serial="AP1"))
+    phones = [Sighting(source=Source.REGISTRATION, found_at="ap-1", macs=[mac],
+                       via_interface="wifi1-2.4Ghz", note="wifi")
+              for mac in ("8E:3F:56:EF:2D:F2", "F8:0F:F9:8E:07:7E")]
+    pc = Sighting(source=Source.NEIGHBOR, found_at="ap-1", macs=["2C:F0:5D:DA:31:49"],
+                  via_interface="ether3")
+    devices = with_neighbours(ap, [*phones, pc])
+    assert [d.identity for d in devices] == ["ap-1"]
+    assert build(devices).links == ()
+
+
+def test_a_known_station_seen_only_by_mac_still_hangs_off_its_ap():
+    ap = log_in(run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices,
+                lambda device: device_inventory("ap-1", serial="AP1"))
+    # The station's MAC arrives anonymously first, its name only later in the list.
+    station = Sighting(source=Source.REGISTRATION, found_at="ap-1", macs=[MAC_B],
+                       via_interface="wlan1")
+    named = Sighting(source=Source.NEIGHBOR, found_at="ap-1", identity="cpe-1",
+                     address="192.0.2.9", macs=[MAC_B], upstream=True)
+    devices = with_neighbours(ap, [station, named])
+    assert [d.identity for d in devices] == ["ap-1", "cpe-1"]
+    link = build(devices).links[0]
+    assert (link.child, link.interface) == (devices[1].key, "wlan1")
+
+
+def test_the_mac_of_v7s_loopback_is_no_one_s():
+    """`lo` reports 00:00:00:00:00:00 on every v7 box; as a device MAC it is shared by all."""
+    from mqs.discover.candidates import NO_MAC
+    from mqs.model.inventory import InterfaceInfo
+
+    devices = log_in(run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices,
+                     lambda device: device_inventory("ap-1", serial="AP1").model_copy(
+                         update={"interfaces": [InterfaceInfo(name="lo", type="loopback",
+                                                              mac_address=NO_MAC)]}))
+    assert NO_MAC not in devices[0].macs
+    stray = Sighting(source=Source.NEIGHBOR, found_at="x", identity="other",
+                     macs=[NO_MAC])
+    assert len(with_neighbours(devices, [stray])) == 2
+
+
 def test_the_same_address_with_another_name_is_another_device():
     known = run(quick(), mndp_factory=lambda: FakeScanner([announced()])).devices
     other = Sighting(source=Source.NEIGHBOR, found_at="a", identity="someone-else",
