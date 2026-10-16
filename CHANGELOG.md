@@ -11,6 +11,13 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.11.1] – 2026-10-16
+
+### Přidáno
+
+- **Titulek okna ukazuje verzi aplikace**, třeba „MikroTik QuickSet Plus 0.11.1“, takže
+  je hned vidět, která verze běží.
+
 ## [0.11.0] – 2026-10-16
 
 ### Přidáno
