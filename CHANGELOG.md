@@ -11,6 +11,28 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.11.0] – 2026-10-16
+
+### Přidáno
+
+- **Čekání na návrat stanic jde při hromadném updatu vypnout.** Po poslední verzi se
+  u každého AP čekalo až 5 minut, než se vrátí stanice, a stanice, které se nevrátily,
+  dávku zastavily — a nešlo to nijak vypnout. Stránka Hromadný update má nový přepínač
+  **Čekat na návrat stanic** (výchozí zapnuto, tedy beze změny chování) a `mqs fleet`
+  volbu `--no-wait-stations`. Vypnuté: AP je hotové, jakmile mu naběhnou rádia; kontrola
+  rádií platí dál.
+
+### Opraveno
+
+- **Po přihlášení přibývaly v tabulce nalezených zařízení řádky, které nejsou zařízení.**
+  Na síti se čtyřmi MikroTiky jich bylo devět: registrační tabulka hAP ac^3 přidala své
+  čtyři WiFi klienty (telefony, notebooky) a tabulka sousedů RB4011 jedno PC, každý jen
+  jako MAC adresu. Záznam, který nenese nic než MAC, se teď jen připojí k zařízení, které
+  už v seznamu je; vazba známé CPE na její AP tak zůstává.
+- **Všechna zařízení na RouterOS v7 sdílela MAC 00:00:00:00:00:00** (rozhraní `lo`), což
+  je mohlo při porovnání podle MAC slít do jednoho. Tahle adresa se za MAC zařízení
+  nepočítá.
+
 ## [0.10.0] – 2026-10-16
 
 ### Přidáno
