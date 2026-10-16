@@ -6,7 +6,7 @@ from collections.abc import Callable
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 from typing import Any
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLineEdit, QWidget
 
 from mqs.issues import Issue, Severity
 from mqs.model.inventory import DeviceInventory
@@ -15,9 +15,18 @@ from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.widgets.common import apply_field_issues
 
+SECRET_PROPERTY = "secret"
+
 
 class InputError(ValueError):
     pass
+
+
+def mark_secret(field: QLineEdit) -> QLineEdit:
+    """A password field: hidden, and shown in clear only by the window's *Zobrazit hesla*."""
+    field.setProperty(SECRET_PROPERTY, True)
+    field.setEchoMode(QLineEdit.EchoMode.Password)
+    return field
 
 
 def parse_cidr(text: str) -> IPv4Interface:

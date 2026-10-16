@@ -39,6 +39,7 @@ from mqs.ui import strings_cs as S
 from mqs.ui.main_window import MainWindow
 from mqs.ui.pages.base import parse_cidr, parse_optional_ip
 from mqs.ui.pages.device import describe_error
+from mqs.ui.settings import SavedLogin, SettingsStore
 
 pytestmark = pytest.mark.qt
 
@@ -150,6 +151,14 @@ class RecordingOrchestrator:
         self.confirmed = True
 
 
+def scrambled(data: bytes) -> bytes:
+    return bytes(b ^ 0x5A for b in data)
+
+
+def settings_store(tmp_path: Path) -> SettingsStore:
+    return SettingsStore(tmp_path / "settings", protect=scrambled, unprotect=scrambled)
+
+
 @pytest.fixture
 def window(qtbot, tmp_path):
     dialogs = FakeDialogs(tmp_path)
@@ -180,6 +189,7 @@ def window(qtbot, tmp_path):
     win = MainWindow(
         dialogs=dialogs,
         store=ProfileStore(tmp_path / "profiles"),
+        settings_store=settings_store(tmp_path),
         device_kwargs={
             "connect_fn": connect_fn,
             "discover_fn": lambda t, on_step: inventory,
@@ -704,8 +714,8 @@ def test_reset_identity_must_match(window, qtbot):
     assert RecordingOrchestrator.instances == []
 
 
-def test_passwords_are_prefilled_with_the_default(window, qtbot):
-    assert window.device_page.password.text() == DEFAULT_PASSWORD
+def test_only_the_new_admin_password_is_prefilled(window, qtbot):
+    assert window.device_page.password.text() == ""  # a login is never guessed
     page = window.apply_page
     assert page.admin_password.text() == DEFAULT_PASSWORD
     connect(window, qtbot)
@@ -1152,7 +1162,7 @@ def test_the_command_line_fills_the_connect_form(window, qtbot):
     assert page.ssh_port.value() == 122
     assert page.transport_choice.currentData() == TransportChoice.SSH
     # Untouched: the page keeps what it chose itself.
-    assert page.password.text() == DEFAULT_PASSWORD
+    assert page.password.text() == ""
     assert page.api_port.value() == 8729
 
 
@@ -1253,3 +1263,90 @@ def test_the_command_line_can_point_at_a_key_passphrase_variable(window, qtbot):
     page = window.device_page
     prefill(page, args, env={"MQS_KP": "heslo klice"})
     assert page.key_passphrase.text() == "heslo klice"
+
+
+# ------------------------------------------------------------- remembered between runs
+
+
+def bare_window(qtbot, tmp_path, store: SettingsStore) -> MainWindow:
+    win = MainWindow(dialogs=FakeDialogs(tmp_path), store=ProfileStore(tmp_path / "profiles"),
+                     settings_store=store,
+                     network_kwargs={"inventory_path": tmp_path / "inventory.json"},
+                     apply_kwargs={"update_dir": tmp_path / "Update"})
+    qtbot.addWidget(win)
+    return win
+
+
+def fill_login(page) -> None:
+    page.host.setText("192.168.55.129")
+    page.user.setText("bee")
+    page.password.setText("s3cret")
+    page.key_file.setText("k.pem")
+    page.key_passphrase.setText("phrase")
+    page.ca_file.setText("ca.pem")
+    page.transport_choice.setCurrentIndex(
+        page.transport_choice.findData(TransportChoice.SSH))
+    page.api_port.setValue(8730)
+    page.ssh_port.setValue(122)
+
+
+def test_a_remembered_login_comes_back_after_a_restart(qtbot, tmp_path):
+    store = settings_store(tmp_path)
+    first = bare_window(qtbot, tmp_path, store)
+    assert not first.device_page.remember_login.isChecked()  # off until asked for
+    fill_login(first.device_page)
+    first.device_page.remember_login.setChecked(True)
+    first.close()
+    assert b"s3cret" not in (tmp_path / "settings" / "login.bin").read_bytes()
+
+    page = bare_window(qtbot, tmp_path, settings_store(tmp_path)).device_page
+    assert page.remember_login.isChecked()
+    assert page.saved_login() == SavedLogin(
+        host="192.168.55.129", username="bee", password="s3cret", key_file="k.pem",
+        key_passphrase="phrase", transport="ssh", api_port=8730, ssh_port=122,
+        ca_file="ca.pem")
+
+
+def test_the_form_is_saved_as_it_is_left(qtbot, tmp_path):
+    first = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    first.device_page.remember_login.setChecked(True)
+    first.device_page.host.setText("10.0.0.1")  # typed after the box was ticked
+    first.close()
+    second = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    assert second.device_page.host.text() == "10.0.0.1"
+
+
+def test_unticking_forgets_the_login(qtbot, tmp_path):
+    first = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    fill_login(first.device_page)
+    first.device_page.remember_login.setChecked(True)
+    assert (tmp_path / "settings" / "login.bin").exists()
+    first.device_page.remember_login.setChecked(False)
+    assert not (tmp_path / "settings" / "login.bin").exists()
+    first.close()
+    page = bare_window(qtbot, tmp_path, settings_store(tmp_path)).device_page
+    assert not page.remember_login.isChecked()
+    assert (page.host.text(), page.password.text()) == ("", "")
+
+
+def test_with_nowhere_to_keep_it_the_login_cannot_be_remembered(qtbot, tmp_path):
+    page = bare_window(qtbot, tmp_path, SettingsStore(None)).device_page
+    assert not page.remember_login.isEnabled()
+
+
+def test_show_passwords_switches_every_password_field(qtbot, tmp_path):
+    win = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    secret = [win.device_page.password, win.device_page.key_passphrase,
+              win.apply_page.admin_password, win.basic_page.pppoe_password]
+    plain = win.device_page.host
+    assert all(f.echoMode() == QLineEdit.EchoMode.Password for f in secret)
+    win.show_passwords_action.setChecked(True)
+    assert all(f.echoMode() == QLineEdit.EchoMode.Normal for f in secret)
+    assert plain.echoMode() == QLineEdit.EchoMode.Normal
+    win.close()
+    # The switch itself is remembered, even without remembering the login.
+    again = bare_window(qtbot, tmp_path, settings_store(tmp_path))
+    assert again.show_passwords_action.isChecked()
+    assert again.device_page.password.echoMode() == QLineEdit.EchoMode.Normal
+    again.show_passwords_action.setChecked(False)
+    assert again.device_page.password.echoMode() == QLineEdit.EchoMode.Password

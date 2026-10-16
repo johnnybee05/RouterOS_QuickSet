@@ -41,6 +41,11 @@ TRANSPORTS = {"auto": "API-SSL, při nedostupnosti SSH", "api-ssl": "Jen API-SSL
 DEVICE_SSH_PORT = "SSH port"
 DEVICE_API_PORT = "API-SSL port"
 DEVICE_CA = "CA certifikát (volitelně)"
+DEVICE_REMEMBER_LOGIN = "Zapamatovat přihlašovací údaje"
+DEVICE_REMEMBER_LOGIN_TIP = (
+    "Při příštím spuštění se formulář vyplní tak, jak byl naposledy, včetně hesla. "
+    "Uloženo šifrovaně (Windows DPAPI) jen pro tohoto uživatele Windows."
+)
 DEVICE_CONNECT = "Připojit"
 DEVICE_DISCONNECT = "Odpojit"
 DEVICE_CANCEL = "Přerušit"
@@ -337,6 +342,10 @@ PROFILE_IMPORT = "Importovat ze souboru…"
 PROFILE_EXPORT = "Exportovat do souboru…"
 PROFILE_NAME_PROMPT = "Název profilu:"
 PROFILE_FILTER = "Profil QuickSet Plus (*.json)"
+
+# view
+MENU_VIEW = "Zobrazení"
+VIEW_SHOW_PASSWORDS = "Zobrazovat hesla"
 
 # input syntax (checked in the UI before values reach the model)
 INVALID_CIDR = "Zadejte adresu ve tvaru a.b.c.d/nn"

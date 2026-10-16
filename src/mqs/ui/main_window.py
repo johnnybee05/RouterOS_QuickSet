@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
     QStackedWidget,
@@ -23,12 +24,13 @@ from mqs.logging_setup import SecretRegistry
 from mqs.messages_cs import format_message
 from mqs.model.presets import apply_preset
 from mqs.model.profile import DeviceProfile, Mode
-from mqs.paths import profiles_dir
+from mqs.paths import app_data_dir, profiles_dir
 from mqs.profiles.store import ProfileError, ProfileStore, export_profile, import_profile
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
 from mqs.ui.pages.apply import ApplyPage
+from mqs.ui.pages.base import SECRET_PROPERTY
 from mqs.ui.pages.basic import BasicPage
 from mqs.ui.pages.device import DevicePage, connection_summary
 from mqs.ui.pages.firewall import FirewallPage
@@ -36,6 +38,7 @@ from mqs.ui.pages.lan_bridge import LanBridgePage
 from mqs.ui.pages.network import NetworkPage
 from mqs.ui.pages.preview import PreviewPage
 from mqs.ui.pages.services import ServicesPage
+from mqs.ui.settings import SettingsStore
 from mqs.ui.workers import TaskRunner
 
 log = logging.getLogger(__name__)
@@ -49,6 +52,7 @@ class MainWindow(QMainWindow):
         dark: bool = False,
         dialogs: Dialogs | None = None,
         store: ProfileStore | None = None,
+        settings_store: SettingsStore | None = None,
         device_kwargs: dict[str, Any] | None = None,
         apply_kwargs: dict[str, Any] | None = None,
         network_kwargs: dict[str, Any] | None = None,
@@ -59,6 +63,8 @@ class MainWindow(QMainWindow):
         self.dialogs = dialogs or Dialogs()
         self.store = store or ProfileStore(profiles_dir())
         self.registry = registry or SecretRegistry()
+        self.settings_store = settings_store or SettingsStore(app_data_dir())
+        self.settings = self.settings_store.load_settings()
         self.runner = TaskRunner(self)
         self.controller = ProfileController(self)
 
@@ -125,6 +131,7 @@ class MainWindow(QMainWindow):
             self.statusBar().addPermanentWidget(label)
 
         self._build_menu()
+        self._restore_settings()
         self.device_page.sessionChanged.connect(self._session_changed)
         self.apply_page.applied.connect(self.device_page.adopt_apply)
         self.apply_page.version_changed.connect(self.device_page.adopt_version_change)
@@ -156,6 +163,58 @@ class MainWindow(QMainWindow):
             action = menu.addAction(label)
             action.triggered.connect(slot)
             self.profile_actions[label] = action
+
+        view = self.menuBar().addMenu(S.MENU_VIEW)
+        self.show_passwords_action = view.addAction(S.VIEW_SHOW_PASSWORDS)
+        self.show_passwords_action.setCheckable(True)
+        self.show_passwords_action.toggled.connect(self.set_show_passwords)
+
+    # ------------------------------------------------------------ remembered settings
+
+    def _restore_settings(self) -> None:
+        page = self.device_page
+        remember = self.settings.remember_login and self.settings_store.can_remember_login
+        if remember:
+            login = self.settings_store.load_login()
+            if login is not None:
+                page.restore_login(login)
+        page.remember_login.setEnabled(self.settings_store.can_remember_login)
+        page.remember_login.setChecked(remember)
+        page.remember_login.toggled.connect(self.set_remember_login)
+        # Once a login has worked, not only at the close: a crash must not take it along.
+        page.sessionChanged.connect(lambda session: self._save_login() if session else None)
+        self.show_passwords_action.setChecked(self.settings.show_passwords)
+        self.set_show_passwords(self.settings.show_passwords)
+
+    def set_show_passwords(self, show: bool) -> None:
+        mode = QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password
+        for field in self.findChildren(QLineEdit):
+            if field.property(SECRET_PROPERTY):
+                field.setEchoMode(mode)
+        if show != self.settings.show_passwords:
+            self.settings.show_passwords = show
+            self._save_settings()
+
+    def set_remember_login(self, remember: bool) -> None:
+        self.settings.remember_login = remember
+        self._save_settings()
+        if remember:
+            self._save_login()
+        else:
+            self.settings_store.forget_login()  # unticked: nothing of it stays on disk
+
+    def _save_login(self) -> None:
+        if self.settings.remember_login:
+            try:
+                self.settings_store.save_login(self.device_page.saved_login())
+            except OSError as exc:
+                log.warning("login form not saved: %s", exc)
+
+    def _save_settings(self) -> None:
+        try:
+            self.settings_store.save_settings(self.settings)
+        except OSError as exc:
+            log.warning("settings not saved: %s", exc)
 
     def _profile_error(self, exc: ProfileError) -> None:
         self.dialogs.error(self, format_message(exc.code))
@@ -255,6 +314,7 @@ class MainWindow(QMainWindow):
         self.preview_page.set_dark(dark)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_login()  # the form as it is left is what the next start begins with
         self.device_page.shutdown()
         self.network_page.shutdown()
         self.runner.cancel_all()

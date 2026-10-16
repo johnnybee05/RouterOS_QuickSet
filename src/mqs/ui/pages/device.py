@@ -10,6 +10,7 @@ from typing import Any
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -26,7 +27,6 @@ from PySide6.QtWidgets import (
 )
 
 from mqs.apply.orchestrator import ApplyReport
-from mqs.apply.plan import DEFAULT_PASSWORD
 from mqs.apply.session import (
     DeviceSession,
     LoginSettings,
@@ -68,7 +68,8 @@ from mqs.transport.netifs import (
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import ProfileController
 from mqs.ui.dialogs import Dialogs
-from mqs.ui.pages.base import Page, split_list
+from mqs.ui.pages.base import Page, mark_secret, split_list
+from mqs.ui.settings import SavedLogin
 from mqs.ui.workers import CancelToken, TaskRunner
 
 log = logging.getLogger(__name__)
@@ -197,11 +198,9 @@ class DevicePage(Page):
         self.host = QLineEdit()
         self.host.setPlaceholderText("192.168.88.1")
         self.user = QLineEdit("admin")
-        self.password = QLineEdit(DEFAULT_PASSWORD)
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password = mark_secret(QLineEdit())
         self.key_file = QLineEdit()
-        self.key_passphrase = QLineEdit()
-        self.key_passphrase.setEchoMode(QLineEdit.EchoMode.Password)
+        self.key_passphrase = mark_secret(QLineEdit())
         self.key_passphrase.setPlaceholderText(S.DEVICE_KEY_PASSPHRASE_HINT)
         self.transport_choice = QComboBox()
         for value, label in S.TRANSPORTS.items():
@@ -222,6 +221,9 @@ class DevicePage(Page):
         form.addRow(S.DEVICE_API_PORT, self.api_port)
         form.addRow(S.DEVICE_SSH_PORT, self.ssh_port)
         form.addRow(S.DEVICE_CA, self.ca_file)
+        self.remember_login = QCheckBox(S.DEVICE_REMEMBER_LOGIN)
+        self.remember_login.setToolTip(S.DEVICE_REMEMBER_LOGIN_TIP)
+        form.addRow(self.remember_login)
         buttons = QHBoxLayout()
         self.connect_button = QPushButton(S.DEVICE_CONNECT)
         self.connect_button.clicked.connect(self.connect_device)
@@ -368,6 +370,34 @@ class DevicePage(Page):
             self.registry.add(params.key_passphrase)
         return LoginSettings(params, TransportChoice(self.transport_choice.currentData()),
                              api_port=self.api_port.value(), ssh_port=self.ssh_port.value())
+
+    def saved_login(self) -> SavedLogin:
+        """The form as it is now, to be restored at the next start."""
+        return SavedLogin(
+            host=self.host.text().strip(), username=self.user.text().strip(),
+            password=self.password.text(), key_file=self.key_file.text().strip(),
+            key_passphrase=self.key_passphrase.text(),
+            transport=TransportChoice(self.transport_choice.currentData()).value,
+            api_port=self.api_port.value(), ssh_port=self.ssh_port.value(),
+            ca_file=self.ca_file.text().strip())
+
+    def restore_login(self, login: SavedLogin) -> None:
+        """Fill the form from the last run. A port of 0 (never saved) or a transport
+        this version does not know leaves that field at the page's own default."""
+        self.host.setText(login.host)
+        self.user.setText(login.username)
+        self.password.setText(login.password)
+        self.key_file.setText(login.key_file)
+        self.key_passphrase.setText(login.key_passphrase)
+        self.ca_file.setText(login.ca_file)
+        for value, box in ((login.api_port, self.api_port), (login.ssh_port, self.ssh_port)):
+            if value:
+                box.setValue(value)
+        index = next((i for i in range(self.transport_choice.count())
+                      if TransportChoice(self.transport_choice.itemData(i)).value
+                      == login.transport), -1)
+        if index >= 0:
+            self.transport_choice.setCurrentIndex(index)
 
     def _discover_session(
         self,

@@ -28,7 +28,7 @@ from mqs.model.profile import DeviceProfile, Mode
 from mqs.model.wan import CETIN_VLAN_ID, DhcpWan, PppoeWan, StaticWan, WanType
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import ProfileController
-from mqs.ui.pages.base import Page, parse_cidr, parse_ip, parse_ip_list
+from mqs.ui.pages.base import Page, mark_secret, parse_cidr, parse_ip, parse_ip_list
 
 
 class BasicPage(Page):
@@ -178,8 +178,7 @@ class BasicPage(Page):
         self.pppoe_user = QLineEdit()
         self.pppoe_user.textEdited.connect(
             lambda text: self.push_value("wan.settings.username", text))
-        self.pppoe_password = QLineEdit()
-        self.pppoe_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pppoe_password = mark_secret(QLineEdit())
         self.pppoe_password.textEdited.connect(
             lambda text: self.push_value("wan.settings.password", SecretStr(text)))
         self.pppoe_name = QLineEdit()

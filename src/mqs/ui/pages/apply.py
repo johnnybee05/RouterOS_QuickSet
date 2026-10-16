@@ -77,7 +77,7 @@ from mqs.transport.base import Transport
 from mqs.ui import strings_cs as S
 from mqs.ui.controller import Analysis, ProfileController
 from mqs.ui.dialogs import Dialogs
-from mqs.ui.pages.base import Page
+from mqs.ui.pages.base import Page, mark_secret
 from mqs.ui.theme import ERROR_RED, OK_GREEN
 from mqs.ui.widgets.common import STEP_LEVEL, IssueList, LogView
 from mqs.ui.workers import TaskRunner
@@ -218,8 +218,7 @@ class ApplyPage(Page):
         self.keep_users.setToolTip(S.APPLY_KEEP_USERS_TIP)
         self.keep_users.toggled.connect(lambda _: self.refresh())
         form.addRow(self.keep_users)
-        self.admin_password = QLineEdit(DEFAULT_PASSWORD)
-        self.admin_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.admin_password = mark_secret(QLineEdit(DEFAULT_PASSWORD))
         self.admin_password.textChanged.connect(lambda _: self.refresh())
         form.addRow(S.APPLY_ADMIN_PASSWORD, self.admin_password)
         self.update_check = QCheckBox(S.APPLY_UPDATE)
