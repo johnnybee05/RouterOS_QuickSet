@@ -11,6 +11,25 @@ s předchozí verzí. Nová verze se tedy vydává tak, že se sem nejdřív nap
 Verze jsou `MAJOR.MINOR.PATCH` — do 1.0 se mění `MINOR` při nové funkci a `PATCH`
 u opravného vydání.
 
+## [0.12.0] – 2026-10-16
+
+### Přidáno
+
+- **Přihlašovací údaje si okno umí zapamatovat.** Formulář Připojení má nové
+  zaškrtávátko **Zapamatovat přihlašovací údaje**: při dalším spuštění se vyplní tak,
+  jak byl naposledy — adresa, uživatel, heslo, SSH klíč a jeho heslo, transport, porty
+  i CA certifikát. Ukládá se po úspěšném připojení a při zavření okna, šifrovaně přes
+  Windows DPAPI, takže soubor otevře jen stejný uživatel Windows. Zrušením zaškrtnutí
+  se uložené údaje hned smažou. Výchozí stav je vypnuto.
+- **Hesla jde zobrazit.** Každé pole s heslem má na konci ikonu oka, která zobrazí nebo
+  skryje právě to heslo. Nové menu **Zobrazení → Zobrazovat hesla** vedle menu Profil
+  přepne všechna pole najednou a pamatuje si to i po restartu.
+
+### Změněno
+
+- **Pole Heslo ve formuláři Připojení už není předvyplněné** výchozím heslem.
+  Předvyplněné zůstává jen nové heslo admina na stránce Aplikovat.
+
 ## [0.11.1] – 2026-10-16
 
 ### Přidáno
